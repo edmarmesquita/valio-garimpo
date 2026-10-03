@@ -1,5 +1,5 @@
 import express from 'express'
-import backend from '../server/server'
+import backend from '../server/server.js'
 
 const app = express()
 
