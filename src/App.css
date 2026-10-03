@@ -71,6 +71,10 @@ button {
   box-shadow: 0 12px 30px rgba(91, 64, 55, 0.08);
 }
 
+.mercado-livre-card {
+  margin-top: 20px;
+}
+
 .status-card h2 {
   margin: 0 0 20px;
   color: #5b4037;

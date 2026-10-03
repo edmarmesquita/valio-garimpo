@@ -2,11 +2,13 @@ import 'dotenv/config'
 import express from 'express'
 import cors from 'cors'
 import OpenAI from 'openai'
+import mercadoLivreAuth from './mercadoLivreAuth.js'
 
 const app = express()
 
 app.use(cors())
 app.use(express.json())
+app.use('/api/mercadolivre', mercadoLivreAuth)
 
 app.get('/api/health', (_req, res) => {
     res.json({

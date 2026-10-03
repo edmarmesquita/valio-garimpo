@@ -1,5 +1,11 @@
 # React + TypeScript + Vite
 
+## OAuth Mercado Livre (prova inicial)
+
+Configure `MELI_CLIENT_ID`, `MELI_CLIENT_SECRET` e `MELI_REDIRECT_URI` somente no backend. A URI de retorno deve ser exatamente a cadastrada no DevCenter: `https://valio-garimpo.vercel.app/api/mercadolivre/callback`. O botão na página inicial inicia a autorização; o callback troca o código por tokens no servidor. O navegador recebe apenas um cookie de sessão opaco, HttpOnly, e o resultado da conexão. `GET /api/mercadolivre/status` retorna somente `connected`, sem tokens.
+
+Nesta prova, `state`, `code_verifier` e tokens ficam **apenas na memória da instância Node**. Na Vercel, chamadas consecutivas podem chegar a instâncias diferentes ou uma instância pode reiniciar; nesse caso, o callback ou o status pode falhar mesmo após a autorização. Antes de uso contínuo, substitua os mapas em memória por armazenamento persistente seguro com expiração, acesso restrito e criptografia dos tokens. A renovação de tokens ainda não foi implementada.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

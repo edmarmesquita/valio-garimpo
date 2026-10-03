@@ -7,10 +7,14 @@ type GarimpoStatus = {
   status: string
 }
 
+type MercadoLivreStatus = 'carregando' | 'conectado' | 'desconectado' | 'erro'
+
 function App() {
   const [status, setStatus] = useState<GarimpoStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [mercadoLivreStatus, setMercadoLivreStatus] = useState<MercadoLivreStatus>('carregando')
+  const [retornoOAuth] = useState(() => new URLSearchParams(window.location.search).get('meli'))
 
   async function verificarBackend() {
     try {
@@ -52,6 +56,28 @@ function App() {
 
     void carregarStatusInicial()
   }, [])
+
+  useEffect(() => {
+    async function carregarConexaoMercadoLivre() {
+      try {
+        const resposta = await fetch('/api/mercadolivre/status', { cache: 'no-store' })
+        if (!resposta.ok) throw new Error('Erro ao consultar a conexão.')
+
+        const dados: { connected: boolean } = await resposta.json()
+        setMercadoLivreStatus(dados.connected ? 'conectado' : 'desconectado')
+      } catch {
+        setMercadoLivreStatus('erro')
+      }
+    }
+
+    void carregarConexaoMercadoLivre()
+
+    if (retornoOAuth) {
+      const url = new URL(window.location.href)
+      url.searchParams.delete('meli')
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`)
+    }
+  }, [retornoOAuth])
 
   return (
     <main className="garimpo">
@@ -105,6 +131,35 @@ function App() {
             {loading
               ? 'Verificando...'
               : 'Atualizar status'}
+          </button>
+        </div>
+
+        <div className="status-card mercado-livre-card">
+          <h2>Mercado Livre</h2>
+
+          <p className={retornoOAuth === 'erro' || mercadoLivreStatus === 'erro'
+            ? 'status-error'
+            : mercadoLivreStatus === 'conectado' ? 'status-ok' : 'status-loading'}
+            role="status"
+          >
+            {retornoOAuth === 'erro'
+              ? 'Erro na conexão com o Mercado Livre. Tente novamente.'
+              : mercadoLivreStatus === 'carregando'
+                ? 'Verificando conexão com o Mercado Livre...'
+                : mercadoLivreStatus === 'conectado'
+                  ? 'Mercado Livre conectado'
+                  : retornoOAuth === 'conectado'
+                    ? 'Não foi possível confirmar a conexão com o Mercado Livre.'
+                    : mercadoLivreStatus === 'erro'
+                      ? 'Erro ao verificar a conexão com o Mercado Livre.'
+                      : 'Mercado Livre não conectado.'}
+          </p>
+
+          <button
+            type="button"
+            onClick={() => { window.location.assign('/api/mercadolivre/auth/iniciar') }}
+          >
+            Conectar Mercado Livre
           </button>
         </div>
       </section>
