@@ -1,0 +1,36 @@
+.importar-produtos {
+  width: 100%;
+  padding: 40px 24px;
+  text-align: left;
+  color: #5b4037;
+  background: #fffaf7;
+  color-scheme: light;
+}
+
+.importar-produtos * { box-sizing: border-box; }
+.importar-produtos header { margin: 28px 0; }
+.importar-produtos h1 { margin: 8px 0 16px; font-size: clamp(30px, 5vw, 44px); line-height: 1.15; color: #5b4037; }
+.importar-produtos h2 { color: #5b4037; margin-bottom: 16px; }
+.importar-voltar { color: #795548; }
+.importar-marca { font-size: 12px; font-weight: 700; letter-spacing: 2px; }
+.importar-card { padding: 24px; margin-top: 24px; border: 1px solid #f0d8cf; border-radius: 18px; background: white; }
+.importar-card label { display: block; font-weight: 600; margin-bottom: 8px; }
+.importar-card textarea { display: block; width: 100%; resize: vertical; min-height: 160px; padding: 14px; border: 1px solid #bba59b; border-radius: 10px; font: inherit; font-size: 15px; color: #3f302a; background: white; }
+.importar-card textarea:focus-visible, .importar-card button:focus-visible, .importar-voltar:focus-visible { outline: 3px solid #795548; outline-offset: 3px; }
+.importar-card #links-ajuda, .importar-nota { margin-top: 12px; font-size: 14px; color: #795548; }
+.importar-card button { margin-top: 20px; padding: 12px 20px; border: 0; border-radius: 10px; background: #a3432b; color: white; font: inherit; font-weight: 600; cursor: pointer; }
+.importar-card button:hover { background: #84331f; }
+.importar-tabela { overflow-x: auto; margin-top: 20px; }
+.importar-tabela table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.importar-tabela caption { text-align: left; padding-bottom: 12px; color: #795548; }
+.importar-tabela th, .importar-tabela td { padding: 14px 10px; border-bottom: 1px solid #f0d8cf; text-align: left; vertical-align: top; }
+.importar-tabela th { background: #fff4ef; }
+.importar-link { overflow-wrap: anywhere; min-width: 180px; }
+.importar-status { display: inline-block; padding: 3px 8px; border-radius: 6px; font-weight: 600; }
+.importar-status-valido { background: #e6f4ec; color: #1d603e; }
+.importar-status-invalido { background: #feece9; color: #a12318; }
+.importar-motivo { margin-top: 6px; font-size: 12px; min-width: 130px; }
+@media (max-width: 600px) {
+  .importar-produtos { padding: 24px 12px; }
+  .importar-card { padding: 18px 14px; }
+}

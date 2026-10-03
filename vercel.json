@@ -1,0 +1,9 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/index?__route=:path*" },
+    { "source": "/importar-produtos", "destination": "/index.html" },
+    { "source": "/importar-produtos/", "destination": "/index.html" }
+  ]
+}
