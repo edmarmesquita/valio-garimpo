@@ -20,7 +20,7 @@ await dbServer.start()
 let refreshCalls = 0
 let rejectedAccessToken = null
 let rejectRefresh = false
-let itemUnavailable = false
+let itemFailureMode = null
 let itemCalls = 0
 let grantMode = 'normal'
 let grantCalls = 0
@@ -51,7 +51,23 @@ const provider = createServer(async (req, res) => {
   }
   if (req.url?.startsWith('/items/')) {
     itemCalls++
-    if (itemUnavailable) {
+    if (itemFailureMode === 'forbidden') {
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({
+        error: 'forbidden', code: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES',
+        message: 'access-4 refresh-4 secret-teste cookie-secreto',
+        blocked_by: 'policy_agent', status: 403,
+        access_token: 'nunca-retornar', refresh_token: 'refresh-4',
+        Authorization: 'Bearer access-4', client_secret: 'secret-teste', DATABASE_URL: 'postgres://secret',
+      }))
+      return
+    }
+    if (itemFailureMode === 'html') {
+      res.writeHead(503, { 'content-type': 'text/html; charset=utf-8' })
+      res.end('<html>access-1 refresh-1 secret-teste cookie-secreto nunca-retornar</html>')
+      return
+    }
+    if (itemFailureMode === 'json') {
       res.writeHead(503, { 'content-type': 'application/json' })
       res.end(JSON.stringify({ error: 'provider_unavailable', message: 'access-1 refresh-1 secret-teste cookie-secreto', access_token: 'nunca-retornar', refresh_token: 'refresh-1' }))
       return
@@ -245,7 +261,7 @@ try {
     ok: false, error: 'Mercado Livre indisponível.',
     providerStatus: 404, providerCode: null, providerMessage: null,
   })
-  itemUnavailable = true
+  itemFailureMode = 'json'
   const providerDown = await requestItem(apiPorts[0], validLink, cookie)
   assert.equal(providerDown.status, 502)
   assert.deepEqual(await providerDown.json(), {
@@ -260,7 +276,22 @@ try {
   for (const secret of ['refresh-1', 'secret-teste', 'cookie-secreto']) {
     assert.ok(!childErrors[0].includes(secret))
   }
-  itemUnavailable = false
+  itemFailureMode = 'html'
+  const logsBeforeHtml = childErrors[0].length
+  const htmlFailure = await requestItem(apiPorts[0], validLink, cookie)
+  assert.equal(htmlFailure.status, 502)
+  assert.deepEqual(await htmlFailure.json(), {
+    ok: false, error: 'Mercado Livre indisponível.',
+    providerStatus: 503, providerCode: null, providerMessage: null,
+  })
+  const htmlLog = childErrors[0].slice(logsBeforeHtml)
+  assert.match(htmlLog, /providerContentType: 'text\/html'/)
+  assert.match(htmlLog, /bodyLength: 74/)
+  assert.ok(!htmlLog.includes('itemId:'))
+  for (const secret of ['access-1', 'refresh-1', 'secret-teste', 'cookie-secreto', 'nunca-retornar', '<html>']) {
+    assert.ok(!htmlLog.includes(secret))
+  }
+  itemFailureMode = null
 
   const client = new pg.Client({ connectionString: env.DATABASE_URL })
   await client.connect()
@@ -299,7 +330,26 @@ try {
     assert.equal(refreshCalls, 3)
     assert.equal((await client.query('SELECT token_version FROM meli_connections')).rows[0].token_version, '4')
 
-    rejectedAccessToken = 'access-4'
+    itemFailureMode = 'forbidden'
+    const forbiddenItem = await requestItem(apiPorts[0], validLink, cookie)
+    assert.equal(forbiddenItem.status, 502)
+    const forbiddenBody = await forbiddenItem.json()
+    assert.deepEqual(forbiddenBody, {
+      ok: false, error: 'Mercado Livre indisponível.',
+      providerStatus: 403, providerCode: 'forbidden', providerMessage: null,
+    })
+    assert.match(childErrors[0], /providerError: 'forbidden'/)
+    assert.match(childErrors[0], /providerBodyCode: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES'/)
+    assert.match(childErrors[0], /providerBlockedBy: 'policy_agent'/)
+    assert.match(childErrors[0], /providerBodyStatus: 403/)
+    assert.match(childErrors[0], /providerContentType: 'application\/json'/)
+    for (const secret of ['nunca-retornar', 'access-4', 'refresh-4', 'secret-teste', 'cookie-secreto', 'postgres://secret', '<html>']) {
+      assert.ok(!childErrors[0].includes(secret))
+      assert.ok(!JSON.stringify(forbiddenBody).includes(secret))
+    }
+    itemFailureMode = null
+
+    rejectedAccessToken = 'access-5'
     rejectRefresh = true
     const reconnectDiagnostic = await request(apiPorts[1], diagnosticPath, cookie)
     assert.equal(reconnectDiagnostic.status, 200)

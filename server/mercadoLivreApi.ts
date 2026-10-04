@@ -73,17 +73,34 @@ export async function getMercadoLivreGrant(accessToken: string, connectedUserId:
 }
 
 export async function getMercadoLivreItem(accessToken: string, itemId: string): Promise<MercadoLivreItem> {
-  function itemError(kind: 'unauthorized' | 'unavailable' | 'not_found', providerStatus: number | null, body: unknown = null) {
+  function itemError(kind: 'unauthorized' | 'unavailable' | 'not_found', providerStatus: number | null, body: unknown = null, contentType: string | null = null, bodyLength = 0) {
     const details = typeof body === 'object' && body !== null && !Array.isArray(body)
       ? body as Record<string, unknown> : null
-    // Somente códigos conhecidos podem sair do processo; texto livre do provedor pode conter segredos.
+    // Apenas valores conhecidos podem entrar em logs; texto livre do provedor pode conter segredos.
     const safeCodes = ['not_found', 'forbidden', 'unauthorized', 'invalid_token', 'invalid_request', 'provider_unavailable']
-    const providerCode = typeof details?.error === 'string' && safeCodes.includes(details.error)
-      ? details.error : null
+    const safeValue = (value: unknown) => typeof value === 'string' && safeCodes.includes(value) ? value : null
+    const providerError = safeValue(details?.error)
+    const providerBodyCode = details?.code === 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES'
+      ? details.code : safeValue(details?.code)
+    const providerCode = providerError
     const providerMessage = null
-    console.error('Falha na consulta de item do Mercado Livre:', {
-      stage: 'items', itemId, providerStatus, providerCode, providerMessage,
-    })
+    const safeContentType = contentType?.split(';', 1)[0].trim().toLowerCase()
+    const providerContentType = ['application/json', 'application/problem+json', 'text/html', 'text/plain'].includes(safeContentType ?? '')
+      ? safeContentType : null
+    if (details) {
+      console.error('Falha na consulta de item do Mercado Livre:', {
+        stage: 'items', itemId, providerStatus, providerContentType, bodyLength,
+        providerError, providerBodyCode,
+        providerMessage: typeof details.message === 'string' && ['Forbidden', 'Access denied', 'Not found'].includes(details.message)
+          ? details.message : null,
+        providerBlockedBy: typeof details.blocked_by === 'string' && ['policy_agent', 'waf', 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES'].includes(details.blocked_by)
+          ? details.blocked_by : null,
+        providerBodyStatus: typeof details.status === 'number' && Number.isInteger(details.status) && details.status >= 100 && details.status <= 599
+          ? details.status : null,
+      })
+    } else {
+      console.error('Falha na consulta de item do Mercado Livre:', { providerStatus, providerContentType, bodyLength })
+    }
     return new MercadoLivreApiError(kind, { providerStatus, providerCode, providerMessage })
   }
 
@@ -97,10 +114,13 @@ export async function getMercadoLivreItem(accessToken: string, itemId: string): 
     throw itemError('unavailable', null)
   }
   if (!response.ok) {
-    const body: unknown = await response.json().catch(() => null)
+    const contentType = response.headers.get('content-type')
+    const bodyText = await response.text().catch(() => '')
+    let body: unknown = null
+    try { body = JSON.parse(bodyText) } catch { /* resposta não JSON */ }
     const kind = response.status === 401 || response.status === 403 ? 'unauthorized'
       : response.status === 404 ? 'not_found' : 'unavailable'
-    throw itemError(kind, response.status, body)
+    throw itemError(kind, response.status, body, contentType, bodyText.length)
   }
 
   const value: unknown = await response.json().catch(() => null)
