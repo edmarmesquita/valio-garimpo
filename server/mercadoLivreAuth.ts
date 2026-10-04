@@ -4,8 +4,8 @@ import type { Request, Response } from 'express'
 import { getMercadoLivreConfig } from './mercadoLivreConfig.js'
 import { assertEncryptionConfigured, decryptSecret, encryptSecret, hashOpaque } from './mercadoLivreCrypto.js'
 import { createAuthorizationAttempt, consumeAuthorizationAttempt, saveConnection } from './mercadoLivreRepository.js'
-import { exchangeAuthorizationCode, getMercadoLivreIdentity } from './mercadoLivreApi.js'
-import { connectionStatus } from './mercadoLivreTokenService.js'
+import { exchangeAuthorizationCode, getMercadoLivreIdentity, MercadoLivreApiError } from './mercadoLivreApi.js'
+import { connectionStatus, getBackendAccessToken } from './mercadoLivreTokenService.js'
 
 const AUTHORIZATION_URL = 'https://auth.mercadolivre.com.br/authorization'
 const SESSION_COOKIE = 'meli_oauth_session'
@@ -127,6 +127,47 @@ router.get('/status', async (req, res) => {
     assertEncryptionConfigured()
     res.json(await connectionStatus(hashOpaque(sessionId), config))
   } catch {
+    res.status(503).json({ ok: false, error: 'Não foi possível verificar a conexão com o Mercado Livre.' })
+  }
+})
+
+router.get('/diagnostico', async (req, res) => {
+  const sessionId = getSessionId(req)
+  if (!sessionId) {
+    res.json({ connected: false })
+    return
+  }
+
+  try {
+    const config = getMercadoLivreConfig()
+    if (!config) throw new Error('Configuração OAuth ausente')
+    assertEncryptionConfigured()
+    const sessionHash = hashOpaque(sessionId)
+    let accessToken = await getBackendAccessToken(sessionHash, config)
+    if (!accessToken) {
+      res.json({ connected: false })
+      return
+    }
+
+    let identity
+    try {
+      identity = await getMercadoLivreIdentity(accessToken)
+    } catch (error) {
+      if (!(error instanceof MercadoLivreApiError) || error.kind !== 'unauthorized') throw error
+      accessToken = await getBackendAccessToken(sessionHash, config, accessToken)
+      if (!accessToken) {
+        res.json({ connected: false, requiresReconnect: true })
+        return
+      }
+      identity = await getMercadoLivreIdentity(accessToken)
+    }
+
+    res.json({ connected: true, id: identity.userId, nickname: identity.nickname })
+  } catch (error) {
+    if (error instanceof MercadoLivreApiError) {
+      res.status(502).json({ ok: false, error: 'Não foi possível consultar o Mercado Livre.' })
+      return
+    }
     res.status(503).json({ ok: false, error: 'Não foi possível verificar a conexão com o Mercado Livre.' })
   }
 })

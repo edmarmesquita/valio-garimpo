@@ -18,11 +18,18 @@ const dbServer = new PGLiteSocketServer({ db, port: dbPort, host: '127.0.0.1', m
 await dbServer.start()
 
 let refreshCalls = 0
+let rejectedAccessToken = null
+let rejectRefresh = false
 const usedRefreshTokens = new Set()
 const provider = createServer(async (req, res) => {
   if (req.url === '/users/me') {
+    const authorization = req.headers.authorization
+    if (!authorization?.startsWith('Bearer access-') || authorization === `Bearer ${rejectedAccessToken}`) {
+      res.writeHead(401).end()
+      return
+    }
     res.setHeader('content-type', 'application/json')
-    res.end(JSON.stringify({ id: 123456789, nickname: 'conta-teste' }))
+    res.end(JSON.stringify({ id: 123456789, nickname: 'conta-teste', access_token: 'nunca-retornar' }))
     return
   }
   if (req.url === '/oauth/token') {
@@ -38,7 +45,7 @@ const provider = createServer(async (req, res) => {
     if (grant === 'refresh_token') {
       refreshCalls++
       const oldToken = params.get('refresh_token')
-      if (!oldToken || usedRefreshTokens.has(oldToken)) {
+      if (rejectRefresh || !oldToken || usedRefreshTokens.has(oldToken)) {
         res.writeHead(400, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: 'invalid_grant' }))
         return
@@ -46,7 +53,7 @@ const provider = createServer(async (req, res) => {
       usedRefreshTokens.add(oldToken)
       await new Promise((resolve) => setTimeout(resolve, 80))
       res.setHeader('content-type', 'application/json')
-      res.end(JSON.stringify({ access_token: 'access-2', refresh_token: 'refresh-2', expires_in: 3600, user_id: 123456789 }))
+      res.end(JSON.stringify({ access_token: `access-${refreshCalls + 1}`, refresh_token: `refresh-${refreshCalls + 1}`, expires_in: 3600, user_id: 123456789 }))
       return
     }
   }
@@ -125,6 +132,12 @@ try {
   const status = await request(apiPorts[0], '/api/mercadolivre/status', cookie)
   assert.equal(status.status, 200)
   assert.deepEqual(await status.json(), { connected: true, account: { id: '123456789', nickname: 'conta-teste' } })
+  const diagnosticPath = '/api/mercadolivre/diagnostico'
+  assert.deepEqual(await (await request(apiPorts[0], diagnosticPath)).json(), { connected: false })
+  assert.deepEqual(await (await request(apiPorts[0], diagnosticPath, `meli_oauth_session=${'z'.repeat(43)}`)).json(), { connected: false })
+  const diagnostic = await request(apiPorts[1], diagnosticPath, cookie)
+  assert.equal(diagnostic.status, 200)
+  assert.deepEqual(await diagnostic.json(), { connected: true, id: '123456789', nickname: 'conta-teste' })
 
   const client = new pg.Client({ connectionString: env.DATABASE_URL })
   await client.connect()
@@ -146,6 +159,20 @@ try {
     const newRow = (await client.query('SELECT * FROM meli_connections')).rows[0]
     assert.equal(newRow.token_version, '2')
     assert.ok(!JSON.stringify(newRow).includes('refresh-2'))
+
+    rejectedAccessToken = 'access-2'
+    const renewedDiagnostic = await request(apiPorts[0], diagnosticPath, cookie)
+    assert.equal(renewedDiagnostic.status, 200)
+    assert.deepEqual(await renewedDiagnostic.json(), { connected: true, id: '123456789', nickname: 'conta-teste' })
+    assert.equal(refreshCalls, 2)
+    assert.equal((await client.query('SELECT token_version FROM meli_connections')).rows[0].token_version, '3')
+
+    rejectedAccessToken = 'access-3'
+    rejectRefresh = true
+    const reconnectDiagnostic = await request(apiPorts[1], diagnosticPath, cookie)
+    assert.equal(reconnectDiagnostic.status, 200)
+    assert.deepEqual(await reconnectDiagnostic.json(), { connected: false, requiresReconnect: true })
+    assert.equal((await client.query('SELECT status FROM meli_connections')).rows[0].status, 'reauth_required')
   } finally {
     await client.end()
   }
@@ -164,10 +191,13 @@ try {
     const unavailableStatus = await request(unavailablePort, '/api/mercadolivre/status', cookie)
     assert.equal(unavailableStatus.status, 503)
     assert.equal((await unavailableStatus.json()).ok, false)
+    const unavailableDiagnostic = await request(unavailablePort, diagnosticPath, cookie)
+    assert.equal(unavailableDiagnostic.status, 503)
+    assert.equal((await unavailableDiagnostic.json()).ok, false)
   } finally {
     unavailable.kill()
   }
-  console.log('OAuth: callback/status entre processos, state inválido/reutilizado, criptografia, persistência, refresh concorrente, health: OK')
+  console.log('OAuth: callback/status/diagnostico, state, criptografia, persistência, renovação, falha Neon e health: OK')
 } finally {
   for (const child of children) child.kill()
   await new Promise((resolve) => provider.close(resolve))

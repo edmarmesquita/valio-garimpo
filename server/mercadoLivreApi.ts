@@ -4,7 +4,7 @@ const TOKEN_URL = 'https://api.mercadolibre.com/oauth/token'
 const USER_URL = 'https://api.mercadolibre.com/users/me'
 
 export class MercadoLivreApiError extends Error {
-  constructor(public readonly kind: 'invalid_grant' | 'unavailable') {
+  constructor(public readonly kind: 'invalid_grant' | 'unauthorized' | 'unavailable') {
     super(`Mercado Livre OAuth: ${kind}`)
   }
 }
@@ -90,6 +90,7 @@ export async function getMercadoLivreIdentity(accessToken: string): Promise<{ us
   } catch {
     throw new MercadoLivreApiError('unavailable')
   }
+  if (response.status === 401 || response.status === 403) throw new MercadoLivreApiError('unauthorized')
   if (!response.ok) throw new MercadoLivreApiError('unavailable')
   const value: unknown = await response.json().catch(() => null)
   if (typeof value !== 'object' || value === null) throw new MercadoLivreApiError('unavailable')
