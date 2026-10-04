@@ -3,6 +3,8 @@ import type { MercadoLivreConfig } from './mercadoLivreConfig.js'
 const TOKEN_URL = 'https://api.mercadolibre.com/oauth/token'
 const USER_URL = 'https://api.mercadolibre.com/users/me'
 const ITEM_URL = 'https://api.mercadolibre.com/items/'
+const GRANTS_URL = 'https://api.mercadolibre.com/applications/6332151948097527/grants'
+const GRANTS_APP_ID = '6332151948097527'
 
 export class MercadoLivreApiError extends Error {
   constructor(
@@ -26,6 +28,48 @@ export type MercadoLivreItem = {
   permalink: string | null
   status: string | null
   quantidadeDisponivel: number | null
+}
+
+export type MercadoLivreGrant = {
+  user_id: string
+  app_id: string
+  date_created: string
+  scopes: string[]
+}
+
+export async function getMercadoLivreGrant(accessToken: string, connectedUserId: string): Promise<MercadoLivreGrant | null> {
+  let response: Response
+  try {
+    response = await fetch(GRANTS_URL, {
+      headers: { accept: 'application/json', authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch {
+    throw new MercadoLivreApiError('unavailable')
+  }
+  if (response.status === 401 || response.status === 403) throw new MercadoLivreApiError('unauthorized')
+  if (!response.ok) throw new MercadoLivreApiError('unavailable')
+
+  const value: unknown = await response.json().catch(() => null)
+  if (typeof value !== 'object' || value === null || !('grants' in value) || !Array.isArray(value.grants)) {
+    throw new MercadoLivreApiError('unavailable')
+  }
+  const grant = value.grants.find((entry: unknown) => {
+    if (typeof entry !== 'object' || entry === null) return false
+    const row = entry as Record<string, unknown>
+    return userId(row.user_id) === connectedUserId && userId(row.app_id) === GRANTS_APP_ID
+  }) as Record<string, unknown> | undefined
+  if (!grant) return null
+  if (typeof grant.date_created !== 'string' ||
+      !Array.isArray(grant.scopes) || !grant.scopes.every((scope: unknown) => typeof scope === 'string')) {
+    throw new MercadoLivreApiError('unavailable')
+  }
+  return {
+    user_id: connectedUserId,
+    app_id: GRANTS_APP_ID,
+    date_created: grant.date_created,
+    scopes: grant.scopes,
+  }
 }
 
 export async function getMercadoLivreItem(accessToken: string, itemId: string): Promise<MercadoLivreItem> {

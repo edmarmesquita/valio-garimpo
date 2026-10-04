@@ -13,6 +13,9 @@ globalThis.fetch = (input, init) => {
   if (url === 'https://api.mercadolibre.com/users/me') {
     return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/users/me`, init)
   }
+  if (url === 'https://api.mercadolibre.com/applications/6332151948097527/grants') {
+    return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/applications/6332151948097527/grants`, init)
+  }
   if (url.startsWith('https://api.mercadolibre.com/items/')) {
     return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/items/${url.split('/').pop()}`, init)
   }

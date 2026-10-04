@@ -3,8 +3,8 @@ import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { getMercadoLivreConfig } from './mercadoLivreConfig.js'
 import { assertEncryptionConfigured, decryptSecret, encryptSecret, hashOpaque } from './mercadoLivreCrypto.js'
-import { createAuthorizationAttempt, consumeAuthorizationAttempt, saveConnection } from './mercadoLivreRepository.js'
-import { exchangeAuthorizationCode, getMercadoLivreIdentity, MercadoLivreApiError } from './mercadoLivreApi.js'
+import { createAuthorizationAttempt, consumeAuthorizationAttempt, getConnectionSummary, saveConnection } from './mercadoLivreRepository.js'
+import { exchangeAuthorizationCode, getMercadoLivreGrant, getMercadoLivreIdentity, MercadoLivreApiError } from './mercadoLivreApi.js'
 import { connectionStatus, getBackendAccessToken } from './mercadoLivreTokenService.js'
 
 const AUTHORIZATION_URL = 'https://auth.mercadolivre.com.br/authorization'
@@ -169,6 +169,54 @@ router.get('/diagnostico', async (req, res) => {
       return
     }
     res.status(503).json({ ok: false, error: 'Não foi possível verificar a conexão com o Mercado Livre.' })
+  }
+})
+
+// Diagnóstico temporário: expõe exclusivamente os campos do grant da conta vinculada à sessão.
+router.get('/diagnostico/grants', async (req, res) => {
+  const sessionId = getSessionId(req)
+  if (!sessionId) {
+    res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+    return
+  }
+
+  try {
+    const config = getMercadoLivreConfig()
+    if (!config || config.clientId !== '6332151948097527') throw new Error('Aplicação OAuth divergente')
+    assertEncryptionConfigured()
+    const sessionHash = hashOpaque(sessionId)
+    const connection = await getConnectionSummary(sessionHash)
+    if (!connection || connection.status !== 'connected') {
+      res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+      return
+    }
+    let accessToken = await getBackendAccessToken(sessionHash, config)
+    if (!accessToken) {
+      res.status(401).json({ error: 'Conexão com o Mercado Livre expirada.' })
+      return
+    }
+
+    let grant
+    try {
+      grant = await getMercadoLivreGrant(accessToken, connection.meli_user_id)
+    } catch (error) {
+      if (!(error instanceof MercadoLivreApiError) || error.kind !== 'unauthorized') throw error
+      accessToken = await getBackendAccessToken(sessionHash, config, accessToken)
+      if (!accessToken) {
+        res.status(401).json({ error: 'Conexão com o Mercado Livre expirada.' })
+        return
+      }
+      grant = await getMercadoLivreGrant(accessToken, connection.meli_user_id)
+    }
+
+    if (!grant) {
+      res.status(404).json({ error: 'Grant da conta conectada não encontrado.' })
+      return
+    }
+    res.json(grant)
+  } catch (error) {
+    res.status(error instanceof MercadoLivreApiError ? 502 : 503)
+      .json({ error: 'Não foi possível consultar os grants do Mercado Livre.' })
   }
 })
 

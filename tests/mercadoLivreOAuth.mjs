@@ -22,8 +22,33 @@ let rejectedAccessToken = null
 let rejectRefresh = false
 let itemUnavailable = false
 let itemCalls = 0
+let grantMode = 'normal'
+let grantCalls = 0
 const usedRefreshTokens = new Set()
 const provider = createServer(async (req, res) => {
+  if (req.url === '/applications/6332151948097527/grants') {
+    grantCalls++
+    if (!req.headers.authorization?.startsWith('Bearer access-') ||
+        req.headers.authorization === `Bearer ${rejectedAccessToken}`) {
+      res.writeHead(401).end()
+      return
+    }
+    if (grantMode === 'unavailable') {
+      res.writeHead(503, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ access_token: 'nunca-retornar', refresh_token: 'refresh-1', message: 'cookie-secreto' }))
+      return
+    }
+    res.setHeader('content-type', 'application/json')
+    res.end(JSON.stringify({ paging: { total: 2 }, grants: [
+      { user_id: 999, app_id: 6332151948097527, date_created: '2020-01-01', scopes: ['write'], access_token: 'nunca-retornar' },
+      ...(grantMode === 'missing' ? [] : [{
+        user_id: 123456789, app_id: 6332151948097527,
+        date_created: '2026-10-04T10:00:00.000-03:00', scopes: ['read', 'offline_access'],
+        access_token: 'nunca-retornar', refresh_token: 'refresh-1', cookie: 'cookie-secreto', client_secret: 'secret-teste',
+      }]),
+    ] }))
+    return
+  }
   if (req.url?.startsWith('/items/')) {
     itemCalls++
     if (itemUnavailable) {
@@ -91,7 +116,7 @@ const env = {
   ...process.env,
   DATABASE_URL: `postgres://postgres:postgres@127.0.0.1:${dbPort}/postgres`,
   MELI_TOKEN_ENCRYPTION_KEY: key,
-  MELI_CLIENT_ID: 'client-teste',
+  MELI_CLIENT_ID: '6332151948097527',
   MELI_CLIENT_SECRET: 'secret-teste',
   MELI_REDIRECT_URI: `http://localhost:${apiPorts[0]}/api/mercadolivre/callback`,
   MELI_TEST_PROVIDER_PORT: String(providerPort),
@@ -173,6 +198,28 @@ try {
   assert.equal(diagnostic.status, 200)
   assert.deepEqual(await diagnostic.json(), { connected: true, id: '123456789', nickname: 'conta-teste' })
 
+  const grantsPath = '/api/mercadolivre/diagnostico/grants'
+  assert.equal((await request(apiPorts[0], grantsPath)).status, 401)
+  assert.equal((await request(apiPorts[0], grantsPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
+  assert.equal(grantCalls, 0)
+  const grantResponse = await request(apiPorts[1], grantsPath, cookie)
+  assert.equal(grantResponse.status, 200)
+  const grantBody = await grantResponse.json()
+  assert.deepEqual(grantBody, {
+    user_id: '123456789', app_id: '6332151948097527',
+    date_created: '2026-10-04T10:00:00.000-03:00', scopes: ['read', 'offline_access'],
+  })
+  for (const secret of ['nunca-retornar', 'refresh-1', 'cookie-secreto', 'secret-teste']) {
+    assert.ok(!JSON.stringify(grantBody).includes(secret))
+  }
+  grantMode = 'missing'
+  assert.equal((await request(apiPorts[0], grantsPath, cookie)).status, 404)
+  grantMode = 'unavailable'
+  const failedGrants = await request(apiPorts[0], grantsPath, cookie)
+  assert.equal(failedGrants.status, 502)
+  assert.ok(!JSON.stringify(await failedGrants.json()).includes('nunca-retornar'))
+  grantMode = 'normal'
+
   const validLink = 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM?utm_source=afiliado'
   const validItem = await requestItem(apiPorts[1], validLink, cookie)
   assert.equal(validItem.status, 200)
@@ -232,6 +279,9 @@ try {
       assert.equal((await response.json()).connected, true)
     }
     assert.equal(refreshCalls, 1)
+    const refreshedGrant = await request(apiPorts[1], grantsPath, cookie)
+    assert.equal(refreshedGrant.status, 200)
+    assert.deepEqual((await refreshedGrant.json()).scopes, ['read', 'offline_access'])
     const refreshedItem = await requestItem(apiPorts[1], validLink, cookie)
     assert.equal(refreshedItem.status, 200)
     const newRow = (await client.query('SELECT * FROM meli_connections')).rows[0]
