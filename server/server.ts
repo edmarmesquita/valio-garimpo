@@ -3,12 +3,14 @@ import express from 'express'
 import cors from 'cors'
 import OpenAI from 'openai'
 import mercadoLivreAuth from './mercadoLivreAuth.js'
+import mercadoLivreProduto from './mercadoLivreProduto.js'
 
 const app = express()
 
 app.use(cors())
 app.use(express.json())
 app.use('/api/mercadolivre', mercadoLivreAuth)
+app.use('/api/mercadolivre', mercadoLivreProduto)
 
 app.get('/api/health', (_req, res) => {
     res.json({

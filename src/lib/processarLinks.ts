@@ -1,4 +1,4 @@
-import type { ProdutoImportado } from '../types/produtoImportado'
+import type { ProdutoImportado } from '../types/produtoImportado.js'
 
 const dominiosPermitidos = ['mercadolivre.com.br', 'mercadolivre.com', 'meli.la']
 
@@ -21,6 +21,18 @@ function validarLink(link: string): string | undefined {
   } catch {
     return 'Formato de link inválido. Inclua http:// ou https://.'
   }
+}
+
+export function extrairIdItem(link: string): string | null {
+  if (validarLink(link)) return null
+  const url = new URL(link)
+  const segments = url.pathname.split('/')
+  for (let index = 0; index < segments.length; index++) {
+    if (segments[index - 1]?.toLowerCase() === 'p') continue
+    const match = /^MLB-?(\d+)(?:-|$)/i.exec(segments[index])
+    if (match) return `MLB${match[1]}`
+  }
+  return null
 }
 
 export function processarLinks(texto: string): ProdutoImportado[] {

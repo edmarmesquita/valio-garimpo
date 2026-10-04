@@ -20,8 +20,33 @@ await dbServer.start()
 let refreshCalls = 0
 let rejectedAccessToken = null
 let rejectRefresh = false
+let itemUnavailable = false
+let itemCalls = 0
 const usedRefreshTokens = new Set()
 const provider = createServer(async (req, res) => {
+  if (req.url?.startsWith('/items/')) {
+    itemCalls++
+    if (itemUnavailable) {
+      res.writeHead(503).end()
+      return
+    }
+    if (req.headers.authorization === `Bearer ${rejectedAccessToken}`) {
+      res.writeHead(401).end()
+      return
+    }
+    if (req.url !== '/items/MLB1234567890') {
+      res.writeHead(404).end()
+      return
+    }
+    res.setHeader('content-type', 'application/json')
+    res.end(JSON.stringify({
+      id: 'MLB1234567890', title: 'Produto de teste', price: 129.9,
+      currency_id: 'BRL', thumbnail: 'https://http2.mlstatic.com/teste.jpg',
+      permalink: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM',
+      status: 'active', available_quantity: 5, access_token: 'nunca-retornar',
+    }))
+    return
+  }
   if (req.url === '/users/me') {
     const authorization = req.headers.authorization
     if (!authorization?.startsWith('Bearer access-') || authorization === `Bearer ${rejectedAccessToken}`) {
@@ -85,6 +110,14 @@ async function request(port, path, cookie) {
   })
 }
 
+async function requestItem(port, link, cookie) {
+  return fetch(`http://127.0.0.1:${port}/api/mercadolivre/produto`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(cookie ? { cookie } : {}) },
+    body: JSON.stringify({ link }),
+  })
+}
+
 async function ready(port) {
   for (let i = 0; i < 50; i++) {
     try {
@@ -139,6 +172,34 @@ try {
   assert.equal(diagnostic.status, 200)
   assert.deepEqual(await diagnostic.json(), { connected: true, id: '123456789', nickname: 'conta-teste' })
 
+  const validLink = 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM?utm_source=afiliado'
+  const validItem = await requestItem(apiPorts[1], validLink, cookie)
+  assert.equal(validItem.status, 200)
+  const validBody = await validItem.json()
+  assert.deepEqual(validBody, { ok: true, produto: {
+    id: 'MLB1234567890', titulo: 'Produto de teste', preco: 129.9, moeda: 'BRL',
+    imagemPrincipal: 'https://http2.mlstatic.com/teste.jpg',
+    permalink: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM',
+    status: 'active', quantidadeDisponivel: 5,
+  } })
+  assert.ok(!JSON.stringify(validBody).includes('nunca-retornar'))
+  assert.equal((await requestItem(apiPorts[0], validLink)).status, 401)
+  const callsBeforeInvalid = itemCalls
+  for (const link of ['https://example.com/MLB-1234567890', 'https://meli.la/abc', 'https://www.mercadolivre.com.br/p/MLB1234567890']) {
+    const invalid = await requestItem(apiPorts[0], link, cookie)
+    assert.equal(invalid.status, 400)
+    assert.match((await invalid.json()).error, /Link inválido/)
+  }
+  assert.equal(itemCalls, callsBeforeInvalid)
+  const missing = await requestItem(apiPorts[0], 'https://produto.mercadolivre.com.br/MLB-9999999999-produto-_JM', cookie)
+  assert.equal(missing.status, 404)
+  assert.match((await missing.json()).error, /não encontrado/)
+  itemUnavailable = true
+  const providerDown = await requestItem(apiPorts[0], validLink, cookie)
+  assert.equal(providerDown.status, 502)
+  assert.match((await providerDown.json()).error, /indisponível/)
+  itemUnavailable = false
+
   const client = new pg.Client({ connectionString: env.DATABASE_URL })
   await client.connect()
   try {
@@ -156,6 +217,8 @@ try {
       assert.equal((await response.json()).connected, true)
     }
     assert.equal(refreshCalls, 1)
+    const refreshedItem = await requestItem(apiPorts[1], validLink, cookie)
+    assert.equal(refreshedItem.status, 200)
     const newRow = (await client.query('SELECT * FROM meli_connections')).rows[0]
     assert.equal(newRow.token_version, '2')
     assert.ok(!JSON.stringify(newRow).includes('refresh-2'))
@@ -165,9 +228,13 @@ try {
     assert.equal(renewedDiagnostic.status, 200)
     assert.deepEqual(await renewedDiagnostic.json(), { connected: true, id: '123456789', nickname: 'conta-teste' })
     assert.equal(refreshCalls, 2)
-    assert.equal((await client.query('SELECT token_version FROM meli_connections')).rows[0].token_version, '3')
-
     rejectedAccessToken = 'access-3'
+    const rejectedItem = await requestItem(apiPorts[0], validLink, cookie)
+    assert.equal(rejectedItem.status, 200)
+    assert.equal(refreshCalls, 3)
+    assert.equal((await client.query('SELECT token_version FROM meli_connections')).rows[0].token_version, '4')
+
+    rejectedAccessToken = 'access-4'
     rejectRefresh = true
     const reconnectDiagnostic = await request(apiPorts[1], diagnosticPath, cookie)
     assert.equal(reconnectDiagnostic.status, 200)
@@ -194,10 +261,12 @@ try {
     const unavailableDiagnostic = await request(unavailablePort, diagnosticPath, cookie)
     assert.equal(unavailableDiagnostic.status, 503)
     assert.equal((await unavailableDiagnostic.json()).ok, false)
+    const unavailableItem = await requestItem(unavailablePort, validLink, cookie)
+    assert.equal(unavailableItem.status, 503)
   } finally {
     unavailable.kill()
   }
-  console.log('OAuth: callback/status/diagnostico, state, criptografia, persistência, renovação, falha Neon e health: OK')
+  console.log('OAuth e produto: link válido/inválido, inexistente, renovação, falha Mercado Livre/Neon: OK')
 } finally {
   for (const child of children) child.kill()
   await new Promise((resolve) => provider.close(resolve))

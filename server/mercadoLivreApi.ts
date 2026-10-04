@@ -2,10 +2,55 @@ import type { MercadoLivreConfig } from './mercadoLivreConfig.js'
 
 const TOKEN_URL = 'https://api.mercadolibre.com/oauth/token'
 const USER_URL = 'https://api.mercadolibre.com/users/me'
+const ITEM_URL = 'https://api.mercadolibre.com/items/'
 
 export class MercadoLivreApiError extends Error {
-  constructor(public readonly kind: 'invalid_grant' | 'unauthorized' | 'unavailable') {
+  constructor(public readonly kind: 'invalid_grant' | 'unauthorized' | 'unavailable' | 'not_found') {
     super(`Mercado Livre OAuth: ${kind}`)
+  }
+}
+
+export type MercadoLivreItem = {
+  id: string
+  titulo: string
+  preco: number
+  moeda: string | null
+  imagemPrincipal: string | null
+  permalink: string | null
+  status: string | null
+  quantidadeDisponivel: number | null
+}
+
+export async function getMercadoLivreItem(accessToken: string, itemId: string): Promise<MercadoLivreItem> {
+  let response: Response
+  try {
+    response = await fetch(`${ITEM_URL}${itemId}`, {
+      headers: { accept: 'application/json', authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch {
+    throw new MercadoLivreApiError('unavailable')
+  }
+  if (response.status === 401 || response.status === 403) throw new MercadoLivreApiError('unauthorized')
+  if (response.status === 404) throw new MercadoLivreApiError('not_found')
+  if (!response.ok) throw new MercadoLivreApiError('unavailable')
+
+  const value: unknown = await response.json().catch(() => null)
+  if (typeof value !== 'object' || value === null) throw new MercadoLivreApiError('unavailable')
+  const item = value as Record<string, unknown>
+  if (item.id !== itemId || typeof item.title !== 'string' ||
+      typeof item.price !== 'number' || !Number.isFinite(item.price)) {
+    throw new MercadoLivreApiError('unavailable')
+  }
+  return {
+    id: itemId,
+    titulo: item.title,
+    preco: item.price,
+    moeda: typeof item.currency_id === 'string' ? item.currency_id : null,
+    imagemPrincipal: typeof item.thumbnail === 'string' ? item.thumbnail : null,
+    permalink: typeof item.permalink === 'string' ? item.permalink : null,
+    status: typeof item.status === 'string' ? item.status : null,
+    quantidadeDisponivel: typeof item.available_quantity === 'number' ? item.available_quantity : null,
   }
 }
 

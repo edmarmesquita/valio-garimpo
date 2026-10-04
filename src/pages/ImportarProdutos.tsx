@@ -1,17 +1,41 @@
 import { useState } from 'react'
 import { processarLinks } from '../lib/processarLinks'
-import type { ProdutoImportado } from '../types/produtoImportado'
+import type { ProdutoConsultado } from '../types/produtoImportado'
 import './ImportarProdutos.css'
 
 export default function ImportarProdutos() {
   const [texto, setTexto] = useState('')
-  const [produtos, setProdutos] = useState<ProdutoImportado[]>([])
-  const [processado, setProcessado] = useState(false)
-  const validos = produtos.filter((produto) => produto.status === 'valido').length
+  const [produto, setProduto] = useState<ProdutoConsultado | null>(null)
+  const [erro, setErro] = useState('')
+  const [carregando, setCarregando] = useState(false)
 
-  function processar() {
-    setProdutos(processarLinks(texto))
-    setProcessado(true)
+  async function processar() {
+    setProduto(null)
+    setErro('')
+    const links = processarLinks(texto)
+    if (links.length !== 1) {
+      setErro('Cole exatamente um link de produto para consultar.')
+      return
+    }
+    if (links[0].status === 'invalido') {
+      setErro(links[0].motivo ?? 'Link inválido.')
+      return
+    }
+    setCarregando(true)
+    try {
+      const resposta = await fetch('/api/mercadolivre/produto', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ link: links[0].linkOriginal }),
+      })
+      const resultado = await resposta.json()
+      if (!resposta.ok) throw new Error(resultado.error ?? 'Não foi possível consultar o produto.')
+      setProduto(resultado.produto)
+    } catch (error) {
+      setErro(error instanceof Error ? error.message : 'Não foi possível consultar o produto.')
+    } finally {
+      setCarregando(false)
+    }
   }
 
   return (
@@ -20,57 +44,41 @@ export default function ImportarProdutos() {
       <header>
         <p className="importar-marca">VALIÔ GARIMPO</p>
         <h1>Importar produtos</h1>
-        <p>Cole os links do Mercado Livre, incluindo seus links de afiliado, um por linha.</p>
+        <p>Cole um link de anúncio do Mercado Livre para consultar os dados do produto.</p>
       </header>
 
       <section className="importar-card" aria-labelledby="links-titulo">
-        <h2 id="links-titulo">Seus links</h2>
-        <label htmlFor="links-produtos">Links dos produtos</label>
+        <h2 id="links-titulo">Link do produto</h2>
+        <label htmlFor="links-produtos">Link do produto</label>
         <textarea
           id="links-produtos"
           value={texto}
           onChange={(event) => {
             setTexto(event.target.value)
-            setProcessado(false)
+            setProduto(null)
+            setErro('')
           }}
-          rows={8}
+          rows={3}
           spellCheck={false}
           aria-describedby="links-ajuda"
-          placeholder={'https://www.mercadolivre.com.br/...\nhttps://meli.la/...'}
+          placeholder="https://produto.mercadolivre.com.br/MLB-1234567890-..."
         />
-        <p id="links-ajuda">Os links válidos serão preservados, incluindo os parâmetros de afiliado. Apenas espaços nas extremidades, linhas vazias e duplicatas serão removidos.</p>
-        <button type="button" onClick={processar}>Processar produtos</button>
-        <p className="importar-nota">Nesta etapa, validamos apenas o formato e o domínio. Nenhum dado de produto é consultado ou salvo.</p>
+        <p id="links-ajuda">Use um link que contenha o ID do anúncio (MLB). Links curtos e páginas de catálogo sem ID de anúncio não podem ser consultados nesta etapa.</p>
+        <button type="button" onClick={processar} disabled={carregando}>{carregando ? 'Consultando...' : 'Consultar produto'}</button>
+        <p className="importar-nota">Os dados serão consultados no Mercado Livre e não serão salvos.</p>
       </section>
 
-      {processado && (
+      {erro && <p role="alert" className="importar-motivo">{erro}</p>}
+      {produto && (
         <section className="importar-card" aria-labelledby="previa-titulo">
-          <h2 id="previa-titulo">Prévia da importação</h2>
-          <p role="status">{produtos.length} links únicos · {validos} válidos · {produtos.length - validos} inválidos</p>
-          {produtos.length === 0 ? (
-            <p className="importar-nota">Nenhum link informado. Cole ao menos um link para processar.</p>
-          ) : (
-            <div className="importar-tabela">
-              <table>
-                <caption>Links fornecidos e resultado da validação</caption>
-                <thead><tr><th scope="col">Número</th><th scope="col">Link original</th><th scope="col">Status</th></tr></thead>
-                <tbody>
-                  {produtos.map((produto) => (
-                    <tr key={produto.linkOriginal}>
-                      <td>{produto.numero}</td>
-                      <td className="importar-link">{produto.linkOriginal}</td>
-                      <td>
-                        <span className={`importar-status importar-status-${produto.status}`}>
-                          {produto.status === 'valido' ? 'Válido' : 'Inválido'}
-                        </span>
-                        {produto.motivo && <p className="importar-motivo">{produto.motivo}</p>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+          <h2 id="previa-titulo">Produto consultado</h2>
+          {produto.imagemPrincipal && <img className="importar-imagem" src={produto.imagemPrincipal} alt={produto.titulo} />}
+          <h3>{produto.titulo}</h3>
+          <p>ID: {produto.id}</p>
+          <p>Preço: {produto.moeda ? `${produto.moeda} ` : ''}{produto.preco.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+          {produto.status && <p>Status: {produto.status}</p>}
+          {produto.quantidadeDisponivel !== null && <p>Quantidade disponível: {produto.quantidadeDisponivel}</p>}
+          {produto.permalink && <p><a href={produto.permalink} target="_blank" rel="noopener noreferrer">Ver no Mercado Livre</a></p>}
         </section>
       )}
     </main>

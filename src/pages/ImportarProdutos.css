@@ -30,6 +30,8 @@
 .importar-status-valido { background: #e6f4ec; color: #1d603e; }
 .importar-status-invalido { background: #feece9; color: #a12318; }
 .importar-motivo { margin-top: 6px; font-size: 12px; min-width: 130px; }
+.importar-imagem { display: block; max-width: 180px; max-height: 180px; object-fit: contain; }
+.importar-card button:disabled { opacity: .65; cursor: wait; }
 @media (max-width: 600px) {
   .importar-produtos { padding: 24px 12px; }
   .importar-card { padding: 18px 14px; }

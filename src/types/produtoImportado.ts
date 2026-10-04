@@ -14,3 +14,14 @@ export type ProdutoImportado = {
   motivo?: string
   dados?: DadosProduto
 }
+
+export type ProdutoConsultado = {
+  id: string
+  titulo: string
+  preco: number
+  moeda: string | null
+  imagemPrincipal: string | null
+  permalink: string | null
+  status: string | null
+  quantidadeDisponivel: number | null
+}
