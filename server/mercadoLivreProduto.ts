@@ -48,6 +48,14 @@ router.post('/produto', async (req, res) => {
     }
     res.json({ ok: true, produto })
   } catch (error) {
+    if (error instanceof MercadoLivreApiError && error.itemFailure) {
+      res.status(error.kind === 'not_found' ? 404 : 502).json({
+        ok: false,
+        error: 'Mercado Livre indisponível.',
+        ...error.itemFailure,
+      })
+      return
+    }
     if (error instanceof MercadoLivreApiError) {
       res.status(error.kind === 'not_found' ? 404 : 502).json({
         ok: false,

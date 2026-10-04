@@ -5,7 +5,14 @@ const USER_URL = 'https://api.mercadolibre.com/users/me'
 const ITEM_URL = 'https://api.mercadolibre.com/items/'
 
 export class MercadoLivreApiError extends Error {
-  constructor(public readonly kind: 'invalid_grant' | 'unauthorized' | 'unavailable' | 'not_found') {
+  constructor(
+    public readonly kind: 'invalid_grant' | 'unauthorized' | 'unavailable' | 'not_found',
+    public readonly itemFailure?: {
+      providerStatus: number | null
+      providerCode: string | null
+      providerMessage: string | null
+    },
+  ) {
     super(`Mercado Livre OAuth: ${kind}`)
   }
 }
@@ -22,6 +29,20 @@ export type MercadoLivreItem = {
 }
 
 export async function getMercadoLivreItem(accessToken: string, itemId: string): Promise<MercadoLivreItem> {
+  function itemError(kind: 'unauthorized' | 'unavailable' | 'not_found', providerStatus: number | null, body: unknown = null) {
+    const details = typeof body === 'object' && body !== null && !Array.isArray(body)
+      ? body as Record<string, unknown> : null
+    // Somente códigos conhecidos podem sair do processo; texto livre do provedor pode conter segredos.
+    const safeCodes = ['not_found', 'forbidden', 'unauthorized', 'invalid_token', 'invalid_request', 'provider_unavailable']
+    const providerCode = typeof details?.error === 'string' && safeCodes.includes(details.error)
+      ? details.error : null
+    const providerMessage = null
+    console.error('Falha na consulta de item do Mercado Livre:', {
+      stage: 'items', itemId, providerStatus, providerCode, providerMessage,
+    })
+    return new MercadoLivreApiError(kind, { providerStatus, providerCode, providerMessage })
+  }
+
   let response: Response
   try {
     response = await fetch(`${ITEM_URL}${itemId}`, {
@@ -29,11 +50,14 @@ export async function getMercadoLivreItem(accessToken: string, itemId: string): 
       signal: AbortSignal.timeout(10_000),
     })
   } catch {
-    throw new MercadoLivreApiError('unavailable')
+    throw itemError('unavailable', null)
   }
-  if (response.status === 401 || response.status === 403) throw new MercadoLivreApiError('unauthorized')
-  if (response.status === 404) throw new MercadoLivreApiError('not_found')
-  if (!response.ok) throw new MercadoLivreApiError('unavailable')
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null)
+    const kind = response.status === 401 || response.status === 403 ? 'unauthorized'
+      : response.status === 404 ? 'not_found' : 'unavailable'
+    throw itemError(kind, response.status, body)
+  }
 
   const value: unknown = await response.json().catch(() => null)
   if (typeof value !== 'object' || value === null) throw new MercadoLivreApiError('unavailable')

@@ -27,7 +27,8 @@ const provider = createServer(async (req, res) => {
   if (req.url?.startsWith('/items/')) {
     itemCalls++
     if (itemUnavailable) {
-      res.writeHead(503).end()
+      res.writeHead(503, { 'content-type': 'application/json' })
+      res.end(JSON.stringify({ error: 'provider_unavailable', message: 'access-1 refresh-1 secret-teste cookie-secreto', access_token: 'nunca-retornar', refresh_token: 'refresh-1' }))
       return
     }
     if (req.headers.authorization === `Bearer ${rejectedAccessToken}`) {
@@ -193,11 +194,25 @@ try {
   assert.equal(itemCalls, callsBeforeInvalid)
   const missing = await requestItem(apiPorts[0], 'https://produto.mercadolivre.com.br/MLB-9999999999-produto-_JM', cookie)
   assert.equal(missing.status, 404)
-  assert.match((await missing.json()).error, /não encontrado/)
+  assert.deepEqual(await missing.json(), {
+    ok: false, error: 'Mercado Livre indisponível.',
+    providerStatus: 404, providerCode: null, providerMessage: null,
+  })
   itemUnavailable = true
   const providerDown = await requestItem(apiPorts[0], validLink, cookie)
   assert.equal(providerDown.status, 502)
-  assert.match((await providerDown.json()).error, /indisponível/)
+  assert.deepEqual(await providerDown.json(), {
+    ok: false, error: 'Mercado Livre indisponível.',
+    providerStatus: 503, providerCode: 'provider_unavailable', providerMessage: null,
+  })
+  assert.match(childErrors[0], /stage: 'items'/)
+  assert.match(childErrors[0], /itemId: 'MLB1234567890'/)
+  assert.match(childErrors[0], /providerStatus: 503/)
+  assert.ok(!childErrors[0].includes('nunca-retornar'))
+  assert.ok(!childErrors[0].includes('access-1'))
+  for (const secret of ['refresh-1', 'secret-teste', 'cookie-secreto']) {
+    assert.ok(!childErrors[0].includes(secret))
+  }
   itemUnavailable = false
 
   const client = new pg.Client({ connectionString: env.DATABASE_URL })
