@@ -148,10 +148,10 @@ function App() {
                 ? 'Verificando conexão com o Mercado Livre...'
                 : mercadoLivreStatus === 'conectado'
                   ? 'Mercado Livre conectado'
-                  : retornoOAuth === 'conectado'
-                    ? 'Não foi possível confirmar a conexão com o Mercado Livre.'
-                    : mercadoLivreStatus === 'erro'
-                      ? 'Erro ao verificar a conexão com o Mercado Livre.'
+                  : mercadoLivreStatus === 'erro'
+                    ? 'Erro ao verificar a conexão com o Mercado Livre. Tente novamente.'
+                    : retornoOAuth === 'conectado'
+                      ? 'Não foi possível confirmar a conexão com o Mercado Livre.'
                       : 'Mercado Livre não conectado.'}
           </p>
 

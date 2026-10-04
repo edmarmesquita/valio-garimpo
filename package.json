@@ -7,6 +7,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "typecheck:server": "tsc --ignoreConfig --noEmit --module nodenext --moduleResolution nodenext --target es2023 --esModuleInterop --skipLibCheck --types node api/index.ts server/server.ts server/local.ts",
+    "test:oauth": "node tests/mercadoLivreOAuth.mjs",
     "preview": "vite preview",
     "server": "tsx server/local.ts"
   },
@@ -15,14 +17,18 @@
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
     "openai": "^7.27.0",
+    "pg": "^8.23.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite-socket": "^0.2.11",
     "@eslint/js": "^10.0.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^24.13.3",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",
