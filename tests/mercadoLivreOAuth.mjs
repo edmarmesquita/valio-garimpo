@@ -48,6 +48,10 @@ const provider = createServer(async (req, res) => {
       }))
       return
     }
+    if (restrictionsMode === 'sparse') {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ id: 6332151948097527 }))
+      return
+    }
     res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
       id: 6332151948097527, active: true, status: { state: 'blocked', policy: { code: 'POLICY_403',
         reason: 'PA_BLOCKED', message: 'private' }, access_token: 'nunca-retornar' },
@@ -61,6 +65,14 @@ const provider = createServer(async (req, res) => {
       disabled: false, disabled_reason: null, suspension: { status: 'active' },
       infractions: [{ code: 'INFRACTION_1' }], tags: ['REVIEW', 'nunca-retornar'],
       certification_status: 'certified', nested: { blocking_reason: 'PA_BLOCKED' },
+      blocked_date: '2026-10-05T12:00:00Z', blocked_reason: 'POLICY_REVIEW', blocked_user: 'moderator_1',
+      partial_blocked: { blocked: true, blocked_date: '2026-10-04', blocked_reason: 'PARTIAL_REVIEW',
+        blocked_user: 'moderator_2', access_token: 'nunca-retornar', Authorization: 'Bearer access-1',
+        client_secret: 'secret-teste', cookies: 'cookie-secreto', DATABASE_URL: 'postgres://private',
+        nested: { blocked: true }, roles: ['admin'] },
+      disabled_date: '2026-10-03', allow_flow: true,
+      roles: ['read', 'Bearer access-1', { status: 'pending', access_token: 'nunca-retornar' }],
+      usage_profile: { status: 'active', enabled: true, access_token: 'nunca-retornar', note: 'private' },
       access_token: 'nunca-retornar', refresh_token: 'refresh-1',
       client_secret: 'secret-teste', DATABASE_URL: 'postgres://private',
     }))
@@ -537,13 +549,18 @@ try {
     httpStatus: 200,
     topLevelKeys: ['id', 'active', 'status', 'blocked', 'block_reason', 'blocking_reason', 'reason',
       'restriction', 'restrictions', 'policy', 'policies', 'moderation', 'disabled', 'disabled_reason',
-      'suspension', 'infractions', 'tags', 'certification_status', 'nested'],
+      'suspension', 'infractions', 'tags', 'certification_status', 'nested', 'blocked_date',
+      'blocked_reason', 'blocked_user', 'partial_blocked', 'disabled_date', 'allow_flow', 'roles', 'usage_profile'],
     matchingKeys: {
-      block: ['blocked', 'block_reason', 'blocking_reason', 'nested.blocking_reason'],
+      block: ['blocked', 'block_reason', 'blocking_reason', 'nested.blocking_reason', 'blocked_date',
+        'blocked_reason', 'blocked_user', 'partial_blocked', 'partial_blocked.blocked',
+        'partial_blocked.blocked_date', 'partial_blocked.blocked_reason', 'partial_blocked.blocked_user'],
       reason: ['status.policy.reason', 'block_reason', 'blocking_reason', 'reason',
-        'restriction.nested.reason', 'disabled_reason', 'nested.blocking_reason'],
+        'restriction.nested.reason', 'disabled_reason', 'nested.blocking_reason', 'blocked_reason',
+        'partial_blocked.blocked_reason'],
       restrict: ['restriction', 'restrictions'], policy: ['status.policy', 'policy'],
-      infraction: ['infractions'], suspend: [], disable: ['restrictions.disabled', 'disabled', 'disabled_reason'],
+      infraction: ['infractions'], suspend: [], disable: ['restrictions.disabled', 'disabled', 'disabled_reason',
+        'disabled_date'],
       moderation: ['moderation'],
     },
     active: true, status: { keys: ['state', 'policy'], state: 'blocked',
@@ -558,6 +575,12 @@ try {
     suspension: { keys: ['status'], status: 'active' },
     infractions: [{ keys: ['code'], code: 'INFRACTION_1' }], tags: ['REVIEW'],
     certification_status: 'certified',
+    blocked_date: '2026-10-05T12:00:00Z', blocked_reason: 'POLICY_REVIEW', blocked_user: 'moderator_1',
+    disabled_date: '2026-10-03', allow_flow: true,
+    roles: ['read', { keys: ['status'], status: 'pending' }],
+    usage_profile: { keys: ['status', 'enabled', 'note'], status: 'active', enabled: true },
+    partial_blocked: { blocked: true, blocked_date: '2026-10-04', blocked_reason: 'PARTIAL_REVIEW',
+      blocked_user: 'moderator_2' },
   })
   assert.deepEqual(restrictionsBody, {
     application: restrictionsBody.application,
@@ -582,15 +605,23 @@ try {
   // O diagnóstico só devolve ações de validação e nunca dados pessoais ou segredos.
   const restrictionsJson = JSON.stringify(restrictionsBody)
   for (const privateValue of ['private@example.com', '11999999999', 'cookie-secreto', 'nunca-retornar',
-    'browse_catalog', 'access_token', 'refresh_token', 'Authorization', 'client_secret', 'DATABASE_URL']) {
+    'browse_catalog', 'access_token', 'refresh_token', 'Authorization', 'client_secret', 'DATABASE_URL',
+    'Bearer access-1', 'secret-teste', 'postgres://private']) {
     assert.ok(!restrictionsJson.includes(privateValue))
   }
+  restrictionsMode = 'sparse'
+  const sparseRestrictions = await (await request(apiPorts[0], restrictionsPath, cookie)).json()
+  assert.deepEqual(sparseRestrictions.application, {
+    httpStatus: 200, topLevelKeys: ['id'],
+    matchingKeys: { block: [], reason: [], restrict: [], policy: [], infraction: [],
+      suspend: [], disable: [], moderation: [] },
+  })
   restrictionsMode = 'error'
   const failedRestrictions = await request(apiPorts[0], restrictionsPath, cookie)
   assert.equal(failedRestrictions.status, 200)
-  assert.equal(restrictionsApplicationCalls, 2)
-  assert.equal(restrictionsUserCalls, 2)
-  assert.equal(consumedApplicationsCalls, 2)
+  assert.equal(restrictionsApplicationCalls, 3)
+  assert.equal(restrictionsUserCalls, 3)
+  assert.equal(consumedApplicationsCalls, 3)
   assert.equal(refreshCalls, refreshBeforeRestrictions)
   const failedRestrictionsBody = await failedRestrictions.json()
   for (const part of [failedRestrictionsBody.application, failedRestrictionsBody.user, failedRestrictionsBody.consumedApplications]) {

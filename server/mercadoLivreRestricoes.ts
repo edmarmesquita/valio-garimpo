@@ -11,6 +11,9 @@ const actionDetailKey = /^(?:required_action|action|actions|pending_action|code|
 const applicationFields = ['active', 'status', 'blocked', 'block_reason', 'blocking_reason', 'reason',
   'restriction', 'restrictions', 'policy', 'policies', 'moderation', 'disabled', 'disabled_reason',
   'suspension', 'infractions', 'tags', 'certification_status'] as const
+const applicationExtraFields = ['blocked_date', 'blocked_reason', 'blocked_user', 'disabled_date',
+  'allow_flow', 'roles', 'usage_profile'] as const
+const partialBlockedFields = ['blocked', 'blocked_date', 'blocked_reason', 'blocked_user'] as const
 const applicationTerms = ['block', 'reason', 'restrict', 'policy', 'infraction', 'suspend', 'disable', 'moderation'] as const
 const applicationSecretKey = /(?:secret|token|auth|cookie|password|credential|database|private|session|api.?key|signature)/i
 const applicationCodeKey = /(?:^|_)(?:code|codes|status|state|reason|reasons|restriction|restrictions|policy|policies|moderation|suspension|infraction|infractions|tag|tags|type)(?:$|_)/i
@@ -165,7 +168,11 @@ export function safeApplicationRestrictions(httpStatus: number, body: unknown, s
           if (!paths.includes(label)) paths.push(label)
         }
       }
-      findKeys(child, childPath, depth + 1)
+      if (key === 'partial_blocked' && object(child)) {
+        const partial = object(child)!
+        findKeys(Object.fromEntries(partialBlockedFields.filter((field) => Object.hasOwn(partial, field))
+          .map((field) => [field, partial[field]])), childPath, depth + 1)
+      } else findKeys(child, childPath, depth + 1)
     }
   }
   findKeys(source, [], 0)
@@ -197,6 +204,37 @@ export function safeApplicationRestrictions(httpStatus: number, body: unknown, s
     if (!Object.hasOwn(source, field)) continue
     const safe = summarize(source[field], field)
     if (safe !== undefined) result[field] = safe
+  }
+  function safeDetail(value: unknown, key: string): unknown {
+    if (typeof value === 'boolean' || value === null) return value
+    if (typeof value === 'number') return Number.isSafeInteger(value) ? value : undefined
+    if (typeof value !== 'string') return undefined
+    const safe = safeString(value, secrets)
+    if (!safe || safe.includes('[REDACTED]')) return undefined
+    if (key.endsWith('_date')) return /^\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2}))?$/.test(safe) ? safe : undefined
+    return /^[a-z0-9][a-z0-9_:-]{0,79}$/i.test(safe) ? safe : undefined
+  }
+  function safeExtra(value: unknown, key: string, depth = 0): unknown {
+    if (depth > 8) return undefined
+    if (Array.isArray(value)) return value.slice(0, 100)
+      .map((entry) => safeExtra(entry, key, depth + 1)).filter((entry) => entry !== undefined)
+    if (object(value)) return summarize(value, key, depth)
+    return safeDetail(value, key)
+  }
+  for (const field of applicationExtraFields) {
+    if (!Object.hasOwn(source, field)) continue
+    const safe = safeExtra(source[field], field)
+    if (safe !== undefined) result[field] = safe
+  }
+  const partial = object(source.partial_blocked)
+  if (partial) {
+    const selected: ObjectValue = {}
+    for (const field of partialBlockedFields) {
+      if (!Object.hasOwn(partial, field)) continue
+      const safe = safeDetail(partial[field], field)
+      if (safe !== undefined) selected[field] = safe
+    }
+    result.partial_blocked = selected
   }
   return result
 }
