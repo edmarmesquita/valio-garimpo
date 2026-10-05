@@ -25,6 +25,9 @@ globalThis.fetch = (input, init) => {
   if (url === 'https://api.mercadolibre.com/items/bulk?ids=MLB4045941169') {
     return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/items/bulk?ids=MLB4045941169`, init)
   }
+  if (url === 'https://api.mercadolibre.com/sites/MLB/search?q=tenis%20carina%20street%20puma') {
+    return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/sites/MLB/search?q=tenis%20carina%20street%20puma`, init)
+  }
   if (url.startsWith('https://api.mercadolibre.com/items/')) {
     return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/items/${url.split('/').pop()}`, init)
   }

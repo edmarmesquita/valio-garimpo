@@ -391,6 +391,98 @@ router.get('/diagnostico/item-bulk', async (req, res) => {
   }
 })
 
+// Diagnóstico temporário da busca pública, usando somente o access token armazenado.
+router.get('/diagnostico/search', async (req, res) => {
+  const sessionId = getSessionId(req)
+  if (!sessionId) {
+    res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+    return
+  }
+
+  try {
+    assertEncryptionConfigured()
+    const credentials = await withLockedConnection(hashOpaque(sessionId), async (_client, connection) => {
+      if (connection.status !== 'connected') return null
+      return {
+        accessToken: decryptSecret(connection.access_token_ciphertext, `access:${connection.meli_user_id}`),
+        refreshToken: decryptSecret(connection.refresh_token_ciphertext, `refresh:${connection.meli_user_id}`),
+      }
+    })
+    if (!credentials) {
+      res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+      return
+    }
+
+    const response = await fetch('https://api.mercadolibre.com/sites/MLB/search?q=tenis%20carina%20street%20puma', {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${credentials.accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    const bytes = Buffer.from(await response.arrayBuffer())
+    let databasePassword: string | undefined
+    try { databasePassword = process.env.DATABASE_URL ? decodeURIComponent(new URL(process.env.DATABASE_URL).password) : undefined }
+    catch { /* URL indisponível para extração de senha */ }
+    const secrets = [credentials.accessToken, credentials.refreshToken, sessionId,
+      process.env.MELI_CLIENT_SECRET, process.env.MELI_TOKEN_ENCRYPTION_KEY,
+      process.env.DATABASE_URL, databasePassword, req.get('cookie')]
+      .filter((value): value is string => Boolean(value))
+      .sort((a, b) => b.length - a.length)
+    const safeText = (value: string) => secrets.reduce((safe, secret) => safe.split(secret).join('[REDACTED]'), value)
+      .replace(/Bearer\s+[^\s,;"']+/gi, 'Bearer [REDACTED]')
+      .replace(/(?:access_token|refresh_token|authorization|cookie|client_secret|database_url)/gi, '[REDACTED]')
+    const scalar = (value: unknown): string | number | null | undefined => {
+      if (typeof value === 'string') return safeText(value)
+      if (value === null || (typeof value === 'number' && Number.isFinite(value))) return value
+      return undefined
+    }
+    const fields = (source: Record<string, unknown>, names: string[]) => {
+      const result: Record<string, string | number | null> = {}
+      for (const name of names) {
+        const value = scalar(source[name])
+        if (value !== undefined) result[name] = value
+      }
+      return result
+    }
+    const contentType = response.headers.get('content-type')
+    let parsed: unknown
+    try { parsed = JSON.parse(bytes.toString('utf8')) } catch { parsed = null }
+    const source = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown> : null
+    if (!response.ok || !source || !Array.isArray(source.results)) {
+      res.status(response.ok ? 502 : response.status).json({
+        error: 'Não foi possível consultar a busca do Mercado Livre.',
+        ...((source && !response.ok) ? fields(source, ['error', 'code', 'message', 'status', 'blocked_by']) : {}),
+      })
+      return
+    }
+
+    const results = source.results.slice(0, 5).map((entry: unknown) => {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return {}
+      const item = entry as Record<string, unknown>
+      const result: Record<string, unknown> = fields(item, [
+        'id', 'title', 'price', 'currency_id', 'permalink', 'available_quantity', 'thumbnail',
+      ])
+      if (item.seller && typeof item.seller === 'object' && !Array.isArray(item.seller)) {
+        const seller = fields(item.seller as Record<string, unknown>, ['id'])
+        if (Object.hasOwn(seller, 'id')) result.seller = seller
+      }
+      return result
+    })
+    const paging = source.paging && typeof source.paging === 'object' && !Array.isArray(source.paging)
+      ? source.paging as Record<string, unknown> : {}
+    res.json({
+      providerStatus: response.status,
+      contentType: contentType && /^[\w.+-]+\/[\w.+-]+(?:\s*;\s*charset=[\w-]+)?$/i.test(contentType)
+        ? contentType : null,
+      bodySize: bytes.length,
+      paging: fields(paging, ['total']),
+      resultsCount: results.length,
+      results,
+    })
+  } catch {
+    res.status(503).json({ error: 'Não foi possível consultar a busca do Mercado Livre.' })
+  }
+})
+
 // Diagnóstico temporário do estado da aplicação e do usuário, sem renovar o token.
 router.get('/diagnostico/status', async (req, res) => {
   const sessionId = getSessionId(req)

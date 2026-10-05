@@ -24,6 +24,8 @@ let itemFailureMode = null
 let itemCalls = 0
 let bulkCalls = 0
 let bulkMode = 'success'
+let searchCalls = 0
+let searchMode = 'success'
 let grantMode = 'normal'
 let grantCalls = 0
 let applicationStatusCalls = 0
@@ -31,6 +33,35 @@ let userStatusCalls = 0
 let statusDiagnosticMode = 'ok'
 const usedRefreshTokens = new Set()
 const provider = createServer(async (req, res) => {
+  if (req.url === '/sites/MLB/search?q=tenis%20carina%20street%20puma') {
+    searchCalls++
+    assert.equal(req.method, 'GET')
+    assert.equal(req.headers.accept, 'application/json')
+    assert.equal(req.headers.authorization, 'Bearer access-1')
+    if (searchMode === 'html') {
+      res.writeHead(503, { 'content-type': 'text/html' }).end('<html>access-1 refresh-1</html>')
+      return
+    }
+    if (searchMode === 'forbidden') {
+      res.writeHead(403, { 'content-type': 'application/json' }).end(JSON.stringify({
+        error: 'forbidden', code: 'PA_BLOCKED', message: 'Bearer access-1; refresh-1; secret-teste',
+        status: 403, blocked_by: 'policy_agent', access_token: 'nunca-retornar',
+        Authorization: 'Bearer access-1',
+      }))
+      return
+    }
+    res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify({
+      paging: { total: 42, access_token: 'nunca-retornar' },
+      results: Array.from({ length: 6 }, (_, index) => ({
+        id: `MLB${index}`, title: index === 0 ? 'Tênis Bearer access-1' : `Tênis ${index}`,
+        price: 199.9, currency_id: 'BRL', permalink: `https://produto.mercadolivre.com.br/MLB${index}`,
+        available_quantity: 3, thumbnail: `https://http2.mlstatic.com/${index}.jpg`,
+        seller: { id: 123, refresh_token: 'nunca-retornar' }, access_token: 'nunca-retornar',
+      })),
+      refresh_token: 'nunca-retornar',
+    }))
+    return
+  }
   if (req.url === '/items/bulk?ids=MLB4045941169') {
     bulkCalls++
     assert.equal(req.method, 'GET')
@@ -455,6 +486,49 @@ try {
   assert.deepEqual(await rejectedDiagnostic.json(), { providerStatus: 401, contentType: null, bodySize: 0 })
   rejectedAccessToken = null
 
+  const searchPath = '/api/mercadolivre/diagnostico/search'
+  assert.equal((await request(apiPorts[0], searchPath)).status, 401)
+  assert.equal((await request(apiPorts[0], searchPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
+  assert.equal(searchCalls, 0)
+  const assertSearchCall = async (mode, expectedStatus) => {
+    searchMode = mode
+    const beforeSearch = searchCalls
+    const beforeItems = itemCalls
+    const beforeBulk = bulkCalls
+    const beforeRefresh = refreshCalls
+    const response = await request(apiPorts[0], searchPath, cookie)
+    assert.equal(response.status, expectedStatus)
+    const body = await response.json()
+    assert.equal(searchCalls, beforeSearch + 1)
+    assert.equal(itemCalls, beforeItems)
+    assert.equal(bulkCalls, beforeBulk)
+    assert.equal(refreshCalls, beforeRefresh)
+    for (const secret of ['access-1', 'refresh-1', 'nunca-retornar', 'secret-teste',
+      'postgres://', 'Authorization', 'access_token', 'refresh_token', 'DATABASE_URL', 'client_secret']) {
+      assert.ok(!JSON.stringify(body).includes(secret))
+    }
+    return body
+  }
+  const searchSuccess = await assertSearchCall('success', 200)
+  assert.deepEqual(searchSuccess, {
+    providerStatus: 200, contentType: 'application/json; charset=utf-8',
+    bodySize: searchSuccess.bodySize, paging: { total: 42 }, resultsCount: 5,
+    results: Array.from({ length: 5 }, (_, index) => ({
+      id: `MLB${index}`, title: index === 0 ? 'Tênis Bearer [REDACTED]' : `Tênis ${index}`,
+      price: 199.9, currency_id: 'BRL', permalink: `https://produto.mercadolivre.com.br/MLB${index}`,
+      available_quantity: 3, thumbnail: `https://http2.mlstatic.com/${index}.jpg`, seller: { id: 123 },
+    })),
+  })
+  assert.ok(searchSuccess.bodySize > 0)
+  assert.deepEqual(await assertSearchCall('forbidden', 403), {
+    error: 'forbidden', code: 'PA_BLOCKED',
+    message: 'Bearer [REDACTED]; [REDACTED]; [REDACTED]', status: 403, blocked_by: 'policy_agent',
+  })
+  assert.deepEqual(await assertSearchCall('html', 503), {
+    error: 'Não foi possível consultar a busca do Mercado Livre.',
+  })
+  searchMode = 'success'
+
   const bulkPath = '/api/mercadolivre/diagnostico/item-bulk'
   assert.equal((await request(apiPorts[0], bulkPath)).status, 401)
   assert.equal((await request(apiPorts[0], bulkPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
@@ -518,6 +592,11 @@ try {
     assert.equal((await client.query('SELECT COUNT(*)::int AS count FROM oauth_attempts WHERE state_hash = $1', [stateHash])).rows[0].count, 0)
 
     await client.query("UPDATE meli_connections SET access_expires_at = now() - interval '1 minute'")
+    const searchBeforeExpiry = searchCalls
+    const refreshBeforeExpiry = refreshCalls
+    assert.equal((await request(apiPorts[0], searchPath, cookie)).status, 200)
+    assert.equal(searchCalls, searchBeforeExpiry + 1)
+    assert.equal(refreshCalls, refreshBeforeExpiry)
     const concurrent = await Promise.all(apiPorts.map((port) => request(port, '/api/mercadolivre/status', cookie)))
     for (const response of concurrent) {
       assert.equal(response.status, 200)
