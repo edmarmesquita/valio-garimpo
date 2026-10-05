@@ -6,7 +6,7 @@ import { assertEncryptionConfigured, decryptSecret, encryptSecret, hashOpaque } 
 import { createAuthorizationAttempt, consumeAuthorizationAttempt, getConnectionSummary, saveConnection, withLockedConnection } from './mercadoLivreRepository.js'
 import { exchangeAuthorizationCode, getMercadoLivreGrant, getMercadoLivreIdentity, MercadoLivreApiError } from './mercadoLivreApi.js'
 import { connectionStatus, getBackendAccessToken } from './mercadoLivreTokenService.js'
-import { safeConsumedApplications, safeProviderError, safeUserRestrictions } from './mercadoLivreRestricoes.js'
+import { safeApplicationRestrictions, safeConsumedApplications, safeProviderError, safeUserRestrictions } from './mercadoLivreRestricoes.js'
 
 const AUTHORIZATION_URL = 'https://auth.mercadolivre.com.br/authorization'
 const SESSION_COOKIE = 'meli_oauth_session'
@@ -607,7 +607,7 @@ router.get('/diagnostico/restricoes', async (req, res) => {
       .filter((value): value is string => Boolean(value))
       .sort((a, b) => b.length - a.length)
 
-    const read = async (url: string, kind: 'user' | 'consumedApplications') => {
+    const read = async (url: string, kind: 'application' | 'user' | 'consumedApplications') => {
       try {
         const response = await fetch(url, {
           headers: { accept: 'application/json', authorization: `Bearer ${credentials.accessToken}` },
@@ -619,19 +619,22 @@ router.get('/diagnostico/restricoes', async (req, res) => {
           try { body = await response.json() } catch { body = null }
         }
         if (!response.ok) return safeProviderError(response.status, body, secrets)
-        return kind === 'user'
-          ? safeUserRestrictions(response.status, body, secrets)
-          : safeConsumedApplications(response.status, body, secrets)
+        return kind === 'application'
+          ? safeApplicationRestrictions(response.status, body, secrets)
+          : kind === 'user'
+            ? safeUserRestrictions(response.status, body, secrets)
+            : safeConsumedApplications(response.status, body, secrets)
       } catch {
         return { httpStatus: null, error: 'Não foi possível consultar o Mercado Livre.' }
       }
     }
 
-    const [user, consumedApplications] = await Promise.all([
+    const [application, user, consumedApplications] = await Promise.all([
+      read('https://api.mercadolibre.com/applications/6332151948097527', 'application'),
       read('https://api.mercadolibre.com/users/3334862827?attributes=status', 'user'),
       read('https://api.mercadolibre.com/applications/v1/6332151948097527/consumed-applications', 'consumedApplications'),
     ])
-    res.json({ user, consumedApplications })
+    res.json({ application, user, consumedApplications })
   } catch {
     res.status(503).json({ error: 'Não foi possível consultar o Mercado Livre.' })
   }

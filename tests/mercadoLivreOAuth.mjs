@@ -32,10 +32,40 @@ let applicationStatusCalls = 0
 let userStatusCalls = 0
 let statusDiagnosticMode = 'ok'
 let restrictionsMode = 'inactive'
+let restrictionsApplicationCalls = 0
 let restrictionsUserCalls = 0
 let consumedApplicationsCalls = 0
 const usedRefreshTokens = new Set()
 const provider = createServer(async (req, res) => {
+  if (req.url === '/applications/6332151948097527' && restrictionsMode !== 'inactive') {
+    restrictionsApplicationCalls++
+    assert.equal(req.method, 'GET')
+    assert.equal(req.headers.authorization, 'Bearer access-1')
+    if (restrictionsMode === 'error') {
+      res.writeHead(403, { 'content-type': 'application/json' }).end(JSON.stringify({
+        error: 'forbidden', code: 'PA_BLOCKED', status: 403, blocked_by: 'policy_agent',
+        message: 'Bearer access-1 refresh-1 secret-teste', access_token: 'nunca-retornar',
+      }))
+      return
+    }
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+      id: 6332151948097527, active: true, status: { state: 'blocked', policy: { code: 'POLICY_403',
+        reason: 'PA_BLOCKED', message: 'private' }, access_token: 'nunca-retornar' },
+      blocked: true, block_reason: 'PA_BLOCKED', blocking_reason: 'POLICY_403', reason: 'PA_BLOCKED',
+      restriction: { code: 'RESTRICTED', enabled: true, contact: 'private@example.com',
+        nested: { pending: false, reason: 'POLICY_REVIEW' } },
+      restrictions: [{ code: 'PA_BLOCKED', disabled: false, Authorization: 'Bearer access-1' }],
+      policy: { code: 'POLICY_403', secret_key: 'nunca-retornar' },
+      policies: [{ status: 'pending', cookie: 'cookie-secreto' }],
+      moderation: { status: 'pending', cookies: 'cookie-secreto' },
+      disabled: false, disabled_reason: null, suspension: { status: 'active' },
+      infractions: [{ code: 'INFRACTION_1' }], tags: ['REVIEW', 'nunca-retornar'],
+      certification_status: 'certified', nested: { blocking_reason: 'PA_BLOCKED' },
+      access_token: 'nunca-retornar', refresh_token: 'refresh-1',
+      client_secret: 'secret-teste', DATABASE_URL: 'postgres://private',
+    }))
+    return
+  }
   if (req.url === '/users/3334862827?attributes=status' && restrictionsMode !== 'inactive') {
     restrictionsUserCalls++
     assert.equal(req.method, 'GET')
@@ -492,16 +522,45 @@ try {
   assert.equal((await request(apiPorts[0], restrictionsPath)).status, 401)
   assert.equal((await request(apiPorts[0], restrictionsPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
   assert.equal(restrictionsUserCalls, 0)
+  assert.equal(restrictionsApplicationCalls, 0)
   assert.equal(consumedApplicationsCalls, 0)
   restrictionsMode = 'ok'
   const refreshBeforeRestrictions = refreshCalls
   const restrictionsResponse = await request(apiPorts[0], restrictionsPath, cookie)
   assert.equal(restrictionsResponse.status, 200)
+  assert.equal(restrictionsApplicationCalls, 1)
   assert.equal(restrictionsUserCalls, 1)
   assert.equal(consumedApplicationsCalls, 1)
   assert.equal(refreshCalls, refreshBeforeRestrictions)
   const restrictionsBody = await restrictionsResponse.json()
+  assert.deepEqual(restrictionsBody.application, {
+    httpStatus: 200,
+    topLevelKeys: ['id', 'active', 'status', 'blocked', 'block_reason', 'blocking_reason', 'reason',
+      'restriction', 'restrictions', 'policy', 'policies', 'moderation', 'disabled', 'disabled_reason',
+      'suspension', 'infractions', 'tags', 'certification_status', 'nested'],
+    matchingKeys: {
+      block: ['blocked', 'block_reason', 'blocking_reason', 'nested.blocking_reason'],
+      reason: ['status.policy.reason', 'block_reason', 'blocking_reason', 'reason',
+        'restriction.nested.reason', 'disabled_reason', 'nested.blocking_reason'],
+      restrict: ['restriction', 'restrictions'], policy: ['status.policy', 'policy'],
+      infraction: ['infractions'], suspend: [], disable: ['restrictions.disabled', 'disabled', 'disabled_reason'],
+      moderation: ['moderation'],
+    },
+    active: true, status: { keys: ['state', 'policy'], state: 'blocked',
+      policy: { keys: ['code', 'reason', 'message'], code: 'POLICY_403', reason: 'PA_BLOCKED' } },
+    blocked: true, block_reason: 'PA_BLOCKED', blocking_reason: 'POLICY_403', reason: 'PA_BLOCKED',
+    restriction: { keys: ['code', 'enabled', 'contact', 'nested'], code: 'RESTRICTED', enabled: true,
+      nested: { keys: ['pending', 'reason'], pending: false, reason: 'POLICY_REVIEW' } },
+    restrictions: [{ keys: ['code', 'disabled'], code: 'PA_BLOCKED', disabled: false }],
+    policy: { keys: ['code'], code: 'POLICY_403' },
+    policies: [{ keys: ['status'], status: 'pending' }],
+    moderation: { keys: ['status'], status: 'pending' }, disabled: false, disabled_reason: null,
+    suspension: { keys: ['status'], status: 'active' },
+    infractions: [{ keys: ['code'], code: 'INFRACTION_1' }], tags: ['REVIEW'],
+    certification_status: 'certified',
+  })
   assert.deepEqual(restrictionsBody, {
+    application: restrictionsBody.application,
     user: { httpStatus: 200, status: {
       site_status: { status: 'active', details: { codes: ['SITE_OK'], allow: true } },
       list: { allow: true, codes: ['LIST_OK'], blocked: false },
@@ -522,17 +581,19 @@ try {
   })
   // O diagnóstico só devolve ações de validação e nunca dados pessoais ou segredos.
   const restrictionsJson = JSON.stringify(restrictionsBody)
-  for (const privateValue of ['private@example.com', '11999999999', 'cookie-secreto', 'nunca-retornar', 'browse_catalog']) {
+  for (const privateValue of ['private@example.com', '11999999999', 'cookie-secreto', 'nunca-retornar',
+    'browse_catalog', 'access_token', 'refresh_token', 'Authorization', 'client_secret', 'DATABASE_URL']) {
     assert.ok(!restrictionsJson.includes(privateValue))
   }
   restrictionsMode = 'error'
   const failedRestrictions = await request(apiPorts[0], restrictionsPath, cookie)
   assert.equal(failedRestrictions.status, 200)
+  assert.equal(restrictionsApplicationCalls, 2)
   assert.equal(restrictionsUserCalls, 2)
   assert.equal(consumedApplicationsCalls, 2)
   assert.equal(refreshCalls, refreshBeforeRestrictions)
   const failedRestrictionsBody = await failedRestrictions.json()
-  for (const part of [failedRestrictionsBody.user, failedRestrictionsBody.consumedApplications]) {
+  for (const part of [failedRestrictionsBody.application, failedRestrictionsBody.user, failedRestrictionsBody.consumedApplications]) {
     assert.deepEqual(part, { httpStatus: 403, error: 'forbidden', code: 'PA_BLOCKED',
       message: 'Bearer [REDACTED] [REDACTED] [REDACTED]', status: 403, blocked_by: 'policy_agent' })
   }

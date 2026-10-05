@@ -8,6 +8,13 @@ const dateKey = /^(?:period|date|date_from|date_to|from|to|start|end|started_at|
 const actionKey = /^(?:required_action|action|actions|pending_action)$/i
 const validationKey = /(?:validat|verif|mandatory|required|kyc|identity)/i
 const actionDetailKey = /^(?:required_action|action|actions|pending_action|code|codes|type|status|state|value|allow|required|mandatory|pending|validation|verification)$/i
+const applicationFields = ['active', 'status', 'blocked', 'block_reason', 'blocking_reason', 'reason',
+  'restriction', 'restrictions', 'policy', 'policies', 'moderation', 'disabled', 'disabled_reason',
+  'suspension', 'infractions', 'tags', 'certification_status'] as const
+const applicationTerms = ['block', 'reason', 'restrict', 'policy', 'infraction', 'suspend', 'disable', 'moderation'] as const
+const applicationSecretKey = /(?:secret|token|auth|cookie|password|credential|database|private|session|api.?key|signature)/i
+const applicationCodeKey = /(?:^|_)(?:code|codes|status|state|reason|reasons|restriction|restrictions|policy|policies|moderation|suspension|infraction|infractions|tag|tags|type)(?:$|_)/i
+const applicationStatusValue = /^(?:active|inactive|blocked|pending|approved|rejected|suspended|disabled|enabled|certified|not_certified|restricted|none|open|closed|review|under_review)$/i
 
 function object(value: unknown): ObjectValue | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as ObjectValue : null
@@ -127,6 +134,70 @@ export function safeUserRestrictions(httpStatus: number, body: unknown, secrets:
   }
   visit(status, selected, 0)
   result.status = selected
+  return result
+}
+
+export function safeApplicationRestrictions(httpStatus: number, body: unknown, secrets: string[]) {
+  const result: ObjectValue = { httpStatus }
+  const source = object(body)
+  if (!source) return result
+
+  const safeKey = (key: string) => /^[a-z0-9_]{1,80}$/i.test(key) &&
+    !forbiddenKey.test(key) && !applicationSecretKey.test(key)
+  const entries = (value: ObjectValue) => Object.entries(value).filter(([key]) => safeKey(key))
+  result.topLevelKeys = entries(source).map(([key]) => key)
+
+  const matchingKeys: ObjectValue = Object.fromEntries(applicationTerms.map((term) => [term, []]))
+  function findKeys(value: unknown, path: string[], depth: number) {
+    if (depth > 8) return
+    if (Array.isArray(value)) {
+      for (const item of value.slice(0, 100)) findKeys(item, path, depth + 1)
+      return
+    }
+    const node = object(value)
+    if (!node) return
+    for (const [key, child] of entries(node).slice(0, 100)) {
+      const childPath = [...path, key]
+      for (const term of applicationTerms) {
+        const paths = matchingKeys[term] as string[]
+        if (key.toLowerCase().includes(term) && paths.length < 100) {
+          const label = childPath.join('.')
+          if (!paths.includes(label)) paths.push(label)
+        }
+      }
+      findKeys(child, childPath, depth + 1)
+    }
+  }
+  findKeys(source, [], 0)
+  result.matchingKeys = matchingKeys
+
+  function summarize(value: unknown, key: string, depth = 0): unknown {
+    if (depth > 8) return undefined
+    if (typeof value === 'boolean' || value === null) return value
+    if (typeof value === 'number') return /(?:^|_)(?:code|status|reason)(?:$|_)/i.test(key) &&
+      Number.isFinite(value) ? value : undefined
+    if (typeof value === 'string') {
+      if (!applicationCodeKey.test(key)) return undefined
+      const safe = safeString(value, secrets)
+      if (!safe || safe.includes('[REDACTED]')) return undefined
+      return /^[A-Z][A-Z0-9_-]{0,79}$/.test(safe) || applicationStatusValue.test(safe) ? safe : undefined
+    }
+    if (Array.isArray(value)) return value.slice(0, 100)
+      .map((item) => summarize(item, key, depth + 1)).filter((item) => item !== undefined)
+    const node = object(value)
+    if (!node) return undefined
+    const selected: ObjectValue = { keys: entries(node).map(([name]) => name) }
+    for (const [name, child] of entries(node).slice(0, 100)) {
+      const safe = summarize(child, name, depth + 1)
+      if (safe !== undefined) selected[name] = safe
+    }
+    return selected
+  }
+  for (const field of applicationFields) {
+    if (!Object.hasOwn(source, field)) continue
+    const safe = summarize(source[field], field)
+    if (safe !== undefined) result[field] = safe
+  }
   return result
 }
 
