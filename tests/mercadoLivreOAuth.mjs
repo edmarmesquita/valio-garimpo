@@ -41,7 +41,10 @@ const provider = createServer(async (req, res) => {
       return
     }
     const status = bulkMode === 'forbidden' ? 403 : 200
-    const body = (bulkMode === 'success' || bulkMode === 'pictures') ? [{
+    const body = bulkMode === 'shape-only' ? [{
+      code: 200, status: 'success', body: { unexpected_field: true, message: 'Estrutura inesperada' },
+      Authorization: 'Bearer access-1',
+    }] : (bulkMode === 'success' || bulkMode === 'pictures') ? [{
       id: 'MLB4045941169', status_code: 200,
       body: { id: 'MLB4045941169', title: 'Produto bulk', price: 89.9,
         currency_id: 'BRL', permalink: 'https://produto.mercadolivre.com.br/MLB4045941169',
@@ -456,7 +459,7 @@ try {
   assert.equal((await request(apiPorts[0], bulkPath)).status, 401)
   assert.equal((await request(apiPorts[0], bulkPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
   assert.equal(bulkCalls, 0)
-  const assertBulkCall = async (mode, expectedStatus, expectedBody) => {
+  const assertBulkCall = async (mode, expectedStatus, expectedShape) => {
     bulkMode = mode
     const beforeBulk = bulkCalls
     const beforeItems = itemCalls
@@ -470,31 +473,38 @@ try {
     assert.equal(body.providerStatus, expectedStatus)
     assert.equal(body.contentType, mode === 'html' ? 'text/html' : 'application/json; charset=utf-8')
     assert.ok(body.bodySize > 0)
-    assert.deepEqual(body.body, expectedBody)
+    assert.deepEqual(body, { providerStatus: expectedStatus,
+      contentType: mode === 'html' ? 'text/html' : 'application/json; charset=utf-8',
+      bodySize: body.bodySize, ...expectedShape })
     for (const secret of ['access-1', 'refresh-1', 'nunca-retornar', 'secret-teste',
       'postgres://', 'Authorization', 'access_token', 'refresh_token', 'DATABASE_URL', 'client_secret']) {
       assert.ok(!JSON.stringify(body).includes(secret))
     }
   }
-  await assertBulkCall('success', 200, {
-    id: 'MLB4045941169', status_code: 200,
-    body: { id: 'MLB4045941169', title: 'Produto bulk', price: 89.9,
-      currency_id: 'BRL', permalink: 'https://produto.mercadolivre.com.br/MLB4045941169',
-      status: 'active', available_quantity: 2, thumbnail: 'https://http2.mlstatic.com/bulk.jpg' },
-  })
-  await assertBulkCall('pictures', 200, {
-    id: 'MLB4045941169', status_code: 200,
-    body: { id: 'MLB4045941169', title: 'Produto bulk', price: 89.9,
-      currency_id: 'BRL', permalink: 'https://produto.mercadolivre.com.br/MLB4045941169',
-      status: 'active', available_quantity: 2 },
-  })
-  await assertBulkCall('item-error', 200, { error: 'forbidden', code: 'PA_BLOCKED',
-    message: 'Bearer [REDACTED]; [REDACTED]', status: 403, blocked_by: 'policy_agent' })
-  await assertBulkCall('item-error-200', 200, { error: 'forbidden', code: 'PA_BLOCKED',
-    message: 'Bearer [REDACTED]; [REDACTED]', status: 403, blocked_by: 'policy_agent' })
-  await assertBulkCall('forbidden', 403, { error: 'access_denied', code: 'PA_BLOCKED',
-    message: 'Bearer [REDACTED]; [REDACTED]', status: 403, blocked_by: 'policy_agent' })
-  await assertBulkCall('html', 503, undefined)
+  const productKeys = ['id', 'title', 'price', 'currency_id', 'permalink', 'status',
+    'available_quantity', 'thumbnail']
+  const productShape = { parsedType: 'array', isArray: true, arrayLength: 1,
+    firstElementKeys: ['id', 'status_code', 'body'], firstElementStatusCode: 200,
+    firstElementBodyType: 'object', firstElementBodyKeys: productKeys,
+    firstElementBodyStatus: 'active' }
+  await assertBulkCall('success', 200, productShape)
+  await assertBulkCall('pictures', 200, { ...productShape,
+    firstElementBodyKeys: [...productKeys.slice(0, -1), 'pictures'] })
+  const errorShape = { parsedType: 'array', isArray: true, arrayLength: 1,
+    firstElementKeys: ['id', 'status_code', 'body'], firstElementBodyType: 'object',
+    firstElementBodyKeys: ['error', 'code', 'message', 'status', 'blocked_by'],
+    firstElementBodyError: 'forbidden', firstElementBodyCode: 'PA_BLOCKED',
+    firstElementBodyStatus: 403 }
+  await assertBulkCall('item-error', 200, { ...errorShape, firstElementStatusCode: 403 })
+  await assertBulkCall('item-error-200', 200, { ...errorShape, firstElementStatusCode: 200 })
+  await assertBulkCall('shape-only', 200, { parsedType: 'array', isArray: true, arrayLength: 1,
+    firstElementKeys: ['code', 'status', 'body'], firstElementCode: 200,
+    firstElementStatus: 'success', firstElementBodyType: 'object',
+    firstElementBodyKeys: ['unexpected_field', 'message'],
+    firstElementBodyMessage: 'Estrutura inesperada' })
+  await assertBulkCall('forbidden', 403, { parsedType: 'object', isArray: false,
+    topLevelKeys: ['error', 'code', 'message', 'status', 'blocked_by'] })
+  await assertBulkCall('html', 503, { parsedType: 'other', isArray: false })
   bulkMode = 'success'
 
   const client = new pg.Client({ connectionString: env.DATABASE_URL })

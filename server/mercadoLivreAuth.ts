@@ -325,48 +325,64 @@ router.get('/diagnostico/item-bulk', async (req, res) => {
       .sort((a, b) => b.length - a.length)
     const safeText = (value: string) => secrets.reduce((safe, secret) => safe.split(secret).join('[REDACTED]'), value)
       .replace(/Bearer\s+[^\s,;"']+/gi, 'Bearer [REDACTED]')
-    const scalar = (value: unknown): string | number | boolean | null | undefined => {
-      if (typeof value === 'string') return safeText(value)
+    const safeKeys = (source: Record<string, unknown>) => Object.keys(source)
+      .filter((key) => key.length <= 80 && /^[a-z_][a-z0-9_]*$/i.test(key)
+        && !/(?:authorization|cookie|token|secret|password|credential|database_url|api_key|private_key)/i.test(key))
+      .slice(0, 100)
+    const safeScalar = (value: unknown): string | number | boolean | null | undefined => {
       if (value === null || typeof value === 'number' || typeof value === 'boolean') return value
-      return undefined
+      if (typeof value !== 'string') return undefined
+      const sanitized = safeText(value)
+      if (sanitized.length > 160 || /\[REDACTED\]|(?:authorization|cookie|token|secret|password|credential|database_url|api_key|private_key)|https?:\/\/|@|[a-z0-9+/_=-]{40,}/i.test(sanitized)) return undefined
+      return sanitized
     }
-    const fields = (source: Record<string, unknown>, names: string[]) => {
-      const result: Record<string, string | number | boolean | null> = {}
-      for (const name of names) {
-        const value = scalar(source[name])
-        if (value !== undefined) result[name] = value
-      }
-      return result
-    }
+    const valueType = (value: unknown) => Array.isArray(value) ? 'array'
+      : value === null ? 'null' : typeof value
     const contentType = response.headers.get('content-type')
     const result: Record<string, unknown> = {
       providerStatus: response.status,
       contentType: contentType ? safeText(contentType) : null,
       bodySize: bytes.length,
+      parsedType: 'other',
+      isArray: false,
     }
     const mediaType = contentType?.split(';', 1)[0].trim().toLowerCase()
     if (mediaType === 'application/json' || mediaType?.endsWith('+json')) {
       let parsed: unknown
       try { parsed = JSON.parse(bytes.toString('utf8')) } catch { parsed = null }
-      const first = Array.isArray(parsed) ? parsed[0] : parsed
-      if (first && typeof first === 'object' && !Array.isArray(first)) {
-        const item = first as Record<string, unknown>
-        const itemBody = item.body && typeof item.body === 'object' && !Array.isArray(item.body)
-          ? item.body as Record<string, unknown> : item
-        const itemStatus = typeof item.status_code === 'number' ? item.status_code : response.status
-        const hasError = itemBody.error !== undefined || item.error !== undefined
-          || itemStatus < 200 || itemStatus >= 300 || !response.ok
-        if (!hasError) {
-          const safeItem = fields(item, ['id', 'status_code', 'code']) as Record<string, unknown>
-          const safeBody: Record<string, unknown> = fields(itemBody,
-            ['id', 'title', 'price', 'currency_id', 'permalink', 'status', 'available_quantity', 'thumbnail'])
-          safeItem.body = safeBody
-          result.body = safeItem
-        } else {
-          const errorSource = itemBody.error !== undefined ? itemBody
-            : item.error !== undefined ? item : itemBody
-          result.body = fields(errorSource, ['error', 'code', 'message', 'status', 'blocked_by'])
+      if (Array.isArray(parsed)) {
+        result.parsedType = 'array'
+        result.isArray = true
+        result.arrayLength = parsed.length
+        const first = parsed[0]
+        if (first && typeof first === 'object' && !Array.isArray(first)) {
+          const item = first as Record<string, unknown>
+          result.firstElementKeys = safeKeys(item)
+          for (const [sourceKey, resultKey] of [
+            ['code', 'firstElementCode'], ['status_code', 'firstElementStatusCode'],
+            ['status', 'firstElementStatus'],
+          ]) {
+            const value = safeScalar(item[sourceKey])
+            if (value !== undefined) result[resultKey] = value
+          }
+          if (Object.hasOwn(item, 'body')) {
+            result.firstElementBodyType = valueType(item.body)
+            if (item.body && typeof item.body === 'object' && !Array.isArray(item.body)) {
+              const body = item.body as Record<string, unknown>
+              result.firstElementBodyKeys = safeKeys(body)
+              for (const [sourceKey, resultKey] of [
+                ['error', 'firstElementBodyError'], ['code', 'firstElementBodyCode'],
+                ['status', 'firstElementBodyStatus'], ['message', 'firstElementBodyMessage'],
+              ]) {
+                const value = safeScalar(body[sourceKey])
+                if (value !== undefined) result[resultKey] = value
+              }
+            }
+          }
         }
+      } else if (parsed && typeof parsed === 'object') {
+        result.parsedType = 'object'
+        result.topLevelKeys = safeKeys(parsed as Record<string, unknown>)
       }
     }
     res.json(result)
