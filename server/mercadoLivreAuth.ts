@@ -288,6 +288,94 @@ router.get('/diagnostico/item', async (req, res) => {
   }
 })
 
+// Diagnóstico temporário do endpoint bulk com o token armazenado, sem renovação.
+router.get('/diagnostico/item-bulk', async (req, res) => {
+  const sessionId = getSessionId(req)
+  if (!sessionId) {
+    res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+    return
+  }
+
+  try {
+    assertEncryptionConfigured()
+    const credentials = await withLockedConnection(hashOpaque(sessionId), async (_client, connection) => {
+      if (connection.status !== 'connected') return null
+      return {
+        accessToken: decryptSecret(connection.access_token_ciphertext, `access:${connection.meli_user_id}`),
+        refreshToken: decryptSecret(connection.refresh_token_ciphertext, `refresh:${connection.meli_user_id}`),
+      }
+    })
+    if (!credentials) {
+      res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+      return
+    }
+
+    const response = await fetch('https://api.mercadolibre.com/items/bulk?ids=MLB4045941169', {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${credentials.accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    const bytes = Buffer.from(await response.arrayBuffer())
+    let databasePassword: string | undefined
+    try { databasePassword = process.env.DATABASE_URL ? decodeURIComponent(new URL(process.env.DATABASE_URL).password) : undefined }
+    catch { /* URL indisponível para extração de senha */ }
+    const secrets = [credentials.accessToken, credentials.refreshToken, sessionId,
+      process.env.MELI_CLIENT_SECRET, process.env.MELI_TOKEN_ENCRYPTION_KEY,
+      process.env.DATABASE_URL, databasePassword, req.get('cookie')]
+      .filter((value): value is string => Boolean(value))
+      .sort((a, b) => b.length - a.length)
+    const safeText = (value: string) => secrets.reduce((safe, secret) => safe.split(secret).join('[REDACTED]'), value)
+      .replace(/Bearer\s+[^\s,;"']+/gi, 'Bearer [REDACTED]')
+    const scalar = (value: unknown): string | number | boolean | null | undefined => {
+      if (typeof value === 'string') return safeText(value)
+      if (value === null || typeof value === 'number' || typeof value === 'boolean') return value
+      return undefined
+    }
+    const fields = (source: Record<string, unknown>, names: string[]) => {
+      const result: Record<string, string | number | boolean | null> = {}
+      for (const name of names) {
+        const value = scalar(source[name])
+        if (value !== undefined) result[name] = value
+      }
+      return result
+    }
+    const contentType = response.headers.get('content-type')
+    const result: Record<string, unknown> = {
+      providerStatus: response.status,
+      contentType: contentType ? safeText(contentType) : null,
+      bodySize: bytes.length,
+    }
+    if (contentType && /\b(?:application\/json|[^\s;/]+\/[^\s;/]+\+json)\b/i.test(contentType)) {
+      let parsed: unknown
+      try { parsed = JSON.parse(bytes.toString('utf8')) } catch { parsed = null }
+      const first = Array.isArray(parsed) ? parsed[0] : parsed
+      if (first && typeof first === 'object' && !Array.isArray(first)) {
+        const item = first as Record<string, unknown>
+        const itemBody = item.body && typeof item.body === 'object' && !Array.isArray(item.body)
+          ? item.body as Record<string, unknown> : item
+        const itemStatus = typeof item.status_code === 'number' ? item.status_code : response.status
+        if (response.status === 200 && itemStatus >= 200 && itemStatus < 300) {
+          const safeItem = fields(item, ['id', 'status_code', 'code']) as Record<string, unknown>
+          const safeBody: Record<string, unknown> = fields(itemBody,
+            ['id', 'title', 'price', 'currency_id', 'permalink', 'status', 'available_quantity', 'thumbnail'])
+          if (!safeBody.thumbnail && Array.isArray(itemBody.pictures)) {
+            safeBody.pictures = itemBody.pictures
+              .filter((picture): picture is Record<string, unknown> =>
+                Boolean(picture) && typeof picture === 'object' && !Array.isArray(picture))
+              .map((picture) => fields(picture, ['id', 'url', 'secure_url']))
+          }
+          safeItem.body = safeBody
+          result.body = safeItem
+        } else {
+          result.body = fields(itemBody, ['error', 'code', 'message', 'status', 'blocked_by'])
+        }
+      }
+    }
+    res.json(result)
+  } catch {
+    res.status(503).json({ error: 'Não foi possível consultar o Mercado Livre.' })
+  }
+})
+
 // Diagnóstico temporário do estado da aplicação e do usuário, sem renovar o token.
 router.get('/diagnostico/status', async (req, res) => {
   const sessionId = getSessionId(req)

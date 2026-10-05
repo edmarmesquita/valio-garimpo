@@ -22,6 +22,8 @@ let rejectedAccessToken = null
 let rejectRefresh = false
 let itemFailureMode = null
 let itemCalls = 0
+let bulkCalls = 0
+let bulkMode = 'success'
 let grantMode = 'normal'
 let grantCalls = 0
 let applicationStatusCalls = 0
@@ -29,6 +31,36 @@ let userStatusCalls = 0
 let statusDiagnosticMode = 'ok'
 const usedRefreshTokens = new Set()
 const provider = createServer(async (req, res) => {
+  if (req.url === '/items/bulk?ids=MLB4045941169') {
+    bulkCalls++
+    assert.equal(req.method, 'GET')
+    assert.equal(req.headers.accept, 'application/json')
+    assert.equal(req.headers.authorization, 'Bearer access-1')
+    if (bulkMode === 'html') {
+      res.writeHead(503, { 'content-type': 'text/html' }).end('<html>access-1 refresh-1 secret-teste</html>')
+      return
+    }
+    const status = bulkMode === 'forbidden' ? 403 : 200
+    const body = (bulkMode === 'success' || bulkMode === 'pictures') ? [{
+      id: 'MLB4045941169', status_code: 200,
+      body: { id: 'MLB4045941169', title: 'Produto bulk', price: 89.9,
+        currency_id: 'BRL', permalink: 'https://produto.mercadolivre.com.br/MLB4045941169',
+        status: 'active', available_quantity: 2,
+        ...(bulkMode === 'pictures'
+          ? { pictures: [{ id: 'foto-1', url: 'http://http2.mlstatic.com/bulk.jpg',
+            secure_url: 'https://http2.mlstatic.com/bulk.jpg', access_token: 'nunca-retornar' }] }
+          : { thumbnail: 'https://http2.mlstatic.com/bulk.jpg' }),
+        access_token: 'nunca-retornar' },
+      Authorization: 'Bearer access-1',
+    }] : bulkMode === 'item-error' ? [{
+      id: 'MLB4045941169', status_code: 403,
+      body: { error: 'forbidden', code: 'PA_BLOCKED', message: 'Bearer access-1; refresh-1',
+        status: 403, blocked_by: 'policy_agent', access_token: 'nunca-retornar' },
+    }] : { error: 'access_denied', code: 'PA_BLOCKED', message: 'Bearer access-1; secret-teste',
+      status: 403, blocked_by: 'policy_agent', refresh_token: 'nunca-retornar' }
+    res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(body))
+    return
+  }
   if (req.url === '/applications/6332151948097527' || req.url === '/users/3334862827?attributes=status') {
     const application = req.url.startsWith('/applications/')
     if (application) applicationStatusCalls++
@@ -419,6 +451,51 @@ try {
   assert.equal(refreshCalls, refreshBeforeRejectedDiagnostic)
   assert.deepEqual(await rejectedDiagnostic.json(), { providerStatus: 401, contentType: null, bodySize: 0 })
   rejectedAccessToken = null
+
+  const bulkPath = '/api/mercadolivre/diagnostico/item-bulk'
+  assert.equal((await request(apiPorts[0], bulkPath)).status, 401)
+  assert.equal((await request(apiPorts[0], bulkPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
+  assert.equal(bulkCalls, 0)
+  const assertBulkCall = async (mode, expectedStatus, expectedBody) => {
+    bulkMode = mode
+    const beforeBulk = bulkCalls
+    const beforeItems = itemCalls
+    const beforeRefresh = refreshCalls
+    const response = await request(apiPorts[0], bulkPath, cookie)
+    assert.equal(response.status, 200)
+    const body = await response.json()
+    assert.equal(bulkCalls, beforeBulk + 1)
+    assert.equal(itemCalls, beforeItems)
+    assert.equal(refreshCalls, beforeRefresh)
+    assert.equal(body.providerStatus, expectedStatus)
+    assert.equal(body.contentType, mode === 'html' ? 'text/html' : 'application/json; charset=utf-8')
+    assert.ok(body.bodySize > 0)
+    assert.deepEqual(body.body, expectedBody)
+    for (const secret of ['access-1', 'refresh-1', 'nunca-retornar', 'secret-teste',
+      'postgres://', 'Authorization', 'access_token', 'refresh_token', 'DATABASE_URL', 'client_secret']) {
+      assert.ok(!JSON.stringify(body).includes(secret))
+    }
+  }
+  await assertBulkCall('success', 200, {
+    id: 'MLB4045941169', status_code: 200,
+    body: { id: 'MLB4045941169', title: 'Produto bulk', price: 89.9,
+      currency_id: 'BRL', permalink: 'https://produto.mercadolivre.com.br/MLB4045941169',
+      status: 'active', available_quantity: 2, thumbnail: 'https://http2.mlstatic.com/bulk.jpg' },
+  })
+  await assertBulkCall('pictures', 200, {
+    id: 'MLB4045941169', status_code: 200,
+    body: { id: 'MLB4045941169', title: 'Produto bulk', price: 89.9,
+      currency_id: 'BRL', permalink: 'https://produto.mercadolivre.com.br/MLB4045941169',
+      status: 'active', available_quantity: 2,
+      pictures: [{ id: 'foto-1', url: 'http://http2.mlstatic.com/bulk.jpg',
+        secure_url: 'https://http2.mlstatic.com/bulk.jpg' }] },
+  })
+  await assertBulkCall('item-error', 200, { error: 'forbidden', code: 'PA_BLOCKED',
+    message: 'Bearer [REDACTED]; [REDACTED]', status: 403, blocked_by: 'policy_agent' })
+  await assertBulkCall('forbidden', 403, { error: 'access_denied', code: 'PA_BLOCKED',
+    message: 'Bearer [REDACTED]; [REDACTED]', status: 403, blocked_by: 'policy_agent' })
+  await assertBulkCall('html', 503, undefined)
+  bulkMode = 'success'
 
   const client = new pg.Client({ connectionString: env.DATABASE_URL })
   await client.connect()
