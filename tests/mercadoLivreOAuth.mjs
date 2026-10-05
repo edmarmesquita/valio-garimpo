@@ -31,8 +31,51 @@ let grantCalls = 0
 let applicationStatusCalls = 0
 let userStatusCalls = 0
 let statusDiagnosticMode = 'ok'
+let restrictionsMode = 'inactive'
+let restrictionsUserCalls = 0
+let consumedApplicationsCalls = 0
 const usedRefreshTokens = new Set()
 const provider = createServer(async (req, res) => {
+  if (req.url === '/users/3334862827?attributes=status' && restrictionsMode !== 'inactive') {
+    restrictionsUserCalls++
+    assert.equal(req.method, 'GET')
+    assert.equal(req.headers.authorization, 'Bearer access-1')
+    if (restrictionsMode === 'error') {
+      res.writeHead(403, { 'content-type': 'application/json' }).end(JSON.stringify({
+        error: 'forbidden', code: 'PA_BLOCKED', message: 'Bearer access-1 refresh-1 secret-teste',
+        status: 403, blocked_by: 'policy_agent', access_token: 'nunca-retornar',
+      }))
+      return
+    }
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+      id: 3334862827, email: 'private@example.com', status: {
+        site_status: { status: 'active', details: { codes: ['SITE_OK'], allow: true, access_token: 'nunca-retornar' } },
+        list: { allow: true, codes: ['LIST_OK'], blocked: false, nickname: 'private' },
+        payments: { codes: ['PAYMENT_REVIEW'], validation_pending: true, message: 'private' },
+        blocked: false, nested: { suspended: false, codes: ['NESTED_OK'] },
+        access_token: 'nunca-retornar', email: 'private@example.com',
+      },
+    }))
+    return
+  }
+  if (req.url === '/applications/v1/6332151948097527/consumed-applications') {
+    consumedApplicationsCalls++
+    assert.equal(req.method, 'GET')
+    assert.equal(req.headers.authorization, 'Bearer access-1')
+    if (restrictionsMode === 'error') {
+      res.writeHead(403, { 'content-type': 'application/json' }).end(JSON.stringify({
+        error: 'forbidden', code: 'PA_BLOCKED', message: 'Bearer access-1 refresh-1 secret-teste',
+        status: 403, blocked_by: 'policy_agent', Authorization: 'Bearer access-1',
+      }))
+      return
+    }
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+      app_id: 6332151948097527, period: { from: '2026-10-01', to: '2026-10-05' },
+      http_statuses: { 200: 150, 403: 7, 500: 2 }, total: 159,
+      email: 'private@example.com', access_token: 'nunca-retornar', message: 'private',
+    }))
+    return
+  }
   if (req.url === '/sites/MLB/search?q=tenis%20carina%20street%20puma') {
     searchCalls++
     assert.equal(req.method, 'GET')
@@ -435,6 +478,44 @@ try {
     application: { httpStatus: 200 }, user: { httpStatus: 200 },
   })
   statusDiagnosticMode = 'ok'
+  const restrictionsPath = '/api/mercadolivre/diagnostico/restricoes'
+  assert.equal((await request(apiPorts[0], restrictionsPath)).status, 401)
+  assert.equal((await request(apiPorts[0], restrictionsPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
+  assert.equal(restrictionsUserCalls, 0)
+  assert.equal(consumedApplicationsCalls, 0)
+  restrictionsMode = 'ok'
+  const refreshBeforeRestrictions = refreshCalls
+  const restrictionsResponse = await request(apiPorts[0], restrictionsPath, cookie)
+  assert.equal(restrictionsResponse.status, 200)
+  assert.equal(restrictionsUserCalls, 1)
+  assert.equal(consumedApplicationsCalls, 1)
+  assert.equal(refreshCalls, refreshBeforeRestrictions)
+  assert.deepEqual(await restrictionsResponse.json(), {
+    user: { httpStatus: 200, status: {
+      site_status: { status: 'active', details: { codes: ['SITE_OK'], allow: true } },
+      list: { allow: true, codes: ['LIST_OK'], blocked: false },
+      payments: { codes: ['PAYMENT_REVIEW'], validation_pending: true },
+      blocked: false, nested: { suspended: false, codes: ['NESTED_OK'] },
+    } },
+    consumedApplications: { httpStatus: 200, app_id: 6332151948097527,
+      period: { from: '2026-10-01', to: '2026-10-05' },
+      http_statuses: { 200: 150, 403: 7, 500: 2 }, total: 159 },
+  })
+  restrictionsMode = 'error'
+  const failedRestrictions = await request(apiPorts[0], restrictionsPath, cookie)
+  assert.equal(failedRestrictions.status, 200)
+  assert.equal(restrictionsUserCalls, 2)
+  assert.equal(consumedApplicationsCalls, 2)
+  assert.equal(refreshCalls, refreshBeforeRestrictions)
+  const failedRestrictionsBody = await failedRestrictions.json()
+  for (const part of [failedRestrictionsBody.user, failedRestrictionsBody.consumedApplications]) {
+    assert.deepEqual(part, { httpStatus: 403, error: 'forbidden', code: 'PA_BLOCKED',
+      message: 'Bearer [REDACTED] [REDACTED] [REDACTED]', status: 403, blocked_by: 'policy_agent' })
+  }
+  for (const secret of ['access-1', 'refresh-1', 'secret-teste', 'nunca-retornar', 'Authorization', 'access_token']) {
+    assert.ok(!JSON.stringify(failedRestrictionsBody).includes(secret))
+  }
+  restrictionsMode = 'inactive'
   const callsBeforeUnauthenticatedDiagnostic = itemCalls
   assert.equal((await request(apiPorts[0], itemDiagnosticPath)).status, 401)
   assert.equal((await request(apiPorts[0], itemDiagnosticPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)

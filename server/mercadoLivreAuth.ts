@@ -6,6 +6,7 @@ import { assertEncryptionConfigured, decryptSecret, encryptSecret, hashOpaque } 
 import { createAuthorizationAttempt, consumeAuthorizationAttempt, getConnectionSummary, saveConnection, withLockedConnection } from './mercadoLivreRepository.js'
 import { exchangeAuthorizationCode, getMercadoLivreGrant, getMercadoLivreIdentity, MercadoLivreApiError } from './mercadoLivreApi.js'
 import { connectionStatus, getBackendAccessToken } from './mercadoLivreTokenService.js'
+import { safeConsumedApplications, safeProviderError, safeUserRestrictions } from './mercadoLivreRestricoes.js'
 
 const AUTHORIZATION_URL = 'https://auth.mercadolivre.com.br/authorization'
 const SESSION_COOKIE = 'meli_oauth_session'
@@ -571,6 +572,66 @@ router.get('/diagnostico/status', async (req, res) => {
       read('https://api.mercadolibre.com/users/3334862827?attributes=status', 'user'),
     ])
     res.json({ application, user })
+  } catch {
+    res.status(503).json({ error: 'Não foi possível consultar o Mercado Livre.' })
+  }
+})
+
+// Diagnóstico temporário de restrições: duas consultas com o access token armazenado.
+router.get('/diagnostico/restricoes', async (req, res) => {
+  const sessionId = getSessionId(req)
+  if (!sessionId) {
+    res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+    return
+  }
+
+  try {
+    assertEncryptionConfigured()
+    const credentials = await withLockedConnection(hashOpaque(sessionId), async (_client, connection) => {
+      if (connection.status !== 'connected') return null
+      return {
+        accessToken: decryptSecret(connection.access_token_ciphertext, `access:${connection.meli_user_id}`),
+        refreshToken: decryptSecret(connection.refresh_token_ciphertext, `refresh:${connection.meli_user_id}`),
+      }
+    })
+    if (!credentials) {
+      res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+      return
+    }
+
+    let databasePassword: string | undefined
+    try { databasePassword = process.env.DATABASE_URL ? decodeURIComponent(new URL(process.env.DATABASE_URL).password) : undefined }
+    catch { /* URL indisponível para extração de senha */ }
+    const secrets = [credentials.accessToken, credentials.refreshToken, sessionId, process.env.MELI_CLIENT_SECRET,
+      process.env.MELI_TOKEN_ENCRYPTION_KEY, process.env.DATABASE_URL, databasePassword, req.get('cookie')]
+      .filter((value): value is string => Boolean(value))
+      .sort((a, b) => b.length - a.length)
+
+    const read = async (url: string, kind: 'user' | 'consumedApplications') => {
+      try {
+        const response = await fetch(url, {
+          headers: { accept: 'application/json', authorization: `Bearer ${credentials.accessToken}` },
+          signal: AbortSignal.timeout(10_000),
+        })
+        let body: unknown
+        const contentType = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase()
+        if (contentType === 'application/json' || contentType?.endsWith('+json')) {
+          try { body = await response.json() } catch { body = null }
+        }
+        if (!response.ok) return safeProviderError(response.status, body, secrets)
+        return kind === 'user'
+          ? safeUserRestrictions(response.status, body, secrets)
+          : safeConsumedApplications(response.status, body, secrets)
+      } catch {
+        return { httpStatus: null, error: 'Não foi possível consultar o Mercado Livre.' }
+      }
+    }
+
+    const [user, consumedApplications] = await Promise.all([
+      read('https://api.mercadolibre.com/users/3334862827?attributes=status', 'user'),
+      read('https://api.mercadolibre.com/applications/v1/6332151948097527/consumed-applications', 'consumedApplications'),
+    ])
+    res.json({ user, consumedApplications })
   } catch {
     res.status(503).json({ error: 'Não foi possível consultar o Mercado Livre.' })
   }

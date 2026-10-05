@@ -22,6 +22,9 @@ globalThis.fetch = (input, init) => {
   if (url === 'https://api.mercadolibre.com/users/3334862827?attributes=status') {
     return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/users/3334862827?attributes=status`, init)
   }
+  if (url === 'https://api.mercadolibre.com/applications/v1/6332151948097527/consumed-applications') {
+    return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/applications/v1/6332151948097527/consumed-applications`, init)
+  }
   if (url === 'https://api.mercadolibre.com/items/bulk?ids=MLB4045941169') {
     return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/items/bulk?ids=MLB4045941169`, init)
   }
