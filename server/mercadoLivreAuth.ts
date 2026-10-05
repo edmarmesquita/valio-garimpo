@@ -3,7 +3,7 @@ import { Router } from 'express'
 import type { Request, Response } from 'express'
 import { getMercadoLivreConfig } from './mercadoLivreConfig.js'
 import { assertEncryptionConfigured, decryptSecret, encryptSecret, hashOpaque } from './mercadoLivreCrypto.js'
-import { createAuthorizationAttempt, consumeAuthorizationAttempt, getConnectionSummary, saveConnection } from './mercadoLivreRepository.js'
+import { createAuthorizationAttempt, consumeAuthorizationAttempt, getConnectionSummary, saveConnection, withLockedConnection } from './mercadoLivreRepository.js'
 import { exchangeAuthorizationCode, getMercadoLivreGrant, getMercadoLivreIdentity, MercadoLivreApiError } from './mercadoLivreApi.js'
 import { connectionStatus, getBackendAccessToken } from './mercadoLivreTokenService.js'
 
@@ -217,6 +217,74 @@ router.get('/diagnostico/grants', async (req, res) => {
   } catch (error) {
     res.status(error instanceof MercadoLivreApiError ? 502 : 503)
       .json({ error: 'Não foi possível consultar os grants do Mercado Livre.' })
+  }
+})
+
+// Diagnóstico temporário do mesmo GET /items usado na consulta de produto.
+router.get('/diagnostico/item', async (req, res) => {
+  const sessionId = getSessionId(req)
+  if (!sessionId) {
+    res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+    return
+  }
+
+  try {
+    assertEncryptionConfigured()
+    const credentials = await withLockedConnection(hashOpaque(sessionId), async (_client, connection) => {
+      if (connection.status !== 'connected') return null
+      return {
+        accessToken: decryptSecret(connection.access_token_ciphertext, `access:${connection.meli_user_id}`),
+        refreshToken: decryptSecret(connection.refresh_token_ciphertext, `refresh:${connection.meli_user_id}`),
+      }
+    })
+    if (!credentials) {
+      res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+      return
+    }
+
+    const response = await fetch('https://api.mercadolibre.com/items/MLB4045941169', {
+      headers: { accept: 'application/json', authorization: `Bearer ${credentials.accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    const bytes = Buffer.from(await response.arrayBuffer())
+    const contentType = response.headers.get('content-type')
+    let databasePassword: string | undefined
+    try { databasePassword = process.env.DATABASE_URL ? decodeURIComponent(new URL(process.env.DATABASE_URL).password) : undefined }
+    catch { /* URL indisponível para extração de senha */ }
+    const secrets = [credentials.accessToken, credentials.refreshToken, sessionId,
+      process.env.MELI_CLIENT_SECRET, process.env.MELI_TOKEN_ENCRYPTION_KEY,
+      process.env.DATABASE_URL, databasePassword, req.get('cookie')]
+      .filter((value): value is string => Boolean(value))
+      .sort((a, b) => b.length - a.length)
+    const safeText = (value: string) => secrets.reduce((safe, secret) => safe.split(secret).join('[REDACTED]'), value)
+      .replace(/Bearer\s+[^\s,;"']+/gi, 'Bearer [REDACTED]')
+    const result: {
+      providerStatus: number
+      contentType: string | null
+      bodySize: number
+      body?: Record<string, string | number | boolean | null>
+    } = { providerStatus: response.status, contentType: contentType ? safeText(contentType) : null, bodySize: bytes.length }
+
+    if (contentType && /(?:^|\/)\S*(?:json|\+json)(?:\s*;|\s*$)/i.test(contentType)) {
+      let parsed: unknown
+      try { parsed = JSON.parse(bytes.toString('utf8')) } catch { parsed = null }
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const source = parsed as Record<string, unknown>
+        const body: Record<string, string | number | boolean | null> = {}
+        for (const field of ['error', 'code', 'message', 'status', 'blocked_by']) {
+          const value = source[field]
+          if (typeof value === 'string') {
+            body[field] = safeText(value)
+          } else if (value === null || typeof value === 'number' || typeof value === 'boolean') {
+            body[field] = value
+          }
+        }
+        result.body = body
+      }
+    }
+    res.json(result)
+  } catch {
+    res.status(503).json({ error: 'Não foi possível consultar o Mercado Livre.' })
   }
 })
 

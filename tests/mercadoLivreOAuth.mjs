@@ -51,6 +51,17 @@ const provider = createServer(async (req, res) => {
   }
   if (req.url?.startsWith('/items/')) {
     itemCalls++
+    if (req.url === '/items/MLB4045941169' && itemFailureMode === 'diagnostic-json') {
+      res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
+      res.end(JSON.stringify({
+        error: 'forbidden', code: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES',
+        message: `Bloqueado para ${req.headers.authorization}`,
+        status: 403, blocked_by: 'policy_agent',
+        access_token: 'nunca-retornar', refresh_token: 'nunca-retornar',
+        Authorization: 'nunca-retornar', DATABASE_URL: 'nunca-retornar', client_secret: 'nunca-retornar',
+      }))
+      return
+    }
     if (itemFailureMode === 'forbidden') {
       res.writeHead(403, { 'content-type': 'application/json; charset=utf-8' })
       res.end(JSON.stringify({
@@ -292,6 +303,58 @@ try {
     assert.ok(!htmlLog.includes(secret))
   }
   itemFailureMode = null
+
+  const itemDiagnosticPath = '/api/mercadolivre/diagnostico/item'
+  const callsBeforeUnauthenticatedDiagnostic = itemCalls
+  assert.equal((await request(apiPorts[0], itemDiagnosticPath)).status, 401)
+  assert.equal((await request(apiPorts[0], itemDiagnosticPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
+  assert.equal(itemCalls, callsBeforeUnauthenticatedDiagnostic)
+  itemFailureMode = 'diagnostic-json'
+  const callsBeforeJsonDiagnostic = itemCalls
+  const refreshBeforeJsonDiagnostic = refreshCalls
+  const jsonDiagnostic = await request(apiPorts[0], itemDiagnosticPath, cookie)
+  assert.equal(jsonDiagnostic.status, 200)
+  assert.equal(itemCalls, callsBeforeJsonDiagnostic + 1)
+  assert.equal(refreshCalls, refreshBeforeJsonDiagnostic)
+  const jsonDiagnosticBody = await jsonDiagnostic.json()
+  const diagnosticProviderBody = {
+    error: 'forbidden', code: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES',
+    message: 'Bloqueado para Bearer [REDACTED]', status: 403, blocked_by: 'policy_agent',
+  }
+  const originalJsonBody = JSON.stringify({
+    error: 'forbidden', code: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES',
+    message: 'Bloqueado para Bearer access-1', status: 403, blocked_by: 'policy_agent',
+    access_token: 'nunca-retornar', refresh_token: 'nunca-retornar',
+    Authorization: 'nunca-retornar', DATABASE_URL: 'nunca-retornar', client_secret: 'nunca-retornar',
+  })
+  assert.deepEqual(jsonDiagnosticBody, {
+    providerStatus: 403, contentType: 'application/json; charset=utf-8',
+    bodySize: Buffer.byteLength(originalJsonBody), body: diagnosticProviderBody,
+  })
+  for (const secret of ['access-1', 'nunca-retornar', 'refresh-1', 'secret-teste', 'postgres://']) {
+    assert.ok(!JSON.stringify(jsonDiagnosticBody).includes(secret))
+  }
+
+  itemFailureMode = 'html'
+  const callsBeforeHtmlDiagnostic = itemCalls
+  const htmlDiagnostic = await request(apiPorts[0], itemDiagnosticPath, cookie)
+  assert.equal(htmlDiagnostic.status, 200)
+  assert.equal(itemCalls, callsBeforeHtmlDiagnostic + 1)
+  assert.deepEqual(await htmlDiagnostic.json(), {
+    providerStatus: 503, contentType: 'text/html; charset=utf-8',
+    bodySize: Buffer.byteLength('<html>access-1 refresh-1 secret-teste cookie-secreto nunca-retornar</html>'),
+  })
+  itemFailureMode = null
+
+  rejectedAccessToken = 'access-1'
+  const callsBeforeRejectedDiagnostic = itemCalls
+  const refreshBeforeRejectedDiagnostic = refreshCalls
+  const rejectedDiagnostic = await request(apiPorts[0], itemDiagnosticPath, cookie)
+  assert.equal(rejectedDiagnostic.status, 200)
+  assert.equal(itemCalls, callsBeforeRejectedDiagnostic + 1)
+  assert.equal(refreshCalls, refreshBeforeRejectedDiagnostic)
+  assert.deepEqual(await rejectedDiagnostic.json(), { providerStatus: 401, contentType: null, bodySize: 0 })
+  rejectedAccessToken = null
 
   const client = new pg.Client({ connectionString: env.DATABASE_URL })
   await client.connect()
