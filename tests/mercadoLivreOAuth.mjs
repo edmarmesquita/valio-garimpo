@@ -24,8 +24,32 @@ let itemFailureMode = null
 let itemCalls = 0
 let grantMode = 'normal'
 let grantCalls = 0
+let applicationStatusCalls = 0
+let userStatusCalls = 0
+let statusDiagnosticMode = 'ok'
 const usedRefreshTokens = new Set()
 const provider = createServer(async (req, res) => {
+  if (req.url === '/applications/6332151948097527' || req.url === '/users/3334862827?attributes=status') {
+    const application = req.url.startsWith('/applications/')
+    if (application) applicationStatusCalls++
+    else userStatusCalls++
+    assert.match(req.headers.authorization || '', /^Bearer access-/)
+    if (statusDiagnosticMode === 'unexpected') {
+      res.writeHead(200, { 'content-type': 'application/json' }).end('<html>nunca-retornar</html>')
+      return
+    }
+    const status = statusDiagnosticMode === 'ok' ? 200 : Number(statusDiagnosticMode)
+    res.writeHead(status, { 'content-type': 'application/json' })
+    res.end(JSON.stringify(status === 200
+      ? application
+        ? { id: 6332151948097527, site_id: 'MLB', active: true, certification_status: 'certified',
+            scopes: ['read', 'urn:mp:payments'], access_token: 'nunca-retornar', client_secret: 'secret-teste' }
+        : { id: 3334862827, nickname: 'conta-teste', status: { site_status: 'active', block_code: 'none', access_token: 'nunca-retornar' },
+            tags: ['validated'], validation_status: 'approved', refresh_token: 'refresh-1' }
+      : { error: 'forbidden', code: 'PA_BLOCKED', message: `Bloqueado para ${req.headers.authorization}; secret-teste`,
+          status, blocked_by: 'policy_agent', access_token: 'nunca-retornar', Authorization: 'nunca-retornar' }))
+    return
+  }
   if (req.url === '/applications/6332151948097527/grants') {
     grantCalls++
     if (!req.headers.authorization?.startsWith('Bearer access-') ||
@@ -305,6 +329,46 @@ try {
   itemFailureMode = null
 
   const itemDiagnosticPath = '/api/mercadolivre/diagnostico/item'
+  const statusDiagnosticPath = '/api/mercadolivre/diagnostico/status'
+  assert.equal((await request(apiPorts[0], statusDiagnosticPath)).status, 401)
+  assert.equal((await request(apiPorts[0], statusDiagnosticPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
+  assert.equal(applicationStatusCalls, 0)
+  assert.equal(userStatusCalls, 0)
+  const assertStatusCall = async (mode, expectedStatus) => {
+    statusDiagnosticMode = mode
+    const beforeApplication = applicationStatusCalls
+    const beforeUser = userStatusCalls
+    const beforeRefresh = refreshCalls
+    const response = await request(apiPorts[0], statusDiagnosticPath, cookie)
+    assert.equal(response.status, 200)
+    const body = await response.json()
+    assert.equal(applicationStatusCalls, beforeApplication + 1)
+    assert.equal(userStatusCalls, beforeUser + 1)
+    assert.equal(refreshCalls, beforeRefresh)
+    assert.equal(body.application.httpStatus, expectedStatus)
+    assert.equal(body.user.httpStatus, expectedStatus)
+    for (const secret of ['access-1', 'nunca-retornar', 'refresh-1', 'secret-teste', 'postgres://', 'Authorization', 'client_secret']) {
+      assert.ok(!JSON.stringify(body).includes(secret))
+    }
+    return body
+  }
+  assert.deepEqual(await assertStatusCall('ok', 200), {
+    application: { httpStatus: 200, id: 6332151948097527, site_id: 'MLB', active: true,
+      certification_status: 'certified', scopes: ['read', 'urn:mp:payments'], hasMercadoPagoScope: true },
+    user: { httpStatus: 200, id: 3334862827, nickname: 'conta-teste', validation_status: 'approved',
+      tags: ['validated'], status: { site_status: 'active', block_code: 'none' } },
+  })
+  for (const statusCode of [401, 403]) {
+    const body = await assertStatusCall(String(statusCode), statusCode)
+    for (const part of [body.application, body.user]) {
+      assert.deepEqual(part, { httpStatus: statusCode, error: 'forbidden', code: 'PA_BLOCKED',
+        message: 'Bloqueado para Bearer [REDACTED]; [REDACTED]', status: statusCode, blocked_by: 'policy_agent' })
+    }
+  }
+  assert.deepEqual(await assertStatusCall('unexpected', 200), {
+    application: { httpStatus: 200 }, user: { httpStatus: 200 },
+  })
+  statusDiagnosticMode = 'ok'
   const callsBeforeUnauthenticatedDiagnostic = itemCalls
   assert.equal((await request(apiPorts[0], itemDiagnosticPath)).status, 401)
   assert.equal((await request(apiPorts[0], itemDiagnosticPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)

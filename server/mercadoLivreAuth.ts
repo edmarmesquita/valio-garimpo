@@ -288,4 +288,97 @@ router.get('/diagnostico/item', async (req, res) => {
   }
 })
 
+// Diagnóstico temporário do estado da aplicação e do usuário, sem renovar o token.
+router.get('/diagnostico/status', async (req, res) => {
+  const sessionId = getSessionId(req)
+  if (!sessionId) {
+    res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+    return
+  }
+
+  try {
+    assertEncryptionConfigured()
+    const accessToken = await withLockedConnection(hashOpaque(sessionId), async (_client, connection) => {
+      if (connection.status !== 'connected') return null
+      return decryptSecret(connection.access_token_ciphertext, `access:${connection.meli_user_id}`)
+    })
+    if (!accessToken) {
+      res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+      return
+    }
+
+    let databasePassword: string | undefined
+    try { databasePassword = process.env.DATABASE_URL ? decodeURIComponent(new URL(process.env.DATABASE_URL).password) : undefined }
+    catch { /* URL indisponível para extração de senha */ }
+    const secrets = [accessToken, sessionId, process.env.MELI_CLIENT_SECRET,
+      process.env.MELI_TOKEN_ENCRYPTION_KEY, process.env.DATABASE_URL, databasePassword, req.get('cookie')]
+      .filter((value): value is string => Boolean(value))
+      .sort((a, b) => b.length - a.length)
+    const safeText = (value: string) => secrets.reduce((safe, secret) => safe.split(secret).join('[REDACTED]'), value)
+      .replace(/Bearer\s+[^\s,;"']+/gi, 'Bearer [REDACTED]')
+    const scalar = (value: unknown): string | number | boolean | null | undefined => {
+      if (typeof value === 'string') return safeText(value)
+      if (value === null || typeof value === 'number' || typeof value === 'boolean') return value
+      return undefined
+    }
+    const fields = (source: Record<string, unknown>, names: string[]) => {
+      const result: Record<string, string | number | boolean | null> = {}
+      for (const name of names) {
+        const value = scalar(source[name])
+        if (value !== undefined) result[name] = value
+      }
+      return result
+    }
+    const read = async (url: string, kind: 'application' | 'user') => {
+      try {
+        const response = await fetch(url, {
+          headers: { accept: 'application/json', authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(10_000),
+        })
+        const result: Record<string, unknown> = { httpStatus: response.status }
+        const contentType = response.headers.get('content-type')
+        if (!contentType || !/\b(?:application\/json|[^\s;/]+\/[^\s;/]+\+json)\b/i.test(contentType)) return result
+        let parsed: unknown
+        try { parsed = await response.json() } catch { return result }
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return result
+        const source = parsed as Record<string, unknown>
+        if (!response.ok) return { ...result, ...fields(source, ['error', 'code', 'message', 'status', 'blocked_by']) }
+
+        Object.assign(result, fields(source, kind === 'application'
+          ? ['id', 'site_id', 'active', 'certification_status']
+          : ['id', 'nickname', 'blocked_by', 'validation_status', 'restriction_status', 'restriction_code', 'block_code']))
+        if (kind === 'application') {
+          if (Array.isArray(source.scopes)) {
+            const scopes = source.scopes.filter((scope): scope is string => typeof scope === 'string').map(safeText)
+            result.scopes = scopes
+            result.hasMercadoPagoScope = source.scopes.some((scope) => typeof scope === 'string' && scope.startsWith('urn:mp:'))
+          } else {
+            result.hasMercadoPagoScope = false
+          }
+        } else {
+          if (Array.isArray(source.tags)) result.tags = source.tags.map(scalar).filter((tag) => tag !== undefined)
+          if (source.status && typeof source.status === 'object' && !Array.isArray(source.status)) {
+            result.status = fields(source.status as Record<string, unknown>,
+              ['site_status', 'status', 'code', 'blocked_by', 'validation_status', 'restriction_status', 'restriction_code', 'block_code'])
+          } else {
+            const status = scalar(source.status)
+            if (status !== undefined) result.status = status
+          }
+        }
+        return result
+      } catch {
+        return { httpStatus: null, error: 'Não foi possível consultar o Mercado Livre.' }
+      }
+    }
+
+    const [application, user] = await Promise.all([
+      read('https://api.mercadolibre.com/applications/6332151948097527', 'application'),
+      read('https://api.mercadolibre.com/users/3334862827?attributes=status', 'user'),
+    ])
+    res.json({ application, user })
+  } catch {
+    res.status(503).json({ error: 'Não foi possível consultar o Mercado Livre.' })
+  }
+})
+
 export default router
