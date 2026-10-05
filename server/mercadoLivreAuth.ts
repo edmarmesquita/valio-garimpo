@@ -344,7 +344,8 @@ router.get('/diagnostico/item-bulk', async (req, res) => {
       contentType: contentType ? safeText(contentType) : null,
       bodySize: bytes.length,
     }
-    if (contentType && /\b(?:application\/json|[^\s;/]+\/[^\s;/]+\+json)\b/i.test(contentType)) {
+    const mediaType = contentType?.split(';', 1)[0].trim().toLowerCase()
+    if (mediaType === 'application/json' || mediaType?.endsWith('+json')) {
       let parsed: unknown
       try { parsed = JSON.parse(bytes.toString('utf8')) } catch { parsed = null }
       const first = Array.isArray(parsed) ? parsed[0] : parsed
@@ -353,20 +354,18 @@ router.get('/diagnostico/item-bulk', async (req, res) => {
         const itemBody = item.body && typeof item.body === 'object' && !Array.isArray(item.body)
           ? item.body as Record<string, unknown> : item
         const itemStatus = typeof item.status_code === 'number' ? item.status_code : response.status
-        if (response.status === 200 && itemStatus >= 200 && itemStatus < 300) {
+        const hasError = itemBody.error !== undefined || item.error !== undefined
+          || itemStatus < 200 || itemStatus >= 300 || !response.ok
+        if (!hasError) {
           const safeItem = fields(item, ['id', 'status_code', 'code']) as Record<string, unknown>
           const safeBody: Record<string, unknown> = fields(itemBody,
             ['id', 'title', 'price', 'currency_id', 'permalink', 'status', 'available_quantity', 'thumbnail'])
-          if (!safeBody.thumbnail && Array.isArray(itemBody.pictures)) {
-            safeBody.pictures = itemBody.pictures
-              .filter((picture): picture is Record<string, unknown> =>
-                Boolean(picture) && typeof picture === 'object' && !Array.isArray(picture))
-              .map((picture) => fields(picture, ['id', 'url', 'secure_url']))
-          }
           safeItem.body = safeBody
           result.body = safeItem
         } else {
-          result.body = fields(itemBody, ['error', 'code', 'message', 'status', 'blocked_by'])
+          const errorSource = itemBody.error !== undefined ? itemBody
+            : item.error !== undefined ? item : itemBody
+          result.body = fields(errorSource, ['error', 'code', 'message', 'status', 'blocked_by'])
         }
       }
     }

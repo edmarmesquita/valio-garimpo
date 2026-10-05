@@ -52,8 +52,8 @@ const provider = createServer(async (req, res) => {
           : { thumbnail: 'https://http2.mlstatic.com/bulk.jpg' }),
         access_token: 'nunca-retornar' },
       Authorization: 'Bearer access-1',
-    }] : bulkMode === 'item-error' ? [{
-      id: 'MLB4045941169', status_code: 403,
+    }] : (bulkMode === 'item-error' || bulkMode === 'item-error-200') ? [{
+      id: 'MLB4045941169', status_code: bulkMode === 'item-error-200' ? 200 : 403,
       body: { error: 'forbidden', code: 'PA_BLOCKED', message: 'Bearer access-1; refresh-1',
         status: 403, blocked_by: 'policy_agent', access_token: 'nunca-retornar' },
     }] : { error: 'access_denied', code: 'PA_BLOCKED', message: 'Bearer access-1; secret-teste',
@@ -486,11 +486,11 @@ try {
     id: 'MLB4045941169', status_code: 200,
     body: { id: 'MLB4045941169', title: 'Produto bulk', price: 89.9,
       currency_id: 'BRL', permalink: 'https://produto.mercadolivre.com.br/MLB4045941169',
-      status: 'active', available_quantity: 2,
-      pictures: [{ id: 'foto-1', url: 'http://http2.mlstatic.com/bulk.jpg',
-        secure_url: 'https://http2.mlstatic.com/bulk.jpg' }] },
+      status: 'active', available_quantity: 2 },
   })
   await assertBulkCall('item-error', 200, { error: 'forbidden', code: 'PA_BLOCKED',
+    message: 'Bearer [REDACTED]; [REDACTED]', status: 403, blocked_by: 'policy_agent' })
+  await assertBulkCall('item-error-200', 200, { error: 'forbidden', code: 'PA_BLOCKED',
     message: 'Bearer [REDACTED]; [REDACTED]', status: 403, blocked_by: 'policy_agent' })
   await assertBulkCall('forbidden', 403, { error: 'access_denied', code: 'PA_BLOCKED',
     message: 'Bearer [REDACTED]; [REDACTED]', status: 403, blocked_by: 'policy_agent' })
