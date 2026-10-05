@@ -53,6 +53,16 @@ const provider = createServer(async (req, res) => {
         list: { allow: true, codes: ['LIST_OK'], blocked: false, nickname: 'private' },
         payments: { codes: ['PAYMENT_REVIEW'], validation_pending: true, message: 'private' },
         blocked: false, nested: { suspended: false, codes: ['NESTED_OK'] },
+        required_action: { type: 'identity_validation', status: 'pending', email: 'private@example.com',
+          action: 'verify_identity', access_token: 'nunca-retornar' },
+        validation: { details: { required_action: 'verify_documents',
+          pending_action: { code: 'UPLOAD_DOCUMENTS', required: true, phone: '11999999999' } } },
+        checks: [{ required_action: 'validate_identity', cookie: 'cookie-secreto' }],
+        actions: ['complete_validation'], pending_action: 'confirm_account',
+        unrelated: { action: 'browse_catalog' },
+        billing: { allow: true, codes: ['BILLING_OK'] },
+        sell: { allow: false, codes: ['SELL_REVIEW'] },
+        buy: { allow: true, codes: ['BUY_OK'] },
         access_token: 'nunca-retornar', email: 'private@example.com',
       },
     }))
@@ -490,17 +500,31 @@ try {
   assert.equal(restrictionsUserCalls, 1)
   assert.equal(consumedApplicationsCalls, 1)
   assert.equal(refreshCalls, refreshBeforeRestrictions)
-  assert.deepEqual(await restrictionsResponse.json(), {
+  const restrictionsBody = await restrictionsResponse.json()
+  assert.deepEqual(restrictionsBody, {
     user: { httpStatus: 200, status: {
       site_status: { status: 'active', details: { codes: ['SITE_OK'], allow: true } },
       list: { allow: true, codes: ['LIST_OK'], blocked: false },
       payments: { codes: ['PAYMENT_REVIEW'], validation_pending: true },
       blocked: false, nested: { suspended: false, codes: ['NESTED_OK'] },
+      required_action: { type: 'identity_validation', status: 'pending', action: 'verify_identity' },
+      validation: { details: { required_action: 'verify_documents',
+        pending_action: { code: 'UPLOAD_DOCUMENTS', required: true } } },
+      checks: [{ required_action: 'validate_identity' }],
+      actions: ['complete_validation'], pending_action: 'confirm_account',
+      billing: { allow: true, codes: ['BILLING_OK'] },
+      sell: { allow: false, codes: ['SELL_REVIEW'] },
+      buy: { allow: true, codes: ['BUY_OK'] },
     } },
     consumedApplications: { httpStatus: 200, app_id: 6332151948097527,
       period: { from: '2026-10-01', to: '2026-10-05' },
       http_statuses: { 200: 150, 403: 7, 500: 2 }, total: 159 },
   })
+  // O diagnóstico só devolve ações de validação e nunca dados pessoais ou segredos.
+  const restrictionsJson = JSON.stringify(restrictionsBody)
+  for (const privateValue of ['private@example.com', '11999999999', 'cookie-secreto', 'nunca-retornar', 'browse_catalog']) {
+    assert.ok(!restrictionsJson.includes(privateValue))
+  }
   restrictionsMode = 'error'
   const failedRestrictions = await request(apiPorts[0], restrictionsPath, cookie)
   assert.equal(failedRestrictions.status, 200)

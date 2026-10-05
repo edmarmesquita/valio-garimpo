@@ -5,6 +5,9 @@ const statusFlag = /(?:allow|blocked|restricted|suspended|pending|validation)/i
 const consumedKey = /^(?:applications?|consumed_applications|data|results|items|app_id|application_id|http|https|http_status|http_statuses|http_code|http_codes|status_codes?|response_codes?|responses?|requests?|counters?|metrics?|statistics?|counts?|total|quantity|volume|forbidden|(?:http_|status_|count_|total_|requests_)?(?:403|[1-5]xx|[1-5][0-9][0-9])|period|date|date_from|date_to|from|to|start|end|started_at|ended_at|created_at|updated_at|timestamp)$/i
 const countKey = /(?:count|total|quantity|volume|requests|responses|forbidden|403|[1-5]xx|[1-5][0-9][0-9])/i
 const dateKey = /^(?:period|date|date_from|date_to|from|to|start|end|started_at|ended_at|created_at|updated_at|timestamp)$/i
+const actionKey = /^(?:required_action|action|actions|pending_action)$/i
+const validationKey = /(?:validat|verif|mandatory|required|kyc|identity)/i
+const actionDetailKey = /^(?:required_action|action|actions|pending_action|code|codes|type|status|state|value|allow|required|mandatory|pending|validation|verification)$/i
 
 function object(value: unknown): ObjectValue | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as ObjectValue : null
@@ -33,6 +36,29 @@ function safeValue(value: unknown, secrets: string[], depth = 0): unknown {
     if (safe !== undefined) result[key] = safe
   }
   return result
+}
+
+function safeAction(value: unknown, secrets: string[], depth = 0): unknown {
+  if (depth > 8) return undefined
+  if (Array.isArray(value)) return value.slice(0, 100).map((entry) => safeAction(entry, secrets, depth + 1)).filter((entry) => entry !== undefined)
+  const source = object(value)
+  if (!source) return safeValue(value, secrets, depth)
+  const selected: ObjectValue = {}
+  for (const [key, entry] of Object.entries(source).slice(0, 100)) {
+    if (!actionDetailKey.test(key) || forbiddenKey.test(key)) continue
+    const safe = safeAction(entry, secrets, depth + 1)
+    if (safe !== undefined) selected[key] = safe
+  }
+  return Object.keys(selected).length ? selected : undefined
+}
+
+function indicatesValidation(value: unknown, depth = 0): boolean {
+  if (depth > 8) return false
+  if (typeof value === 'string') return validationKey.test(value)
+  if (Array.isArray(value)) return value.some((entry) => indicatesValidation(entry, depth + 1))
+  const source = object(value)
+  return source !== null && Object.entries(source).some(([key, entry]) =>
+    validationKey.test(key) || indicatesValidation(entry, depth + 1))
 }
 
 export function safeProviderError(httpStatus: number | null, body: unknown, secrets: string[]) {
@@ -67,21 +93,35 @@ export function safeUserRestrictions(httpStatus: number, body: unknown, secrets:
     }
     if (Object.keys(safeList).length) selected.list = safeList
   }
-  function visit(source: ObjectValue, target: ObjectValue, depth: number) {
+  function visit(source: ObjectValue, target: ObjectValue, depth: number, validationContext = false) {
     if (depth > 8) return
+    const siblingValidation = validationContext || Object.keys(source).some((key) => validationKey.test(key))
     for (const [key, value] of Object.entries(source)) {
       if (forbiddenKey.test(key) || !/^[a-z0-9_]{1,80}$/i.test(key)) continue
-      if (key === 'codes') {
+      if (actionKey.test(key) && (key === 'required_action' || siblingValidation || indicatesValidation(value))) {
+        const safe = safeAction(value, secrets, depth + 1)
+        if (safe !== undefined) target[key] = safe
+      } else if (key === 'codes') {
         const safe = safeValue(value, secrets)
         if (safe !== undefined) target[key] = safe
       } else if (typeof value === 'boolean' && statusFlag.test(key)) {
         target[key] = value
       } else if (key !== 'site_status') {
         const child = object(value)
-        if (!child) continue
-        const nested: ObjectValue = {}
-        visit(child, nested, depth + 1)
-        if (Object.keys(nested).length) target[key] = nested
+        if (child) {
+          const nested: ObjectValue = {}
+          visit(child, nested, depth + 1, validationContext || validationKey.test(key))
+          if (Object.keys(nested).length) target[key] = nested
+        } else if (Array.isArray(value)) {
+          const nested = value.slice(0, 100).map((entry) => {
+            const item = object(entry)
+            if (!item) return undefined
+            const selectedItem: ObjectValue = {}
+            visit(item, selectedItem, depth + 1, validationContext || validationKey.test(key))
+            return Object.keys(selectedItem).length ? selectedItem : undefined
+          }).filter((entry) => entry !== undefined)
+          if (nested.length) target[key] = nested
+        }
       }
     }
   }
