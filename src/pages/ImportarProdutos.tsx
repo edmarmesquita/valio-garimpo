@@ -1,7 +1,34 @@
 import { useState } from 'react'
-import { processarLinks } from '../lib/processarLinks'
+import { extrairIdItem, motivoLinkSemAnuncio, processarLinks, validarLink } from '../lib/processarLinks'
 import type { OrigemProduto, ProdutoConsultado } from '../types/produtoImportado'
 import './ImportarProdutos.css'
+
+// Diagnóstico temporário restrito ao link público investigado e a fragmentos sem dados sensíveis.
+const linkReferencia = new URL('https://www.mercadolivre.com.br/colchao-inflavel-casal-com-inflador-embutido-multiuso-homefy/p/MLB29179705?pdp_filters=deal%3AMLB1578289-1&extra_comm=false&brand_comm=false#polycard_client=affiliates&wid=MLB3910897819&sid=affiliates')
+
+function podeRegistrarDiagnostico(texto: string): boolean {
+  try {
+    const valor = texto.trim()
+    const url = new URL(valor)
+    if (valor !== url.href || url.username || url.password || url.port) return false
+    if (url.origin !== linkReferencia.origin || url.pathname !== linkReferencia.pathname) return false
+
+    for (const [chave, conteudo] of url.searchParams) {
+      if (!['pdp_filters', 'extra_comm', 'brand_comm'].includes(chave)) return false
+      if (conteudo !== linkReferencia.searchParams.get(chave)) return false
+    }
+
+    for (const [chave, conteudo] of new URLSearchParams(url.hash.slice(1))) {
+      if (chave === 'wid' && (conteudo === '' || /^MLB-?\d*$/.test(conteudo))) continue
+      if (chave === 'polycard_client' && conteudo === 'affiliates') continue
+      if (chave === 'sid' && conteudo === 'affiliates') continue
+      return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
 
 export default function ImportarProdutos() {
   const [texto, setTexto] = useState('')
@@ -15,6 +42,20 @@ export default function ImportarProdutos() {
     setOrigem(null)
     setErro('')
     const links = processarLinks(texto)
+    if (podeRegistrarDiagnostico(texto)) {
+      const valorAposTrim = texto.trim()
+      const url = new URL(valorAposTrim)
+      console.log('[ImportarProdutos] diagnóstico temporário', {
+        valorBruto: texto,
+        valorAposTrim,
+        extrairIdItem: extrairIdItem(valorAposTrim),
+        motivoLinkSemAnuncio: motivoLinkSemAnuncio(valorAposTrim),
+        validarLink: validarLink(valorAposTrim),
+        hash: url.hash,
+        widDoHash: new URLSearchParams(url.hash.slice(1)).get('wid'),
+        processarLinks: links,
+      })
+    }
     if (links.length !== 1) {
       setErro('Cole exatamente um link de produto para consultar.')
       return
