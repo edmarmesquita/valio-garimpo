@@ -3,6 +3,35 @@ import type { MercadoLivreItem } from './mercadoLivreApi.js'
 
 const MAX_HTML_BYTES = 1_000_000
 
+export type PublicPageDiagnostic = {
+  requestedUrl: string
+  status: number | null
+  contentType: string | null
+  bodySize: number
+  redirected: boolean
+  finalUrl: string
+  possibleBlock: boolean
+  classification: 'html' | 'challenge' | 'empty' | 'json' | 'unknown'
+}
+
+function safeDiagnosticUrl(value: string): string {
+  const url = new URL(value)
+  url.username = ''
+  url.password = ''
+  url.search = ''
+  url.hash = ''
+  return url.href
+}
+
+function classifyBody(body: string, contentType: string | null, status: number | null): PublicPageDiagnostic['classification'] {
+  if (!body.trim()) return 'empty'
+  const sample = body.slice(0, 16_384)
+  const isHtml = /html/i.test(contentType ?? '') || /<!doctype html|<html\b|<head\b|<body\b/i.test(sample)
+  if (isHtml && (status === 403 || status === 429 || /captcha|recaptcha|challenge|access denied|acesso negado|unusual traffic|verify (?:you are|that you)|cloudflare|blocked|bloqueado/i.test(sample))) return 'challenge'
+  if (/json/i.test(contentType ?? '') || sample.trimStart().startsWith('{') || sample.trimStart().startsWith('[')) return 'json'
+  return isHtml ? 'html' : 'unknown'
+}
+
 function decodeHtml(value: string): string {
   return value.replace(/&(#(?:x[0-9a-f]+|\d+)|amp|quot|apos|lt|gt);/gi, (_, entity: string) => {
     const named: Record<string, string> = { amp: '&', quot: '"', apos: "'", lt: '<', gt: '>' }
@@ -94,10 +123,14 @@ function parsePage(html: string, pageUrl: string, itemId: string): MercadoLivreI
   }
 }
 
-export async function getMercadoLivrePublico(link: string, itemId: string): Promise<MercadoLivreItem | null> {
+export async function getMercadoLivrePublico(link: string, itemId: string): Promise<{ produto: MercadoLivreItem | null, fallback: PublicPageDiagnostic }> {
   const original = safePermalink(link, itemId)
   const fallback = `https://produto.mercadolivre.com.br/MLB-${itemId.slice(3)}`
   let target = original ?? fallback
+  const diagnostic: PublicPageDiagnostic = {
+    requestedUrl: safeDiagnosticUrl(target), status: null, contentType: null, bodySize: 0,
+    redirected: false, finalUrl: safeDiagnosticUrl(target), possibleBlock: false, classification: 'unknown',
+  }
   try {
     for (let redirect = 0; redirect < 4; redirect++) {
       const response = await fetch(target, {
@@ -105,30 +138,40 @@ export async function getMercadoLivrePublico(link: string, itemId: string): Prom
         redirect: 'manual',
         signal: AbortSignal.timeout(8_000),
       })
+      diagnostic.status = response.status
+      diagnostic.contentType = response.headers.get('content-type')
+      diagnostic.finalUrl = safeDiagnosticUrl(target)
+      diagnostic.bodySize = 0
+      diagnostic.classification = 'empty'
+      diagnostic.possibleBlock = response.status === 403 || response.status === 429
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location')
-        if (!location) return null
+        if (!location) return { produto: null, fallback: diagnostic }
         const next = new URL(location, target).href
-        if (validarLink(next) || new URL(next).protocol !== 'https:') return null
+        if (validarLink(next) || new URL(next).protocol !== 'https:') return { produto: null, fallback: diagnostic }
+        diagnostic.redirected = true
         target = next
         continue
       }
-      if (!response.ok || !response.headers.get('content-type')?.toLowerCase().includes('text/html')) return null
-      if (Number(response.headers.get('content-length')) > MAX_HTML_BYTES) return null
+      if (Number(response.headers.get('content-length')) > MAX_HTML_BYTES) return { produto: null, fallback: diagnostic }
       const reader = response.body?.getReader()
-      if (!reader) return null
+      if (!reader) return { produto: null, fallback: diagnostic }
       const chunks: Uint8Array[] = []
       let size = 0
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
         size += value.byteLength
-        if (size > MAX_HTML_BYTES) { await reader.cancel(); return null }
+        diagnostic.bodySize = size
+        if (size > MAX_HTML_BYTES) { await reader.cancel(); return { produto: null, fallback: diagnostic } }
         chunks.push(value)
       }
       const html = new TextDecoder().decode(Buffer.concat(chunks))
-      return parsePage(html, target, itemId)
+      diagnostic.classification = classifyBody(html, diagnostic.contentType, diagnostic.status)
+      diagnostic.possibleBlock = diagnostic.possibleBlock || diagnostic.classification === 'challenge'
+      if (!response.ok || !diagnostic.contentType?.toLowerCase().includes('text/html')) return { produto: null, fallback: diagnostic }
+      return { produto: parsePage(html, target, itemId), fallback: diagnostic }
     }
   } catch { /* página pública indisponível */ }
-  return null
+  return { produto: null, fallback: diagnostic }
 }

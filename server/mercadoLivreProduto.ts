@@ -51,12 +51,12 @@ router.post('/produto', async (req, res) => {
     res.json({ ok: true, source: 'api', produto })
   } catch (error) {
     if (error instanceof MercadoLivreApiError && error.itemFailure?.providerStatus === 403) {
-      const produto = await getMercadoLivrePublico(link.trim(), itemId)
+      const { produto, fallback } = await getMercadoLivrePublico(link.trim(), itemId)
       if (produto) {
         res.json({ ok: true, source: 'public-page-fallback', produto })
         return
       }
-      res.status(502).json({ ok: false, error: 'A API do Mercado Livre bloqueou a consulta e não foi possível ler a página pública deste anúncio.' })
+      res.status(502).json({ ok: false, error: 'A API do Mercado Livre bloqueou a consulta e não foi possível ler a página pública deste anúncio.', fallback })
       return
     }
     if (error instanceof MercadoLivreApiError && error.itemFailure) {

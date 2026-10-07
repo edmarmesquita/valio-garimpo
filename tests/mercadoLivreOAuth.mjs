@@ -44,6 +44,22 @@ const provider = createServer(async (req, res) => {
     assert.equal(req.headers.authorization, undefined)
     assert.equal(req.headers.cookie, undefined)
     if (publicMode === 'unavailable') { res.writeHead(503).end(); return }
+    if (publicMode === 'redirect' && !req.url.includes('-redirected')) {
+      res.writeHead(302, { location: 'https://produto.mercadolivre.com.br/MLB-1234567890-redirected?token=private' }).end()
+      return
+    }
+    if (publicMode === 'challenge' || publicMode === 'redirect') {
+      res.writeHead(403, { 'content-type': 'text/html; charset=utf-8' }).end('<html><body>Captcha challenge secret-page-content</body></html>')
+      return
+    }
+    if (publicMode === 'json') {
+      res.writeHead(200, { 'content-type': 'application/json' }).end('{"error":"private-json-content"}')
+      return
+    }
+    if (publicMode === 'html-incomplete') {
+      res.writeHead(200, { 'content-type': 'text/html' }).end('<html><body>Produto sem preço private-html-content</body></html>')
+      return
+    }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<!doctype html><html><head>
       <meta property="og:url" content="https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM">
       <meta property="og:title" content="Produto público &amp; teste">
@@ -863,7 +879,31 @@ try {
     publicMode = 'unavailable'
     const unavailablePublic = await requestItem(apiPorts[0], validLink, cookie)
     assert.equal(unavailablePublic.status, 502)
-    assert.match((await unavailablePublic.json()).error, /página pública/)
+    const unavailableBody = await unavailablePublic.json()
+    assert.match(unavailableBody.error, /página pública/)
+    assert.deepEqual(unavailableBody.fallback, {
+      requestedUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM',
+      status: 503, contentType: null, bodySize: 0, redirected: false,
+      finalUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM',
+      possibleBlock: false, classification: 'empty',
+    })
+    for (const [mode, expected] of [
+      ['challenge', { status: 403, contentType: 'text/html; charset=utf-8', bodySize: Buffer.byteLength('<html><body>Captcha challenge secret-page-content</body></html>'), classification: 'challenge', possibleBlock: true, redirected: false, finalUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM' }],
+      ['redirect', { status: 403, contentType: 'text/html; charset=utf-8', bodySize: Buffer.byteLength('<html><body>Captcha challenge secret-page-content</body></html>'), classification: 'challenge', possibleBlock: true, redirected: true, finalUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-redirected' }],
+      ['json', { status: 200, contentType: 'application/json', bodySize: Buffer.byteLength('{"error":"private-json-content"}'), classification: 'json', possibleBlock: false, redirected: false, finalUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM' }],
+      ['html-incomplete', { status: 200, contentType: 'text/html', bodySize: Buffer.byteLength('<html><body>Produto sem preço private-html-content</body></html>'), classification: 'html', possibleBlock: false, redirected: false, finalUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM' }],
+    ]) {
+      publicMode = mode
+      const response = await requestItem(apiPorts[0], validLink, cookie)
+      assert.equal(response.status, 502)
+      const body = await response.json()
+      assert.equal(body.fallback.requestedUrl, unavailableBody.fallback.requestedUrl)
+      for (const [field, value] of Object.entries(expected)) assert.equal(body.fallback[field], value)
+      for (const secret of ['private', 'secret-page-content', 'private-json-content', 'private-html-content', 'token=']) {
+        assert.ok(!JSON.stringify(body).includes(secret))
+        assert.ok(!childErrors[0].includes(secret))
+      }
+    }
     publicMode = 'success'
     assert.match(childErrors[0], /providerError: 'forbidden'/)
     assert.match(childErrors[0], /providerBodyCode: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES'/)
