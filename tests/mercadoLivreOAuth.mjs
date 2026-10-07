@@ -22,6 +22,8 @@ let rejectedAccessToken = null
 let rejectRefresh = false
 let itemFailureMode = null
 let itemCalls = 0
+let priceCalls = []
+let priceMode = 'success'
 let publicCalls = 0
 let publicMode = 'success'
 let bulkCalls = 0
@@ -41,6 +43,34 @@ let restrictionsUserCalls = 0
 let consumedApplicationsCalls = 0
 const usedRefreshTokens = new Set()
 const provider = createServer(async (req, res) => {
+  if (/^\/items\/MLB\d+\/prices$/.test(req.url || '')) {
+    priceCalls.push(req.url)
+    assert.equal(req.method, 'GET')
+    assert.equal(req.headers.accept, 'application/json')
+    assert.equal(req.headers.authorization, 'Bearer access-1')
+    assert.equal(req.headers.cookie, undefined)
+    if (priceMode === 'forbidden') {
+      res.writeHead(403, { 'content-type': 'application/json' }).end(JSON.stringify({
+        error: 'forbidden', code: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES',
+        message: 'Bearer access-1 refresh-1 secret-teste cookie-secreto', status: 403,
+        access_token: 'nunca-retornar', refresh_token: 'refresh-1',
+      }))
+      return
+    }
+    if (priceMode === 'unexpected') {
+      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+        price: 199.9, access_token: 'nunca-retornar',
+      }))
+      return
+    }
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+      prices: [{ type: 'standard', amount: 199.9, regular_amount: 249.9, currency_id: 'BRL',
+        conditions: { context_restrictions: ['channel_marketplace', 'nunca-retornar'], start_time: '2026-10-07T00:00:00Z',
+          cookie: 'cookie-secreto' }, access_token: 'nunca-retornar' }],
+      refresh_token: 'refresh-1',
+    }))
+    return
+  }
   if (req.url?.startsWith('/public/')) {
     publicCalls++
     assert.equal(req.headers.authorization, undefined)
@@ -468,6 +498,39 @@ try {
   const diagnostic = await request(apiPorts[1], diagnosticPath, cookie)
   assert.equal(diagnostic.status, 200)
   assert.deepEqual(await diagnostic.json(), { connected: true, id: '123456789', nickname: 'conta-teste' })
+  const pricesPath = '/api/mercadolivre/diagnostico/precos'
+  assert.equal((await request(apiPorts[0], pricesPath)).status, 401)
+  assert.equal(priceCalls.length, 0)
+  const expectedPriceCalls = [
+    '/items/MLB3910897819/prices', '/items/MLB4273112779/prices', '/items/MLB3609126319/prices',
+  ]
+  const pricesResponse = await request(apiPorts[0], pricesPath, cookie)
+  assert.equal(pricesResponse.status, 200)
+  assert.deepEqual(priceCalls, expectedPriceCalls)
+  const pricesBody = await pricesResponse.json()
+  assert.deepEqual(pricesBody, { results: expectedPriceCalls.map((path) => ({
+    itemId: path.split('/')[2], providerStatus: 200, prices: [{
+      amount: 199.9, regular_amount: 249.9, type: 'standard', currency_id: 'BRL',
+      conditions: { start_time: '2026-10-07T00:00:00Z', context_restrictions: ['channel_marketplace'] },
+    }],
+  })) })
+  priceMode = 'forbidden'
+  const forbiddenPrices = await (await request(apiPorts[0], pricesPath, cookie)).json()
+  assert.deepEqual(forbiddenPrices, { results: expectedPriceCalls.map((path) => ({
+    itemId: path.split('/')[2], providerStatus: 403,
+    body: { error: 'forbidden', code: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES', status: 403 },
+  })) })
+  priceMode = 'unexpected'
+  const unexpectedPrices = await (await request(apiPorts[0], pricesPath, cookie)).json()
+  assert.deepEqual(unexpectedPrices, { results: expectedPriceCalls.map((path) => ({
+    itemId: path.split('/')[2], providerStatus: 200, prices: [], unexpectedResponse: true,
+  })) })
+  for (const body of [pricesBody, forbiddenPrices, unexpectedPrices]) {
+    for (const secret of ['access-1', 'refresh-1', 'secret-teste', 'cookie-secreto', 'nunca-retornar', 'access_token']) {
+      assert.ok(!JSON.stringify(body).includes(secret))
+    }
+  }
+  priceMode = 'success'
   for (const path of ['item', 'produto-catalogo', 'item-bulk']) {
     assert.equal((await request(apiPorts[0], `/api/mercadolivre/diagnostico/${path}`, cookie)).status, 404)
   }

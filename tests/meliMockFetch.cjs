@@ -38,6 +38,9 @@ globalThis.fetch = (input, init) => {
     return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/sites/MLB/search?q=tenis%20carina%20street%20puma`, init)
   }
   if (url.startsWith('https://api.mercadolibre.com/items/')) {
+    if (/^https:\/\/api\.mercadolibre\.com\/items\/MLB\d+\/prices$/.test(url)) {
+      return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}${new URL(url).pathname}`, init)
+    }
     return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/items/${url.split('/').pop()}`, init)
   }
   return originalFetch(input, init)

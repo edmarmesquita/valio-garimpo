@@ -221,6 +221,109 @@ router.get('/diagnostico/grants', async (req, res) => {
   }
 })
 
+// Diagnóstico temporário dos preços oficiais de três anúncios de terceiros.
+router.get('/diagnostico/precos', async (req, res) => {
+  const sessionId = getSessionId(req)
+  if (!sessionId) {
+    res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+    return
+  }
+
+  const itemIds = ['MLB3910897819', 'MLB4273112779', 'MLB3609126319']
+  const safeText = (value: unknown): string | undefined => {
+    if (typeof value !== 'string' || value.length > 160 ||
+      /(?:bearer|token|secret|cookie|authorization|password|credential|access-\d+|refresh-\d+|https?:\/\/|@|[A-Za-z0-9+/_=-]{40,})/i.test(value)) return undefined
+    return value
+  }
+  const record = (value: unknown): Record<string, unknown> | null =>
+    value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
+  const safePrice = (value: unknown) => {
+    const source = record(value)
+    if (!source) return null
+    const price: Record<string, unknown> = {}
+    for (const field of ['amount', 'regular_amount']) {
+      const number = source[field]
+      if (typeof number === 'number' && Number.isFinite(number) && number >= 0) price[field] = number
+    }
+    for (const field of ['type', 'currency_id']) {
+      const text = safeText(source[field])
+      if (text && (field !== 'currency_id' || /^[A-Z]{3}$/.test(text)) &&
+        (field !== 'type' || /^[a-z][a-z0-9_]{0,39}$/.test(text))) price[field] = text
+    }
+    const conditions = record(source.conditions)
+    if (conditions) {
+      const selected: Record<string, unknown> = {}
+      for (const field of ['start_time', 'end_time']) {
+        const text = safeText(conditions[field])
+        if (text && /^\d{4}-\d{2}-\d{2}T[\d:.+-]+Z?$/.test(text)) selected[field] = text
+      }
+      if (Array.isArray(conditions.context_restrictions)) {
+        selected.context_restrictions = conditions.context_restrictions.slice(0, 10)
+          .map(safeText).filter((text): text is string => Boolean(text && /^[a-z][a-z0-9_]{0,39}$/.test(text)))
+      }
+      if (Object.keys(selected).length) price.conditions = selected
+    }
+    return Object.keys(price).length ? price : null
+  }
+
+  try {
+    const config = getMercadoLivreConfig()
+    if (!config) throw new Error('Configuração OAuth ausente')
+    assertEncryptionConfigured()
+    const sessionHash = hashOpaque(sessionId)
+    let accessToken = await getBackendAccessToken(sessionHash, config)
+    if (!accessToken) {
+      res.status(401).json({ error: 'Conexão com o Mercado Livre ausente ou expirada.' })
+      return
+    }
+
+    const results = []
+    for (const itemId of itemIds) {
+      try {
+        const fetchPrice = (token: string) => fetch(`https://api.mercadolibre.com/items/${itemId}/prices`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+          signal: AbortSignal.timeout(10_000),
+        })
+        let response = await fetchPrice(accessToken)
+        if (response.status === 401) {
+          const refreshed = await getBackendAccessToken(sessionHash, config, accessToken)
+          if (refreshed) {
+            accessToken = refreshed
+            response = await fetchPrice(accessToken)
+          }
+        }
+        const contentType = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase()
+        const body: unknown = contentType === 'application/json' || contentType?.endsWith('+json')
+          ? await response.json().catch(() => null) : null
+        const source = record(body)
+        if (!response.ok) {
+          const error: Record<string, unknown> = {}
+          for (const field of ['error', 'code', 'message']) {
+            const text = safeText(source?.[field])
+            if (text && ((field === 'error' && /^[a-z][a-z0-9_]{0,79}$/.test(text)) ||
+              (field === 'code' && /^[A-Z][A-Z0-9_]{0,79}$/.test(text)) ||
+              (field === 'message' && ['Forbidden', 'Access denied', 'Not found', 'Item not found', 'Unauthorized'].includes(text)))) {
+              error[field] = text
+            }
+          }
+          if (typeof source?.status === 'number' && Number.isSafeInteger(source.status)) error.status = source.status
+          results.push({ itemId, providerStatus: response.status, body: error })
+          continue
+        }
+        const prices = Array.isArray(source?.prices) ? source.prices.map(safePrice).filter((price) => price !== null) : null
+        results.push(prices === null
+          ? { itemId, providerStatus: response.status, prices: [], unexpectedResponse: true }
+          : { itemId, providerStatus: response.status, prices })
+      } catch {
+        results.push({ itemId, providerStatus: null, body: { error: 'Falha na consulta ao provedor.' } })
+      }
+    }
+    res.json({ results })
+  } catch {
+    res.status(503).json({ error: 'Não foi possível consultar os preços do Mercado Livre.' })
+  }
+})
+
 // Diagnóstico temporário da busca pública, usando somente o access token armazenado.
 router.get('/diagnostico/search', async (req, res) => {
   const sessionId = getSessionId(req)
