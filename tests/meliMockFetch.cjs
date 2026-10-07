@@ -7,6 +7,9 @@ try { os.userInfo() } catch {
 const originalFetch = globalThis.fetch
 globalThis.fetch = (input, init) => {
   const url = String(input)
+  if (url.startsWith('https://produto.mercadolivre.com.br/MLB-')) {
+    return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/public/${new URL(url).pathname.slice(1)}`, init)
+  }
   if (url === 'https://api.mercadolibre.com/oauth/token') {
     return originalFetch(`http://127.0.0.1:${process.env.MELI_TEST_PROVIDER_PORT}/oauth/token`, init)
   }

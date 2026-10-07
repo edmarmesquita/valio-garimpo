@@ -22,6 +22,8 @@ let rejectedAccessToken = null
 let rejectRefresh = false
 let itemFailureMode = null
 let itemCalls = 0
+let publicCalls = 0
+let publicMode = 'success'
 let bulkCalls = 0
 let bulkMode = 'success'
 let searchCalls = 0
@@ -37,6 +39,20 @@ let restrictionsUserCalls = 0
 let consumedApplicationsCalls = 0
 const usedRefreshTokens = new Set()
 const provider = createServer(async (req, res) => {
+  if (req.url?.startsWith('/public/')) {
+    publicCalls++
+    assert.equal(req.headers.authorization, undefined)
+    assert.equal(req.headers.cookie, undefined)
+    if (publicMode === 'unavailable') { res.writeHead(503).end(); return }
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(`<!doctype html><html><head>
+      <meta property="og:url" content="https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM">
+      <meta property="og:title" content="Produto público &amp; teste">
+      <meta property="product:price:amount" content="129.90">
+      <meta property="product:price:currency" content="BRL">
+      <meta property="og:image" content="https://http2.mlstatic.com/publico.jpg">
+      </head></html>`)
+    return
+  }
   if (req.url === '/applications/6332151948097527' && restrictionsMode !== 'inactive') {
     restrictionsApplicationCalls++
     assert.equal(req.method, 'GET')
@@ -436,13 +452,23 @@ try {
   const validItem = await requestItem(apiPorts[1], validLink, cookie)
   assert.equal(validItem.status, 200)
   const validBody = await validItem.json()
-  assert.deepEqual(validBody, { ok: true, produto: {
+  assert.deepEqual(validBody, { ok: true, source: 'api', produto: {
     id: 'MLB1234567890', titulo: 'Produto de teste', preco: 129.9, moeda: 'BRL',
     imagemPrincipal: 'https://http2.mlstatic.com/teste.jpg',
     permalink: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM',
     status: 'active', quantidadeDisponivel: 5,
   } })
   assert.ok(!JSON.stringify(validBody).includes('nunca-retornar'))
+  for (const link of [
+    'https://produto.mercadolivre.com.br/MLB1234567890-produto?matt_tool=123&utm_source=afiliado',
+    'https://www.mercadolivre.com.br/p/MLB9999999999?wid=MLB1234567890&matt_tool=123',
+    'https://www.mercadolivre.com.br/qualquer-produto?wid=MLB-1234567890',
+    'https://www.mercadolivre.com.br/ofertas?item_id=MLB1234567890',
+  ]) {
+    const response = await requestItem(apiPorts[0], link, cookie)
+    assert.equal(response.status, 200)
+    assert.equal((await response.json()).produto.id, 'MLB1234567890')
+  }
   assert.equal((await requestItem(apiPorts[0], validLink)).status, 401)
   const callsBeforeInvalid = itemCalls
   for (const link of ['https://example.com/MLB-1234567890', 'https://meli.la/abc', 'https://www.mercadolivre.com.br/p/MLB1234567890']) {
@@ -822,12 +848,23 @@ try {
 
     itemFailureMode = 'forbidden'
     const forbiddenItem = await requestItem(apiPorts[0], validLink, cookie)
-    assert.equal(forbiddenItem.status, 502)
+    assert.equal(forbiddenItem.status, 200)
     const forbiddenBody = await forbiddenItem.json()
     assert.deepEqual(forbiddenBody, {
-      ok: false, error: 'Mercado Livre indisponível.',
-      providerStatus: 403, providerCode: 'forbidden', providerMessage: null,
+      ok: true, source: 'public-page-fallback', produto: {
+        id: 'MLB1234567890', titulo: 'Produto público & teste', preco: 129.9,
+        moeda: 'BRL', imagemPrincipal: 'https://http2.mlstatic.com/publico.jpg',
+        permalink: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM',
+        status: null, quantidadeDisponivel: null,
+      },
     })
+    assert.equal(publicCalls, 1)
+    assert.equal(refreshCalls, 3)
+    publicMode = 'unavailable'
+    const unavailablePublic = await requestItem(apiPorts[0], validLink, cookie)
+    assert.equal(unavailablePublic.status, 502)
+    assert.match((await unavailablePublic.json()).error, /página pública/)
+    publicMode = 'success'
     assert.match(childErrors[0], /providerError: 'forbidden'/)
     assert.match(childErrors[0], /providerBodyCode: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES'/)
     assert.match(childErrors[0], /providerBlockedBy: 'policy_agent'/)
@@ -839,7 +876,7 @@ try {
     }
     itemFailureMode = null
 
-    rejectedAccessToken = 'access-5'
+    rejectedAccessToken = 'access-4'
     rejectRefresh = true
     const reconnectDiagnostic = await request(apiPorts[1], diagnosticPath, cookie)
     assert.equal(reconnectDiagnostic.status, 200)

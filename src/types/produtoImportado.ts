@@ -25,3 +25,5 @@ export type ProdutoConsultado = {
   status: string | null
   quantidadeDisponivel: number | null
 }
+
+export type OrigemProduto = 'api' | 'public-page-fallback'

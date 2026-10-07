@@ -1,16 +1,18 @@
 import { useState } from 'react'
 import { processarLinks } from '../lib/processarLinks'
-import type { ProdutoConsultado } from '../types/produtoImportado'
+import type { OrigemProduto, ProdutoConsultado } from '../types/produtoImportado'
 import './ImportarProdutos.css'
 
 export default function ImportarProdutos() {
   const [texto, setTexto] = useState('')
   const [produto, setProduto] = useState<ProdutoConsultado | null>(null)
+  const [origem, setOrigem] = useState<OrigemProduto | null>(null)
   const [erro, setErro] = useState('')
   const [carregando, setCarregando] = useState(false)
 
   async function processar() {
     setProduto(null)
+    setOrigem(null)
     setErro('')
     const links = processarLinks(texto)
     if (links.length !== 1) {
@@ -31,6 +33,7 @@ export default function ImportarProdutos() {
       const resultado = await resposta.json()
       if (!resposta.ok) throw new Error(resultado.error ?? 'Não foi possível consultar o produto.')
       setProduto(resultado.produto)
+      setOrigem(resultado.source)
     } catch (error) {
       setErro(error instanceof Error ? error.message : 'Não foi possível consultar o produto.')
     } finally {
@@ -56,6 +59,7 @@ export default function ImportarProdutos() {
           onChange={(event) => {
             setTexto(event.target.value)
             setProduto(null)
+            setOrigem(null)
             setErro('')
           }}
           rows={3}
@@ -63,7 +67,7 @@ export default function ImportarProdutos() {
           aria-describedby="links-ajuda"
           placeholder="https://produto.mercadolivre.com.br/MLB-1234567890-..."
         />
-        <p id="links-ajuda">Use um link que contenha o ID do anúncio (MLB). Links curtos e páginas de catálogo sem ID de anúncio não podem ser consultados nesta etapa.</p>
+        <p id="links-ajuda">Use um link de anúncio com ID MLB, inclusive com parâmetros de afiliado ou wid=MLB. Links de catálogo sem ID de anúncio precisam ser abertos em um anúncio específico.</p>
         <button type="button" onClick={processar} disabled={carregando}>{carregando ? 'Consultando...' : 'Consultar produto'}</button>
         <p className="importar-nota">Os dados serão consultados no Mercado Livre e não serão salvos.</p>
       </section>
@@ -72,6 +76,7 @@ export default function ImportarProdutos() {
       {produto && (
         <section className="importar-card" aria-labelledby="previa-titulo">
           <h2 id="previa-titulo">Produto consultado</h2>
+          {origem === 'public-page-fallback' && <p className="importar-nota">Dados da página pública do anúncio. Disponibilidade e status não foram verificados.</p>}
           {produto.imagemPrincipal && <img className="importar-imagem" src={produto.imagemPrincipal} alt={produto.titulo} />}
           <h3>{produto.titulo}</h3>
           <p>ID: {produto.id}</p>

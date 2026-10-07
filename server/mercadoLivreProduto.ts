@@ -1,9 +1,10 @@
 import { Router } from 'express'
-import { extrairIdItem } from '../src/lib/processarLinks.js'
+import { extrairIdItem, motivoLinkSemAnuncio } from '../src/lib/processarLinks.js'
 import { getMercadoLivreConfig } from './mercadoLivreConfig.js'
 import { assertEncryptionConfigured, hashOpaque } from './mercadoLivreCrypto.js'
 import { getMercadoLivreItem, MercadoLivreApiError } from './mercadoLivreApi.js'
 import { getBackendAccessToken } from './mercadoLivreTokenService.js'
+import { getMercadoLivrePublico } from './mercadoLivrePublico.js'
 
 const router = Router()
 
@@ -12,7 +13,8 @@ router.post('/produto', async (req, res) => {
   const link = req.body?.link
   const itemId = typeof link === 'string' ? extrairIdItem(link.trim()) : null
   if (!itemId) {
-    res.status(400).json({ ok: false, error: 'Link inválido: informe uma URL do Mercado Livre com ID de anúncio MLB.' })
+    const motivo = typeof link === 'string' ? motivoLinkSemAnuncio(link.trim()) : 'Informe um link de anúncio do Mercado Livre.'
+    res.status(400).json({ ok: false, error: `Link inválido: ${motivo}` })
     return
   }
 
@@ -38,7 +40,7 @@ router.post('/produto', async (req, res) => {
     try {
       produto = await getMercadoLivreItem(accessToken, itemId)
     } catch (error) {
-      if (!(error instanceof MercadoLivreApiError) || error.kind !== 'unauthorized') throw error
+      if (!(error instanceof MercadoLivreApiError) || error.kind !== 'unauthorized' || error.itemFailure?.providerStatus === 403) throw error
       accessToken = await getBackendAccessToken(sessionHash, config, accessToken)
       if (!accessToken) {
         res.status(401).json({ ok: false, error: 'Conexão expirada. Reconecte sua conta do Mercado Livre.' })
@@ -46,8 +48,17 @@ router.post('/produto', async (req, res) => {
       }
       produto = await getMercadoLivreItem(accessToken, itemId)
     }
-    res.json({ ok: true, produto })
+    res.json({ ok: true, source: 'api', produto })
   } catch (error) {
+    if (error instanceof MercadoLivreApiError && error.itemFailure?.providerStatus === 403) {
+      const produto = await getMercadoLivrePublico(link.trim(), itemId)
+      if (produto) {
+        res.json({ ok: true, source: 'public-page-fallback', produto })
+        return
+      }
+      res.status(502).json({ ok: false, error: 'A API do Mercado Livre bloqueou a consulta e não foi possível ler a página pública deste anúncio.' })
+      return
+    }
     if (error instanceof MercadoLivreApiError && error.itemFailure) {
       res.status(error.kind === 'not_found' ? 404 : 502).json({
         ok: false,
