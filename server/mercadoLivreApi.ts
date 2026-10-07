@@ -3,6 +3,7 @@ import type { MercadoLivreConfig } from './mercadoLivreConfig.js'
 const TOKEN_URL = 'https://api.mercadolibre.com/oauth/token'
 const USER_URL = 'https://api.mercadolibre.com/users/me'
 const ITEM_URL = 'https://api.mercadolibre.com/items/'
+const PRODUCT_URL = 'https://api.mercadolibre.com/products/'
 const GRANTS_URL = 'https://api.mercadolibre.com/applications/6332151948097527/grants'
 const GRANTS_APP_ID = '6332151948097527'
 
@@ -28,6 +29,62 @@ export type MercadoLivreItem = {
   permalink: string | null
   status: string | null
   quantidadeDisponivel: number | null
+}
+
+export type MercadoLivreCatalogProduct = {
+  id: string
+  titulo: string
+  preco: null
+  moeda: null
+  imagemPrincipal: string | null
+  permalink: string
+  status: string | null
+  quantidadeDisponivel: null
+  catalogProductId: string
+  itemId: string | null
+  originalUrl: string
+  atributos: { id: string; nome: string | null; valor: string | null }[]
+}
+
+export async function getMercadoLivreCatalogProduct(accessToken: string, catalogProductId: string, itemId: string | null, originalUrl: string): Promise<MercadoLivreCatalogProduct> {
+  let response: Response
+  try {
+    response = await fetch(`${PRODUCT_URL}${catalogProductId}`, {
+      headers: { accept: 'application/json', authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+  } catch {
+    throw new MercadoLivreApiError('unavailable')
+  }
+  if (!response.ok) throw new MercadoLivreApiError(response.status === 404 ? 'not_found' : 'unavailable')
+  const value: unknown = await response.json().catch(() => null)
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new MercadoLivreApiError('unavailable')
+  const product = value as Record<string, unknown>
+  const title = typeof product.name === 'string' && product.name.trim() ? product.name.trim()
+    : typeof product.title === 'string' && product.title.trim() ? product.title.trim() : null
+  if (product.id !== catalogProductId || !title) throw new MercadoLivreApiError('unavailable')
+  const pictures = Array.isArray(product.pictures) ? product.pictures : []
+  const image = pictures.find((picture: unknown) => {
+    if (typeof picture !== 'object' || picture === null) return false
+    const row = picture as Record<string, unknown>
+    return typeof row.secure_url === 'string' && row.secure_url.startsWith('https://')
+      || typeof row.url === 'string' && row.url.startsWith('https://')
+  }) as Record<string, unknown> | undefined
+  const attributes = Array.isArray(product.attributes) ? product.attributes : []
+  return {
+    id: catalogProductId, titulo: title, preco: null, moeda: null,
+    imagemPrincipal: typeof image?.secure_url === 'string' && image.secure_url.startsWith('https://')
+      ? image.secure_url : typeof image?.url === 'string' && image.url.startsWith('https://') ? image.url : null,
+    permalink: originalUrl, status: typeof product.status === 'string' ? product.status : null,
+    quantidadeDisponivel: null, catalogProductId, itemId, originalUrl,
+    atributos: attributes.flatMap((attribute: unknown) => {
+      if (typeof attribute !== 'object' || attribute === null) return []
+      const row = attribute as Record<string, unknown>
+      if (typeof row.id !== 'string') return []
+      return [{ id: row.id, nome: typeof row.name === 'string' ? row.name : null,
+        valor: typeof row.value_name === 'string' ? row.value_name : null }]
+    }),
+  }
 }
 
 export type MercadoLivreGrant = {

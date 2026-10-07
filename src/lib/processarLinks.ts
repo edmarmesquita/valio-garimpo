@@ -44,6 +44,17 @@ export function extrairIdItem(link: string): string | null {
   return null
 }
 
+export function extrairIdProdutoCatalogo(link: string): string | null {
+  if (validarLink(link)) return null
+  const segments = new URL(link).pathname.split('/')
+  for (let index = 1; index < segments.length; index++) {
+    if (segments[index - 1]?.toLowerCase() !== 'p') continue
+    const match = /^MLB-?(\d+)$/i.exec(segments[index])
+    if (match) return `MLB${match[1]}`
+  }
+  return null
+}
+
 export function motivoLinkSemAnuncio(link: string): string | undefined {
   const motivo = validarLink(link)
   if (motivo) return motivo

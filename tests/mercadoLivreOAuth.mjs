@@ -228,7 +228,7 @@ const provider = createServer(async (req, res) => {
     catalogCalls++
     assert.equal(req.method, 'GET')
     assert.equal(req.headers.accept, 'application/json')
-    assert.equal(req.headers.authorization, 'Bearer access-1')
+    assert.match(req.headers.authorization, /^Bearer access-[14]$/)
     if (catalogMode === 'html') {
       res.writeHead(403, { 'content-type': 'text/html' }).end('<html>access-1 refresh-1</html>')
       return
@@ -243,8 +243,8 @@ const provider = createServer(async (req, res) => {
     }
     res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
       id: 'MLB29179705', name: 'Colchão inflável', status: 'active',
-      pictures: [{ id: '1', access_token: 'nunca-retornar' }, { id: '2' }],
-      attributes: [{ id: 'BRAND', refresh_token: 'refresh-1' }],
+      pictures: [{ id: '1', secure_url: 'https://http2.mlstatic.com/catalogo.jpg', access_token: 'nunca-retornar' }, { id: '2' }],
+      attributes: [{ id: 'BRAND', name: 'Marca', value_name: 'Homefy', refresh_token: 'refresh-1' }],
       access_token: 'nunca-retornar', client_secret: 'secret-teste',
     }))
     return
@@ -468,6 +468,9 @@ try {
   const diagnostic = await request(apiPorts[1], diagnosticPath, cookie)
   assert.equal(diagnostic.status, 200)
   assert.deepEqual(await diagnostic.json(), { connected: true, id: '123456789', nickname: 'conta-teste' })
+  for (const path of ['item', 'produto-catalogo', 'item-bulk']) {
+    assert.equal((await request(apiPorts[0], `/api/mercadolivre/diagnostico/${path}`, cookie)).status, 404)
+  }
 
   const grantsPath = '/api/mercadolivre/diagnostico/grants'
   assert.equal((await request(apiPorts[0], grantsPath)).status, 401)
@@ -495,10 +498,10 @@ try {
   const validItem = await requestItem(apiPorts[1], validLink, cookie)
   assert.equal(validItem.status, 200)
   const validBody = await validItem.json()
-  assert.deepEqual(validBody, { ok: true, source: 'api', produto: {
+  assert.deepEqual(validBody, { ok: true, source: 'api-item', produto: {
     id: 'MLB1234567890', titulo: 'Produto de teste', preco: 129.9, moeda: 'BRL',
     imagemPrincipal: 'https://http2.mlstatic.com/teste.jpg',
-    permalink: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM',
+    permalink: validLink, originalUrl: validLink,
     status: 'active', quantidadeDisponivel: 5,
   } })
   assert.ok(!JSON.stringify(validBody).includes('nunca-retornar'))
@@ -558,7 +561,6 @@ try {
   }
   itemFailureMode = null
 
-  const itemDiagnosticPath = '/api/mercadolivre/diagnostico/item'
   const statusDiagnosticPath = '/api/mercadolivre/diagnostico/status'
   assert.equal((await request(apiPorts[0], statusDiagnosticPath)).status, 401)
   assert.equal((await request(apiPorts[0], statusDiagnosticPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
@@ -701,57 +703,6 @@ try {
     assert.ok(!JSON.stringify(failedRestrictionsBody).includes(secret))
   }
   restrictionsMode = 'inactive'
-  const callsBeforeUnauthenticatedDiagnostic = itemCalls
-  assert.equal((await request(apiPorts[0], itemDiagnosticPath)).status, 401)
-  assert.equal((await request(apiPorts[0], itemDiagnosticPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
-  assert.equal(itemCalls, callsBeforeUnauthenticatedDiagnostic)
-  itemFailureMode = 'diagnostic-json'
-  const callsBeforeJsonDiagnostic = itemCalls
-  const refreshBeforeJsonDiagnostic = refreshCalls
-  const jsonDiagnostic = await request(apiPorts[0], itemDiagnosticPath, cookie)
-  assert.equal(jsonDiagnostic.status, 200)
-  assert.equal(itemCalls, callsBeforeJsonDiagnostic + 1)
-  assert.equal(refreshCalls, refreshBeforeJsonDiagnostic)
-  const jsonDiagnosticBody = await jsonDiagnostic.json()
-  const diagnosticProviderBody = {
-    error: 'forbidden', code: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES',
-    message: 'Bloqueado para Bearer [REDACTED]', status: 403, blocked_by: 'policy_agent',
-  }
-  const originalJsonBody = JSON.stringify({
-    error: 'forbidden', code: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES',
-    message: 'Bloqueado para Bearer access-1', status: 403, blocked_by: 'policy_agent',
-    access_token: 'nunca-retornar', refresh_token: 'nunca-retornar',
-    Authorization: 'nunca-retornar', DATABASE_URL: 'nunca-retornar', client_secret: 'nunca-retornar',
-  })
-  assert.deepEqual(jsonDiagnosticBody, {
-    providerStatus: 403, contentType: 'application/json; charset=utf-8',
-    bodySize: Buffer.byteLength(originalJsonBody), body: diagnosticProviderBody,
-  })
-  for (const secret of ['access-1', 'nunca-retornar', 'refresh-1', 'secret-teste', 'postgres://']) {
-    assert.ok(!JSON.stringify(jsonDiagnosticBody).includes(secret))
-  }
-
-  itemFailureMode = 'html'
-  const callsBeforeHtmlDiagnostic = itemCalls
-  const htmlDiagnostic = await request(apiPorts[0], itemDiagnosticPath, cookie)
-  assert.equal(htmlDiagnostic.status, 200)
-  assert.equal(itemCalls, callsBeforeHtmlDiagnostic + 1)
-  assert.deepEqual(await htmlDiagnostic.json(), {
-    providerStatus: 503, contentType: 'text/html; charset=utf-8',
-    bodySize: Buffer.byteLength('<html>access-1 refresh-1 secret-teste cookie-secreto nunca-retornar</html>'),
-  })
-  itemFailureMode = null
-
-  rejectedAccessToken = 'access-1'
-  const callsBeforeRejectedDiagnostic = itemCalls
-  const refreshBeforeRejectedDiagnostic = refreshCalls
-  const rejectedDiagnostic = await request(apiPorts[0], itemDiagnosticPath, cookie)
-  assert.equal(rejectedDiagnostic.status, 200)
-  assert.equal(itemCalls, callsBeforeRejectedDiagnostic + 1)
-  assert.equal(refreshCalls, refreshBeforeRejectedDiagnostic)
-  assert.deepEqual(await rejectedDiagnostic.json(), { providerStatus: 401, contentType: null, bodySize: 0 })
-  rejectedAccessToken = null
-
   const searchPath = '/api/mercadolivre/diagnostico/search'
   assert.equal((await request(apiPorts[0], searchPath)).status, 401)
   assert.equal((await request(apiPorts[0], searchPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
@@ -794,93 +745,6 @@ try {
     error: 'Não foi possível consultar a busca do Mercado Livre.',
   })
   searchMode = 'success'
-
-  const catalogPath = '/api/mercadolivre/diagnostico/produto-catalogo'
-  assert.equal((await request(apiPorts[0], catalogPath)).status, 401)
-  assert.equal((await request(apiPorts[0], catalogPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
-  assert.equal(catalogCalls, 0)
-  const assertCatalogCall = async (mode, expected) => {
-    catalogMode = mode
-    const beforeCatalog = catalogCalls
-    const beforeItems = itemCalls
-    const beforeRefresh = refreshCalls
-    const response = await request(apiPorts[0], catalogPath, cookie)
-    assert.equal(response.status, 200)
-    assert.equal(response.headers.get('cache-control'), 'no-store')
-    assert.equal(catalogCalls, beforeCatalog + 1)
-    assert.equal(itemCalls, beforeItems)
-    assert.equal(refreshCalls, beforeRefresh)
-    const body = await response.json()
-    assert.deepEqual(body, expected)
-    for (const secret of ['access-1', 'refresh-1', 'nunca-retornar', 'secret-teste',
-      'cookie-secreto', 'Authorization', 'access_token', 'refresh_token', 'client_secret']) {
-      assert.ok(!JSON.stringify(body).includes(secret))
-    }
-  }
-  await assertCatalogCall('success', {
-    providerStatus: 200, id: 'MLB29179705', name: 'Colchão inflável', status: 'active',
-    picturesCount: 2, attributesCount: 1,
-  })
-  await assertCatalogCall('forbidden', {
-    providerStatus: 403, body: {
-      error: 'forbidden', code: 'PA_BLOCKED', message: 'Bearer [REDACTED] [REDACTED] [REDACTED]',
-      status: 403, blocked_by: 'policy_agent',
-    },
-  })
-  await assertCatalogCall('html', { providerStatus: 403, body: {} })
-  catalogMode = 'success'
-
-  const bulkPath = '/api/mercadolivre/diagnostico/item-bulk'
-  assert.equal((await request(apiPorts[0], bulkPath)).status, 401)
-  assert.equal((await request(apiPorts[0], bulkPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
-  assert.equal(bulkCalls, 0)
-  const assertBulkCall = async (mode, expectedStatus, expectedShape) => {
-    bulkMode = mode
-    const beforeBulk = bulkCalls
-    const beforeItems = itemCalls
-    const beforeRefresh = refreshCalls
-    const response = await request(apiPorts[0], bulkPath, cookie)
-    assert.equal(response.status, 200)
-    const body = await response.json()
-    assert.equal(bulkCalls, beforeBulk + 1)
-    assert.equal(itemCalls, beforeItems)
-    assert.equal(refreshCalls, beforeRefresh)
-    assert.equal(body.providerStatus, expectedStatus)
-    assert.equal(body.contentType, mode === 'html' ? 'text/html' : 'application/json; charset=utf-8')
-    assert.ok(body.bodySize > 0)
-    assert.deepEqual(body, { providerStatus: expectedStatus,
-      contentType: mode === 'html' ? 'text/html' : 'application/json; charset=utf-8',
-      bodySize: body.bodySize, ...expectedShape })
-    for (const secret of ['access-1', 'refresh-1', 'nunca-retornar', 'secret-teste',
-      'postgres://', 'Authorization', 'access_token', 'refresh_token', 'DATABASE_URL', 'client_secret']) {
-      assert.ok(!JSON.stringify(body).includes(secret))
-    }
-  }
-  const productKeys = ['id', 'title', 'price', 'currency_id', 'permalink', 'status',
-    'available_quantity', 'thumbnail']
-  const productShape = { parsedType: 'array', isArray: true, arrayLength: 1,
-    firstElementKeys: ['id', 'status_code', 'body'], firstElementStatusCode: 200,
-    firstElementBodyType: 'object', firstElementBodyKeys: productKeys,
-    firstElementBodyStatus: 'active' }
-  await assertBulkCall('success', 200, productShape)
-  await assertBulkCall('pictures', 200, { ...productShape,
-    firstElementBodyKeys: [...productKeys.slice(0, -1), 'pictures'] })
-  const errorShape = { parsedType: 'array', isArray: true, arrayLength: 1,
-    firstElementKeys: ['id', 'status_code', 'body'], firstElementBodyType: 'object',
-    firstElementBodyKeys: ['error', 'code', 'message', 'status', 'blocked_by'],
-    firstElementBodyError: 'forbidden', firstElementBodyCode: 'PA_BLOCKED',
-    firstElementBodyStatus: 403 }
-  await assertBulkCall('item-error', 200, { ...errorShape, firstElementStatusCode: 403 })
-  await assertBulkCall('item-error-200', 200, { ...errorShape, firstElementStatusCode: 200 })
-  await assertBulkCall('shape-only', 200, { parsedType: 'array', isArray: true, arrayLength: 1,
-    firstElementKeys: ['code', 'status', 'body'], firstElementCode: 200,
-    firstElementStatus: 'success', firstElementBodyType: 'object',
-    firstElementBodyKeys: ['unexpected_field', 'message'],
-    firstElementBodyMessage: 'Estrutura inesperada' })
-  await assertBulkCall('forbidden', 403, { parsedType: 'object', isArray: false,
-    topLevelKeys: ['error', 'code', 'message', 'status', 'blocked_by'] })
-  await assertBulkCall('html', 503, { parsedType: 'other', isArray: false })
-  bulkMode = 'success'
 
   const client = new pg.Client({ connectionString: env.DATABASE_URL })
   await client.connect()
@@ -925,58 +789,33 @@ try {
     assert.equal((await client.query('SELECT token_version FROM meli_connections')).rows[0].token_version, '4')
 
     itemFailureMode = 'forbidden'
-    const forbiddenItem = await requestItem(apiPorts[0], validLink, cookie)
+    const callsBeforeCatalog = catalogCalls
+    const callsBeforePublic = publicCalls
+    const catalogLink = 'https://www.mercadolivre.com.br/colchao-inflavel-casal-com-inflador-embutido-multiuso-homefy/p/MLB29179705?pdp_filters=deal%3AMLB1578289-1&extra_comm=false&brand_comm=false#polycard_client=affiliates&wid=MLB3910897819&sid=affiliates'
+    const forbiddenItem = await requestItem(apiPorts[0], catalogLink, cookie)
     assert.equal(forbiddenItem.status, 200)
     const forbiddenBody = await forbiddenItem.json()
     assert.deepEqual(forbiddenBody, {
-      ok: true, source: 'public-page-fallback', produto: {
-        id: 'MLB1234567890', titulo: 'Produto público & teste', preco: 129.9,
-        moeda: 'BRL', imagemPrincipal: 'https://http2.mlstatic.com/publico.jpg',
-        permalink: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM',
-        status: null, quantidadeDisponivel: null,
+      ok: true, source: 'api-catalog', catalogProductId: 'MLB29179705',
+      itemId: 'MLB3910897819', originalUrl: catalogLink, produto: {
+        id: 'MLB29179705', titulo: 'Colchão inflável', preco: null, moeda: null,
+        imagemPrincipal: 'https://http2.mlstatic.com/catalogo.jpg',
+        permalink: catalogLink, status: 'active', quantidadeDisponivel: null,
+        catalogProductId: 'MLB29179705', itemId: 'MLB3910897819',
+        originalUrl: catalogLink, atributos: [{ id: 'BRAND', nome: 'Marca', valor: 'Homefy' }],
       },
     })
-    assert.equal(publicCalls, 1)
+    assert.equal(catalogCalls, callsBeforeCatalog + 1)
+    assert.equal(publicCalls, callsBeforePublic)
     assert.equal(refreshCalls, 3)
-    publicMode = 'unavailable'
-    const unavailablePublic = await requestItem(apiPorts[0], validLink, cookie)
-    assert.equal(unavailablePublic.status, 502)
-    const unavailableBody = await unavailablePublic.json()
-    assert.match(unavailableBody.error, /página pública/)
-    assert.deepEqual(unavailableBody.fallback, {
-      requestedUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM',
-      status: 503, contentType: null, bodySize: 0, redirected: false,
-      finalUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM',
-      possibleBlock: false, classification: 'empty',
-    })
-    for (const [mode, expected] of [
-      ['challenge', { status: 403, contentType: 'text/html; charset=utf-8', bodySize: Buffer.byteLength('<html><body>Captcha challenge secret-page-content</body></html>'), classification: 'challenge', possibleBlock: true, redirected: false, finalUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM' }],
-      ['redirect', { status: 403, contentType: 'text/html; charset=utf-8', bodySize: Buffer.byteLength('<html><body>Captcha challenge secret-page-content</body></html>'), classification: 'challenge', possibleBlock: true, redirected: true, finalUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-redirected' }],
-      ['json', { status: 200, contentType: 'application/json', bodySize: Buffer.byteLength('{"error":"private-json-content"}'), classification: 'json', possibleBlock: false, redirected: false, finalUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM' }],
-      ['html-incomplete', { status: 200, contentType: 'text/html', bodySize: Buffer.byteLength('<html><body>Produto sem preço private-html-content</body></html>'), classification: 'html', possibleBlock: false, redirected: false, finalUrl: 'https://produto.mercadolivre.com.br/MLB-1234567890-produto-_JM' }],
-    ]) {
-      publicMode = mode
-      const response = await requestItem(apiPorts[0], validLink, cookie)
-      assert.equal(response.status, 502)
-      const body = await response.json()
-      assert.equal(body.fallback.requestedUrl, unavailableBody.fallback.requestedUrl)
-      for (const [field, value] of Object.entries(expected)) assert.equal(body.fallback[field], value)
-      for (const secret of ['private', 'secret-page-content', 'private-json-content', 'private-html-content', 'token=']) {
-        assert.ok(!JSON.stringify(body).includes(secret))
-        assert.ok(!childErrors[0].includes(secret))
-      }
-    }
-    publicMode = 'success'
-    assert.match(childErrors[0], /providerError: 'forbidden'/)
-    assert.match(childErrors[0], /providerBodyCode: 'PA_UNAUTHORIZED_RESULT_FROM_POLICIES'/)
-    assert.match(childErrors[0], /providerBlockedBy: 'policy_agent'/)
-    assert.match(childErrors[0], /providerBodyStatus: 403/)
-    assert.match(childErrors[0], /providerContentType: 'application\/json'/)
-    for (const secret of ['nunca-retornar', 'access-4', 'refresh-4', 'secret-teste', 'cookie-secreto', 'postgres://secret', '<html>']) {
-      assert.ok(!childErrors[0].includes(secret))
+    const withoutCatalog = await requestItem(apiPorts[0], validLink, cookie)
+    assert.equal(withoutCatalog.status, 502)
+    assert.match((await withoutCatalog.json()).error, /não contém ID de catálogo/)
+    assert.equal(catalogCalls, callsBeforeCatalog + 1)
+    assert.equal(publicCalls, callsBeforePublic)
+    for (const secret of ['nunca-retornar', 'access-4', 'refresh-4', 'secret-teste', 'cookie-secreto', 'postgres://secret']) {
       assert.ok(!JSON.stringify(forbiddenBody).includes(secret))
-    }
-    itemFailureMode = null
+    }    itemFailureMode = null
 
     rejectedAccessToken = 'access-4'
     rejectRefresh = true

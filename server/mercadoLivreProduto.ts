@@ -1,10 +1,9 @@
 import { Router } from 'express'
-import { extrairIdItem, motivoLinkSemAnuncio } from '../src/lib/processarLinks.js'
+import { extrairIdItem, extrairIdProdutoCatalogo, motivoLinkSemAnuncio } from '../src/lib/processarLinks.js'
 import { getMercadoLivreConfig } from './mercadoLivreConfig.js'
 import { assertEncryptionConfigured, hashOpaque } from './mercadoLivreCrypto.js'
-import { getMercadoLivreItem, MercadoLivreApiError } from './mercadoLivreApi.js'
+import { getMercadoLivreCatalogProduct, getMercadoLivreItem, MercadoLivreApiError } from './mercadoLivreApi.js'
 import { getBackendAccessToken } from './mercadoLivreTokenService.js'
-import { getMercadoLivrePublico } from './mercadoLivrePublico.js'
 
 const router = Router()
 
@@ -12,6 +11,7 @@ router.post('/produto', async (req, res) => {
   res.set('Cache-Control', 'no-store')
   const link = req.body?.link
   const itemId = typeof link === 'string' ? extrairIdItem(link.trim()) : null
+  const catalogProductId = typeof link === 'string' ? extrairIdProdutoCatalogo(link.trim()) : null
   if (!itemId) {
     const motivo = typeof link === 'string' ? motivoLinkSemAnuncio(link.trim()) : 'Informe um link de anúncio do Mercado Livre.'
     res.status(400).json({ ok: false, error: `Link inválido: ${motivo}` })
@@ -25,12 +25,13 @@ router.post('/produto', async (req, res) => {
     return
   }
 
+  let accessToken: string | null = null
   try {
     const config = getMercadoLivreConfig()
     if (!config) throw new Error('Configuração OAuth ausente')
     assertEncryptionConfigured()
     const sessionHash = hashOpaque(sessionId)
-    let accessToken = await getBackendAccessToken(sessionHash, config)
+    accessToken = await getBackendAccessToken(sessionHash, config)
     if (!accessToken) {
       res.status(401).json({ ok: false, error: 'Conexão com o Mercado Livre ausente ou expirada. Reconecte sua conta.' })
       return
@@ -48,15 +49,24 @@ router.post('/produto', async (req, res) => {
       }
       produto = await getMercadoLivreItem(accessToken, itemId)
     }
-    res.json({ ok: true, source: 'api', produto })
+    res.json({ ok: true, source: 'api-item', produto: { ...produto, permalink: link.trim(), originalUrl: link.trim() } })
   } catch (error) {
     if (error instanceof MercadoLivreApiError && error.itemFailure?.providerStatus === 403) {
-      const { produto, fallback } = await getMercadoLivrePublico(link.trim(), itemId)
-      if (produto) {
-        res.json({ ok: true, source: 'public-page-fallback', produto })
-        return
+      if (catalogProductId) {
+        try {
+          if (!accessToken) {
+            res.status(401).json({ ok: false, error: 'Conexão expirada. Reconecte sua conta do Mercado Livre.' })
+            return
+          }
+          const produto = await getMercadoLivreCatalogProduct(accessToken, catalogProductId, itemId, link.trim())
+          res.json({ ok: true, source: 'api-catalog', catalogProductId, itemId, originalUrl: link.trim(), produto })
+          return
+        } catch {
+          res.status(502).json({ ok: false, error: 'Não foi possível consultar o produto no catálogo do Mercado Livre.' })
+          return
+        }
       }
-      res.status(502).json({ ok: false, error: 'A API do Mercado Livre bloqueou a consulta e não foi possível ler a página pública deste anúncio.', fallback })
+      res.status(502).json({ ok: false, error: 'O Mercado Livre bloqueou a consulta do anúncio e o link não contém ID de catálogo.' })
       return
     }
     if (error instanceof MercadoLivreApiError && error.itemFailure) {
