@@ -26,10 +26,13 @@ export function validarLink(link: string): string | undefined {
 export function extrairIdItem(link: string): string | null {
   if (validarLink(link)) return null
   const url = new URL(link)
-  for (const [key, value] of url.searchParams) {
-    if (['wid', 'item_id', 'itemid'].includes(key.toLowerCase())) {
-      const match = /^MLB-?(\d+)$/i.exec(value)
-      if (match) return `MLB${match[1]}`
+  const hashParams = new URLSearchParams(url.hash.slice(1))
+  for (const params of [url.searchParams, hashParams]) {
+    for (const [key, value] of params) {
+      if (['wid', 'item_id', 'itemid'].includes(key.toLowerCase())) {
+        const match = /^MLB-?(\d+)$/i.exec(value)
+        if (match) return `MLB${match[1]}`
+      }
     }
   }
   const segments = url.pathname.split('/')
