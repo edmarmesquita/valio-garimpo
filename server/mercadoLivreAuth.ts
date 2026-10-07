@@ -289,6 +289,63 @@ router.get('/diagnostico/item', async (req, res) => {
   }
 })
 
+// Diagnóstico temporário do endpoint oficial de catálogo.
+router.get('/diagnostico/produto-catalogo', async (req, res) => {
+  const sessionId = getSessionId(req)
+  if (!sessionId) {
+    res.status(401).json({ error: 'Conexão com o Mercado Livre ausente.' })
+    return
+  }
+
+  try {
+    const config = getMercadoLivreConfig()
+    if (!config) throw new Error('Configuração OAuth ausente')
+    assertEncryptionConfigured()
+    const sessionHash = hashOpaque(sessionId)
+    const accessToken = await getBackendAccessToken(sessionHash, config)
+    if (!accessToken) {
+      res.status(401).json({ error: 'Conexão com o Mercado Livre ausente ou expirada.' })
+      return
+    }
+
+    const refreshToken = await withLockedConnection(sessionHash, async (_client, connection) =>
+      decryptSecret(connection.refresh_token_ciphertext, `refresh:${connection.meli_user_id}`))
+    const secrets = [accessToken, refreshToken, sessionId, req.get('cookie'),
+      process.env.MELI_CLIENT_SECRET, process.env.MELI_TOKEN_ENCRYPTION_KEY, process.env.DATABASE_URL]
+      .filter((value): value is string => Boolean(value))
+    const response = await fetch('https://api.mercadolibre.com/products/MLB29179705', {
+      headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(10_000),
+    })
+    const contentType = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase()
+    let parsed: unknown = null
+    if (contentType === 'application/json' || contentType?.endsWith('+json')) {
+      try { parsed = await response.json() } catch { /* Resposta inválida: não expor conteúdo bruto. */ }
+    }
+    const source = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown> : {}
+
+    if (!response.ok) {
+      const body = safeProviderError(response.status, source, secrets)
+      delete body.httpStatus
+      res.json({ providerStatus: response.status, body })
+      return
+    }
+
+    const safe = safeProviderError(response.status, { message: source.name, status: source.status }, secrets)
+    res.json({
+      providerStatus: response.status,
+      id: 'MLB29179705',
+      name: typeof safe.message === 'string' ? safe.message : null,
+      status: typeof safe.status === 'string' ? safe.status : null,
+      picturesCount: Array.isArray(source.pictures) ? source.pictures.length : 0,
+      attributesCount: Array.isArray(source.attributes) ? source.attributes.length : 0,
+    })
+  } catch {
+    res.status(503).json({ error: 'Não foi possível consultar o produto de catálogo do Mercado Livre.' })
+  }
+})
+
 // Diagnóstico temporário do endpoint bulk com o token armazenado, sem renovação.
 router.get('/diagnostico/item-bulk', async (req, res) => {
   const sessionId = getSessionId(req)

@@ -28,6 +28,8 @@ let bulkCalls = 0
 let bulkMode = 'success'
 let searchCalls = 0
 let searchMode = 'success'
+let catalogCalls = 0
+let catalogMode = 'success'
 let grantMode = 'normal'
 let grantCalls = 0
 let applicationStatusCalls = 0
@@ -220,6 +222,31 @@ const provider = createServer(async (req, res) => {
     }] : { error: 'access_denied', code: 'PA_BLOCKED', message: 'Bearer access-1; secret-teste',
       status: 403, blocked_by: 'policy_agent', refresh_token: 'nunca-retornar' }
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' }).end(JSON.stringify(body))
+    return
+  }
+  if (req.url === '/products/MLB29179705') {
+    catalogCalls++
+    assert.equal(req.method, 'GET')
+    assert.equal(req.headers.accept, 'application/json')
+    assert.equal(req.headers.authorization, 'Bearer access-1')
+    if (catalogMode === 'html') {
+      res.writeHead(403, { 'content-type': 'text/html' }).end('<html>access-1 refresh-1</html>')
+      return
+    }
+    if (catalogMode === 'forbidden') {
+      res.writeHead(403, { 'content-type': 'application/json' }).end(JSON.stringify({
+        error: 'forbidden', code: 'PA_BLOCKED', message: 'Bearer access-1 refresh-1 secret-teste',
+        status: 403, blocked_by: 'policy_agent', access_token: 'nunca-retornar',
+        refresh_token: 'refresh-1', client_secret: 'secret-teste', cookie: 'cookie-secreto',
+      }))
+      return
+    }
+    res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({
+      id: 'MLB29179705', name: 'Colchão inflável', status: 'active',
+      pictures: [{ id: '1', access_token: 'nunca-retornar' }, { id: '2' }],
+      attributes: [{ id: 'BRAND', refresh_token: 'refresh-1' }],
+      access_token: 'nunca-retornar', client_secret: 'secret-teste',
+    }))
     return
   }
   if (req.url === '/applications/6332151948097527' || req.url === '/users/3334862827?attributes=status') {
@@ -767,6 +794,41 @@ try {
     error: 'Não foi possível consultar a busca do Mercado Livre.',
   })
   searchMode = 'success'
+
+  const catalogPath = '/api/mercadolivre/diagnostico/produto-catalogo'
+  assert.equal((await request(apiPorts[0], catalogPath)).status, 401)
+  assert.equal((await request(apiPorts[0], catalogPath, `meli_oauth_session=${'z'.repeat(43)}`)).status, 401)
+  assert.equal(catalogCalls, 0)
+  const assertCatalogCall = async (mode, expected) => {
+    catalogMode = mode
+    const beforeCatalog = catalogCalls
+    const beforeItems = itemCalls
+    const beforeRefresh = refreshCalls
+    const response = await request(apiPorts[0], catalogPath, cookie)
+    assert.equal(response.status, 200)
+    assert.equal(response.headers.get('cache-control'), 'no-store')
+    assert.equal(catalogCalls, beforeCatalog + 1)
+    assert.equal(itemCalls, beforeItems)
+    assert.equal(refreshCalls, beforeRefresh)
+    const body = await response.json()
+    assert.deepEqual(body, expected)
+    for (const secret of ['access-1', 'refresh-1', 'nunca-retornar', 'secret-teste',
+      'cookie-secreto', 'Authorization', 'access_token', 'refresh_token', 'client_secret']) {
+      assert.ok(!JSON.stringify(body).includes(secret))
+    }
+  }
+  await assertCatalogCall('success', {
+    providerStatus: 200, id: 'MLB29179705', name: 'Colchão inflável', status: 'active',
+    picturesCount: 2, attributesCount: 1,
+  })
+  await assertCatalogCall('forbidden', {
+    providerStatus: 403, body: {
+      error: 'forbidden', code: 'PA_BLOCKED', message: 'Bearer [REDACTED] [REDACTED] [REDACTED]',
+      status: 403, blocked_by: 'policy_agent',
+    },
+  })
+  await assertCatalogCall('html', { providerStatus: 403, body: {} })
+  catalogMode = 'success'
 
   const bulkPath = '/api/mercadolivre/diagnostico/item-bulk'
   assert.equal((await request(apiPorts[0], bulkPath)).status, 401)
