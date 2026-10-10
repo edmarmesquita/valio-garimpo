@@ -162,6 +162,12 @@ function App() {
             Conectar Mercado Livre
           </button>
         </div>
+
+        <div className="status-card mercado-livre-card">
+          <h2>Diagnóstico de afiliados</h2>
+          <p>Cole o JSON da Central de Afiliados para conferir os produtos encontrados.</p>
+          <a className="garimpo-link" href="/extrair-afiliados">Abrir extrator de produtos</a>
+        </div>
       </section>
     </main>
   )

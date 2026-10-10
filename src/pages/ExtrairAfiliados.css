@@ -1,0 +1,69 @@
+.extrair-afiliados { max-width: 1100px; margin: auto; padding: 36px 24px 64px; color: #5b4037; }
+.extrair-afiliados a { color: #795548; }
+.extrair-afiliados header { margin: 32px 0; }
+.extrair-afiliados h1 { margin: 8px 0; font-size: clamp(30px, 5vw, 44px); }
+.extrair-marca { font-size: 12px; font-weight: 700; letter-spacing: 2px; }
+.extrair-card { margin-top: 24px; padding: 24px; border: 1px solid #f0d8cf; border-radius: 18px; background: white; }
+.extrair-card h2 { margin-top: 0; }
+.extrair-card label { display: block; margin-bottom: 8px; font-weight: 600; }
+.extrair-card textarea { width: 100%; min-height: 240px; padding: 14px; resize: vertical; border: 1px solid #bba59b; border-radius: 10px; background: white; color: #3f302a; font: 14px/1.5 monospace; }
+.extrair-card button { margin-top: 16px; padding: 12px 20px; border: 0; border-radius: 10px; background: #a3432b; color: white; font: inherit; font-weight: 600; cursor: pointer; }
+.extrair-card button:hover { background: #84331f; }
+.extrair-card button:focus-visible, .extrair-card textarea:focus-visible, .extrair-afiliados a:focus-visible { outline: 3px solid #795548; outline-offset: 3px; }
+.extrair-card > p { color: #795548; font-size: 14px; }
+.extrair-resultado-cabecalho { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+.extrair-resultado-cabecalho button { margin: 0; }
+.extrair-card pre { overflow: auto; max-height: 600px; padding: 16px; border-radius: 10px; background: #fff4ef; color: #3f302a; font-size: 13px; line-height: 1.5; }
+.extrair-erro { color: #b42318; font-weight: 600; }
+@media (max-width: 600px) { .extrair-afiliados { padding: 24px 12px; } .extrair-card { padding: 18px 14px; } }
+
+.extrair-afiliados { max-width: 1240px; }
+.extrair-card { box-shadow: 0 12px 30px rgba(91, 64, 55, .06); }
+.extrair-card button:disabled { cursor: not-allowed; opacity: .5; }
+.extrair-card button.extrair-secundario { background: #fff4ef; color: #7b3928; border: 1px solid #e8b7a5; }
+.extrair-card button.extrair-secundario:hover { background: #fce8de; }
+.extrair-afiliados select, .extrair-afiliados input[type="number"] { width: 100%; min-height: 42px; padding: 8px 10px; border: 1px solid #bba59b; border-radius: 9px; background: white; color: #3f302a; font: inherit; }
+.extrair-afiliados :is(select, input, button, summary):focus-visible { outline: 3px solid #795548; outline-offset: 3px; }
+.extrair-notificacao, .extrair-erro { margin: 16px 0; padding: 12px 16px; border-radius: 10px; }
+.extrair-notificacao { color: #206144; background: #e8f5ed; }
+.extrair-erro { color: #a32218; background: #fff0ee; }
+.extrair-resumo { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+.extrair-resumo div { display: flex; flex-direction: column; gap: 6px; padding: 16px; border-radius: 12px; background: #fff4ef; }
+.extrair-resumo strong { font-size: 22px; color: #5b4037; }
+.extrair-resumo span { font-size: 13px; color: #795548; }
+.extrair-resultado-cabecalho h2, .extrair-resultado-cabecalho h3 { margin-bottom: 4px; }
+.extrair-resultado-cabecalho p { margin: 0; }
+.extrair-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.extrair-acoes button { margin: 0; }
+.extrair-controles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 14px; margin: 24px 0 12px; padding: 18px; background: #fffaf7; border-radius: 12px; }
+.extrair-controles label, .extrair-categoria { display: block; margin: 0; font-size: 14px; font-weight: 600; }
+.extrair-controles select, .extrair-controles input[type="number"], .extrair-categoria select { display: block; margin-top: 7px; }
+.extrair-controles .extrair-filtro-check { display: flex; align-items: center; gap: 8px; min-height: 42px; }
+.extrair-filtro-check input, .extrair-selecao input { width: 18px; height: 18px; accent-color: #a3432b; }
+.extrair-contagem { color: #795548; }
+.extrair-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+.extrair-produto { min-width: 0; overflow: hidden; border: 1px solid #e9d5cc; border-radius: 14px; background: white; }
+.extrair-produto.extrair-selecionado { border-color: #a3432b; box-shadow: 0 0 0 2px #f4c7b8; }
+.extrair-selecao { display: flex !important; align-items: center; gap: 8px; margin: 0 !important; padding: 12px 14px; }
+.extrair-imagem { display: flex; justify-content: center; align-items: center; height: 190px; background: #fffaf7; color: #947d73; }
+.extrair-imagem img { width: 100%; height: 100%; object-fit: contain; }
+.extrair-produto-conteudo { padding: 16px; }
+.extrair-produto h3 { margin: 8px 0; font-size: 17px; line-height: 1.35; }
+.extrair-produto p { margin: 9px 0; }
+.extrair-id { color: #795548; font-size: 12px; overflow-wrap: anywhere; }
+.extrair-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.extrair-badges span { padding: 5px 8px; border-radius: 6px; background: #ffe5d9; color: #863920; font-size: 11px; font-weight: 700; }
+.extrair-preco { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; }
+.extrair-preco strong { font-size: 22px; }
+.extrair-preco del { color: #927e75; font-size: 13px; }
+.extrair-preco span { color: #9a3e23; font-size: 13px; font-weight: 700; }
+.extrair-comissao { color: #26734d; font-weight: 700; }
+.extrair-link { display: inline-block; margin: 8px 0; font-weight: 700; }
+.extrair-categoria { margin-top: 14px !important; }
+.extrair-json-resultado { scroll-margin-top: 20px; border-color: #d69a83; }
+.extrair-json-resultado h3 { margin: 0; }
+.extrair-json-resultado .extrair-notificacao { margin-bottom: 0; }
+.extrair-erro-exportacao { margin-bottom: 0; }
+.extrair-detalhes summary { cursor: pointer; font-weight: 700; }
+@media (max-width: 900px) { .extrair-resumo { grid-template-columns: repeat(3, minmax(0, 1fr)); } .extrair-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .extrair-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); } .extrair-controles { grid-template-columns: 1fr; } .extrair-grid { grid-template-columns: 1fr; } .extrair-acoes { width: 100%; } .extrair-acoes button { flex: 1; } }
