@@ -89,7 +89,7 @@ export function converterParaProdutoValio(produto: ProdutoAfiliado, categoria: C
     title: produto.titulo!,
     description: '',
     price: produto.precoAtual!,
-    priceReferenceDate: `${String(data.getDate()).padStart(2, '0')}/${String(data.getMonth() + 1).padStart(2, '0')}`,
+    priceReferenceDate: `${String(data.getDate()).padStart(2, '0')}/${String(data.getMonth() + 1).padStart(2, '0')}/${String(data.getFullYear()).padStart(4, '0')}`,
     link: produto.linkOriginal!,
     category: categoria,
     ...(produto.avaliacao !== null && Number.isFinite(produto.avaliacao) ? { rating: produto.avaliacao } : {}),

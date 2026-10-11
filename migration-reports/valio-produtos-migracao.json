@@ -1,0 +1,402 @@
+{
+  "modo": "dry-run",
+  "total": 56,
+  "migraveis": 0,
+  "jaExistentes": 6,
+  "semItemId": 50,
+  "invalidos": 0,
+  "produtos": [
+    {
+      "idInterno": 1,
+      "titulo": "Kit 6 Potes Porta-Temperos",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 2,
+      "titulo": "Cesto Organizador de Roupa 72L",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 3,
+      "titulo": "Kit 3 Porta Algodão e Cotonete",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 4,
+      "titulo": "Mini Mixer Elétrico 2 em 1",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 5,
+      "titulo": "Travesseiro de Cabeça Ortobom Nápoles Inodoro 100% Conforto",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 6,
+      "titulo": "Tira Manchas Percarbonato Calisul Brancas e Coloridas – 1 kg",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 7,
+      "titulo": "Conjunto de 4 Facas de Escultura em Aço Inoxidável Tramontina Plenus, cor preta",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 8,
+      "titulo": "Kit 2 Camisola Sexy Sem Bojo com Calcinha Renda Pijama Baby",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 9,
+      "titulo": "Torneira Gourmet para Cozinha 2 Jatos, Bica Móvel Parede Preta Flexível Jato Cone",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 10,
+      "titulo": "Filtro de Linha Betahome com 6 Tomadas e 3 USB para 2500W Bivolt",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 11,
+      "titulo": "Fone de Ouvido Bluetooth 5.1 Sem Fio TWS Wireless Bateria Longa Duração e Conexão Rápida Coolmusic",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 12,
+      "titulo": "Caneca Kit Garrafa Térmica Vacuum Bottle Inox 500ml + 3 Xícaras Cinza",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 13,
+      "titulo": "Chaleira Elétrica 1,8L 1000W Jarra para Água Quente Inox 220V",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 14,
+      "titulo": "Jogo de Lençol Casal 3 Peças 400 Fios Hipercal Conforto Macio Cor Bordô Desenho do Tecido Liso",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 15,
+      "titulo": "Cobertor Manta Casal Aveludada Canelada Super Macia Luxo",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 16,
+      "titulo": "Dispenser Detergente 3 em 1 com Porta Esponja Organizador de Pia em Aço Inoxidável para Cozinha Sabão Líquido e Utensílios",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 17,
+      "titulo": "Conjunto de Panelas Antiaderente 10 Peças Coffee Cappuccino Imperial",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 18,
+      "titulo": "Balde Dobrável Retrátil Flexível 10L Silicone Alça Powermaid",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 19,
+      "titulo": "Bule Chaleira 1L Vidro com Infusor e Tampa de Bambu Chá Alça Café PÍTIA",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 20,
+      "titulo": "Tapete de Banheiro Antiderrapante Macio Absorvente 60x40 Cinza",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 21,
+      "titulo": "Criado Mudo para Cama Box Compacto com Prateleira",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 22,
+      "titulo": "Terno Italiano Slim",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 23,
+      "titulo": "Kit Cobre-Leito Casal 3 Peças",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 24,
+      "titulo": "Sanduicheira Elétrica Grill 750W",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 25,
+      "titulo": "Balança Digital Bioimpedância Smart IMC 180kg",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 26,
+      "titulo": "Jogo 6 Toalhas de Banho",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 27,
+      "titulo": "Secador Philco Titanium Travel 1000W Bivolt",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 28,
+      "titulo": "Kit 10 Calcinhas Fio Dental Sem Costura",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 29,
+      "titulo": "Mangueira Jardim 20m com Esguicho",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 30,
+      "titulo": "Smartwatch Allphone 41mm Bluetooth",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 31,
+      "titulo": "Barbeador/Aparador Kemei 3 em 1 KM-6558",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 32,
+      "titulo": "Kit 15 Pincéis de Maquiagem",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 33,
+      "titulo": "Ralador/Fatiador de Legumes 3 em 1",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 34,
+      "titulo": "Kit 70 Presilhas Honda Civic/CR-V/HR-V",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 35,
+      "titulo": "Serra Tico-Tico 500W Evald STT-127/STT-220",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 36,
+      "titulo": "Kit 10 Calcinhas Femininas Fio Dental de Renda",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 37,
+      "titulo": "Kit 10 Panos de Prato Estampados",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 38,
+      "titulo": "Kit Ferramentas 46 Peças com Soquetes e Chaves",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 39,
+      "titulo": "Kit 10 Panos de Prato Camesa",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 40,
+      "titulo": "Jogo 3 Formas/Assadeiras Retangulares de Alumínio",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 41,
+      "titulo": "Varal Suspenso Retangular de Aço Inoxidável Tche Amo com 40 Prendedores",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 42,
+      "titulo": "Carregador de Bateria Simake 6A Bivolt para Carro, Moto e Caminhão",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 43,
+      "titulo": "Kit 2 Pares Luva Academia/Musculação/Crossfit Unissex TOPSAND",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 44,
+      "titulo": "Body Splash My Sweet Delight + Very Sexy Barbour's 200ml",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 45,
+      "titulo": "Kit 5 Esmaltes Anita Nova Coleção De Segunda a Sexta",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 46,
+      "titulo": "Panela de Pressão Alegrete 4,5L Alumínio Polido",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 47,
+      "titulo": "Kit 3 Camisas Proteção UV Manga Longa Térmicas Segunda Pele",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 48,
+      "titulo": "Perfume Sedutor Árabe Sabah 100ml Original Feminino",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 49,
+      "titulo": "Inalador Nebulizador Portátil Woosh Sem Fio USB/Pilha",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 50,
+      "titulo": "Kit 5 Unidades Cronograma Capilar Manutenção Completa Profissional",
+      "marketplaceId": null,
+      "status": "semItemId",
+      "motivo": "marketplaceId não informado; nenhum ITEM_ID foi inferido."
+    },
+    {
+      "idInterno": 51,
+      "titulo": "Principia Kit Rotina Completa Antimanchas Gh-01",
+      "marketplaceId": "MLB6706221784",
+      "status": "jaExistente",
+      "motivo": "mercado_livre_id já cadastrado no Supabase; não atualizar."
+    },
+    {
+      "idInterno": 52,
+      "titulo": "Kit 7 Brocas Alargador Expansor Tubos De Cobre E Alumínio Ad",
+      "marketplaceId": "MLB4517579375",
+      "status": "jaExistente",
+      "motivo": "mercado_livre_id já cadastrado no Supabase; não atualizar."
+    },
+    {
+      "idInterno": 53,
+      "titulo": "Pijama Infantil Conjunto Manga Longa Menino Heróis Homen Aranha G",
+      "marketplaceId": "MLB5005904383",
+      "status": "jaExistente",
+      "motivo": "mercado_livre_id já cadastrado no Supabase; não atualizar."
+    },
+    {
+      "idInterno": 54,
+      "titulo": "Fone Bluetooth Tws 3 Compatível AirPods Cor Branco",
+      "marketplaceId": "MLB7608375180",
+      "status": "jaExistente",
+      "motivo": "mercado_livre_id já cadastrado no Supabase; não atualizar."
+    },
+    {
+      "idInterno": 55,
+      "titulo": "Camiseta Térmica Puma Manga Longa Proteção Uv50+ Masculina",
+      "marketplaceId": "MLB3716591637",
+      "status": "jaExistente",
+      "motivo": "mercado_livre_id já cadastrado no Supabase; não atualizar."
+    },
+    {
+      "idInterno": 56,
+      "titulo": "Conjunto Feminino Alfaiataria Colete Regata Botões E Short Preto Liso Gg",
+      "marketplaceId": "MLB6718143858",
+      "status": "jaExistente",
+      "motivo": "mercado_livre_id já cadastrado no Supabase; não atualizar."
+    }
+  ]
+}

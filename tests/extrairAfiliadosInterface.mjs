@@ -12,13 +12,13 @@ const card = (id, titulo, preco, link) => ({
     id, url: link?.split('?')[0], url_params: link ? `?${link.split('?')[1].split('#')[0]}` : undefined,
     url_fragments: link ? `#${link.split('#')[1]}` : undefined,
   },
-  pictures: [],
+  pictures: [{ id: `imagem-${id}` }],
   components: [
     { id: 'title', title: { text: titulo } },
     { id: 'price', price: { current_price: { value: preco, currency: 'BRL' } } },
   ],
 })
-const entrada = JSON.stringify({ results: [
+const entrada = JSON.stringify({ polycard_context: { picture_template: 'https://http2.mlstatic.com/{id}.webp' }, results: [
   card('MLB1', 'Produto um', 169.99, linkUm),
   card('MLB2', 'Produto dois', 49.9, linkDois),
   card('MLB3', 'Produto sem link', 25, null),
@@ -29,7 +29,7 @@ test('a interface gera e mostra JSON para o Valiô com dois selecionados e erro 
   const original = {
     window: globalThis.window, document: globalThis.document,
     navigator: globalThis.navigator, HTMLElement: globalThis.HTMLElement,
-    actEnvironment: globalThis.IS_REACT_ACT_ENVIRONMENT,
+    actEnvironment: globalThis.IS_REACT_ACT_ENVIRONMENT, fetch: globalThis.fetch,
   }
   let root
   let vite
@@ -73,9 +73,77 @@ test('a interface gera e mostra JSON para o Valiô com dois selecionados e erro 
     assert.equal(gerados.length, 2)
     assert.deepEqual(gerados.map((p) => p.category), ['Achados para Elas', 'Achados para Casa'])
     assert.deepEqual(gerados.map((p) => p.link), [linkUm, linkDois])
-    assert.match(gerados[0].priceReferenceDate, /^\d{2}\/\d{2}$/)
+    const dataLocal = new Date()
+    assert.equal(gerados[0].priceReferenceDate,
+      `${String(dataLocal.getDate()).padStart(2, '0')}/${String(dataLocal.getMonth() + 1).padStart(2, '0')}/${dataLocal.getFullYear()}`)
     assert.equal(gerados[0].price, 169.99)
     assert.equal(document.querySelectorAll('[aria-label="JSON normalizado do Garimpa"]').length, 1)
+
+    const requisicoes = []
+    let cadastrados = []
+    let falharVerificacao = false
+    globalThis.fetch = async (url, options) => {
+      if (url === '/api/valio/produtos/verificar') {
+        if (falharVerificacao) throw new TypeError('Failed to fetch')
+        return { ok: true, json: async () => ({ ok: true, existentes: cadastrados }) }
+      }
+      requisicoes.push({ url, options, corpo: JSON.parse(options.body) })
+      return { ok: true, json: async () => ({ ok: true, acao: requisicoes.length === 1 ? 'criado' : 'atualizado' }) }
+    }
+    const tokenInput = document.getElementById('token-publicacao')
+    const inputSetter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
+    await act(async () => {
+      inputSetter.call(tokenInput, 'token-de-teste')
+      tokenInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await act(async () => [...document.querySelectorAll('button')].find((button) => button.textContent === 'Enviar novos para o Valiô').click())
+    assert.deepEqual(requisicoes.map((req) => req.corpo.mercadoLivreId), ['MLB1', 'MLB2'])
+    assert.deepEqual(requisicoes.map((req) => req.corpo.linkAfiliado), [linkUm, linkDois])
+    assert.match(document.querySelector('.extrair-resumo-envio').textContent, /2 produtos enviados ao Valiô/)
+    assert.match(document.querySelector('.extrair-resumo-envio').textContent, /1 criado.*1 atualizado.*0 erros/)
+
+    cadastrados = [{ mercadoLivreId: 'MLB2', titulo: 'Produto dois', preco: 59.9,
+      dataPreco: '10/10/2026', categoria: 'Achados para Casa', linkAfiliado: linkDois,
+      imagem: 'https://http2.mlstatic.com/imagem-MLB2.webp', ativo: false }]
+    await act(async () => {
+      inputSetter.call(tokenInput, 'token-de-teste-2')
+      tokenInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    assert.match(document.querySelectorAll('.extrair-estado')[0].textContent, /Novo/)
+    assert.match(document.querySelectorAll('.extrair-estado')[1].textContent, /Já está no Valiô/)
+    assert.match(document.querySelector('.extrair-alteracao').textContent, /Preço alterado.*Valiô: R\$\s+59,90.*Agora: R\$\s+49,90/s)
+    assert.deepEqual([...document.querySelectorAll('.extrair-resumo strong')].slice(0, 3).map((el) => el.textContent), ['3', '2', '1'])
+    assert.match(document.querySelector('.extrair-diagnostico').textContent, /IDs enviados: 3.*MLB1, MLB2, MLB3.*Existentes retornados: 1.*MLB2.*2 novos; 1 existentes/s)
+    assert.match(document.querySelector('.extrair-aviso').textContent, /Produtos antigos exibidos no Valiô fora dessa tabela/)
+
+    const filtroCadastro = [...document.querySelectorAll('.extrair-controles select')].find((el) => el.parentElement.textContent.includes('Cadastro no Valiô'))
+    await act(async () => { filtroCadastro.value = 'novos'; filtroCadastro.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+    assert.equal(document.querySelectorAll('.extrair-produto').length, 2)
+    await act(async () => { filtroCadastro.value = 'cadastrados'; filtroCadastro.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+    assert.equal(document.querySelectorAll('.extrair-produto').length, 1)
+    await act(async () => { filtroCadastro.value = 'todos'; filtroCadastro.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+
+    requisicoes.length = 0
+    await act(async () => [...document.querySelectorAll('button')].find((button) => button.textContent === 'Enviar novos para o Valiô').click())
+    assert.deepEqual(requisicoes.map((req) => req.corpo.mercadoLivreId), ['MLB1'])
+    requisicoes.length = 0
+    await act(async () => [...document.querySelectorAll('button')].find((button) => button.textContent === 'Atualizar existentes').click())
+    assert.deepEqual(requisicoes.map((req) => req.corpo.mercadoLivreId), ['MLB2'])
+
+    cadastrados[0].preco = 49.9
+    await act(async () => {
+      inputSetter.call(tokenInput, 'token-de-teste-3')
+      tokenInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    assert.match(document.querySelector('.extrair-sem-alteracoes').textContent, /Sem alterações relevantes/)
+    falharVerificacao = true
+    await act(async () => {
+      inputSetter.call(tokenInput, 'token-de-teste-4')
+      tokenInput.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    assert.match(document.querySelector('.extrair-aviso').textContent, /Não foi possível verificar/)
+    assert.ok(document.querySelector('[aria-labelledby="json-valio-titulo"]'))
+    assert.equal([...document.querySelectorAll('button')].find((button) => button.textContent === 'Enviar novos para o Valiô').disabled, true)
 
     await act(async () => document.querySelectorAll('.extrair-selecao input')[2].click())
     await act(async () => {
@@ -95,5 +163,6 @@ test('a interface gera e mostra JSON para o Valiô com dois selecionados e erro 
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: original.navigator })
     globalThis.HTMLElement = original.HTMLElement
     globalThis.IS_REACT_ACT_ENVIRONMENT = original.actEnvironment
+    globalThis.fetch = original.fetch
   }
 })

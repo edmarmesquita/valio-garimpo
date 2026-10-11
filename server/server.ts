@@ -1,9 +1,11 @@
 import 'dotenv/config'
 import express from 'express'
+import type { ErrorRequestHandler } from 'express'
 import cors from 'cors'
 import OpenAI from 'openai'
 import mercadoLivreAuth from './mercadoLivreAuth.js'
 import mercadoLivreProduto from './mercadoLivreProduto.js'
+import { criarRotaValioProdutos } from './valioProdutos.js'
 
 const app = express()
 
@@ -11,6 +13,16 @@ app.use(cors())
 app.use(express.json())
 app.use('/api/mercadolivre', mercadoLivreAuth)
 app.use('/api/mercadolivre', mercadoLivreProduto)
+app.use('/api/valio', criarRotaValioProdutos())
+app.use('/api/valio', (_req, res) => {
+    res.status(404).json({ ok: false, erro: 'Rota do Valiô não encontrada.' })
+})
+const erroValio: ErrorRequestHandler = (erro: Error & { status?: number }, req, res, next) => {
+    if (!req.path.startsWith('/api/valio/')) { next(erro); return }
+    const status = erro.status && erro.status >= 400 && erro.status < 500 ? erro.status : 500
+    res.status(status).json({ ok: false, erro: status === 400 ? 'JSON inválido na requisição.' : 'Não foi possível processar a requisição.' })
+}
+app.use(erroValio)
 
 app.get('/api/health', (_req, res) => {
     res.json({

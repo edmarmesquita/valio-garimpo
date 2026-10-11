@@ -27,7 +27,7 @@ test('conversão preserva link afiliado e usa data local no momento da exportaç
   const convertido = converterParaProdutoValio(origem, categoria, new Date(2026, 9, 10))
   assert.deepEqual(convertido, {
     id: 'MLB1', title: 'Produto um', description: '', price: 169.99,
-    priceReferenceDate: '10/10', link: origem.linkOriginal, category: categoria,
+    priceReferenceDate: '10/10/2026', link: origem.linkOriginal, category: categoria,
     rating: 4.9, image: origem.imagemUrl,
   })
 })
@@ -45,7 +45,7 @@ test('múltiplos produtos seguem a ordem original e campos opcionais ausentes n�
   const produtos = [produto({ avaliacao: null, imagemUrl: null }), produto({ itemId: 'MLB2', titulo: 'Produto dois', precoAtual: 42 })]
   const resultado = gerarProdutosValio(produtos, new Set([1, 0]), new Map([[0, categoria], [1, 'Achados para Casa']]), new Date(2026, 0, 2))
   assert.deepEqual(resultado.map((p) => p.id), ['MLB1', 'MLB2'])
-  assert.equal(resultado[0].priceReferenceDate, '02/01')
+  assert.equal(resultado[0].priceReferenceDate, '02/01/2026')
   assert.equal('rating' in resultado[0], false)
   assert.equal(resultado[0].image, '')
 })

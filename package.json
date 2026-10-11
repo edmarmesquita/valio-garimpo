@@ -10,10 +10,14 @@
     "typecheck:server": "tsc --ignoreConfig --noEmit --module nodenext --moduleResolution nodenext --target es2023 --esModuleInterop --skipLibCheck --types node api/index.ts server/server.ts server/local.ts",
     "test:importar-produtos": "node --test tests/processarLinks.mjs tests/importarProdutos.mjs tests/extrairProdutosAfiliados.mjs tests/produtosGarimpados.mjs tests/extrairAfiliadosInterface.mjs",
     "test:oauth": "node tests/mercadoLivreOAuth.mjs",
+    "test:valio": "node --test tests/valioPublicacao.mjs tests/publicarProdutosValio.mjs tests/valioSql.mjs tests/verificarProdutosValio.mjs tests/migrarProdutosValio.mjs",
     "preview": "vite preview",
-    "server": "tsx server/local.ts"
+    "server": "tsx server/local.ts",
+    "migrar:produtos:dry": "node scripts/migrarProdutosValio.mjs",
+    "migrar:produtos": "node scripts/migrarProdutosValio.mjs --execute"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.117.3",
     "cors": "^2.8.6",
     "dotenv": "^18.0.5",
     "express": "^5.2.1",
