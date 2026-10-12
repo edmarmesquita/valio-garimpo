@@ -7,6 +7,9 @@ import { createServer } from 'vite'
 const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
 const { criarRotaValioProdutos } = await vite.ssrLoadModule('/server/valioProdutos.ts')
 const { validarClique, agregarCliques, inicioPeriodo } = await vite.ssrLoadModule('/server/metricasCliques.ts')
+const { getSupabaseConfig, diagnosticarSupabaseEnv } = await vite.ssrLoadModule('/server/services/supabase.ts')
+const { criarCliquesGateway } = await vite.ssrLoadModule('/server/services/cliques.ts')
+const { diagnosticarErroClique } = await vite.ssrLoadModule('/server/services/diagnosticoCliques.ts')
 after(async () => vite.close())
 const token = 'token-de-publicacao-local-com-mais-de-32-caracteres'
 const config = { url: 'https://teste.supabase.co', serviceRoleKey: 'service-role-simulada-com-mais-de-32-caracteres' }
@@ -21,6 +24,46 @@ const linhas = [
   { mercadoLivreId: 'MLB2', categoria: 'Achados para Elas', dia: '2026-10-11', cliques: 4 },
   { mercadoLivreId: 'MLB2', categoria: 'Achados para Elas', dia: '2026-09-20', cliques: 10 },
 ]
+
+test('configuração reconhece variáveis presentes, ausentes e chave moderna sem expor valores', () => {
+  const presente = { SUPABASE_URL: 'https://teste.supabase.co', SUPABASE_SERVICE_ROLE_KEY: 'sb_secret_chave-simulada' }
+  assert.deepEqual(getSupabaseConfig(presente), { url: presente.SUPABASE_URL, serviceRoleKey: presente.SUPABASE_SERVICE_ROLE_KEY })
+  assert.deepEqual(diagnosticarSupabaseEnv(presente), {
+    SUPABASE_URL: { encontrada: true, comprimentoMaiorQueZero: true },
+    SUPABASE_SERVICE_ROLE_KEY: { encontrada: true, comprimentoMaiorQueZero: true }, urlHttps: true,
+  })
+  assert.equal(getSupabaseConfig({ SUPABASE_URL: presente.SUPABASE_URL }), null)
+  assert.equal(getSupabaseConfig({ SUPABASE_URL: 'http://teste.supabase.co', SUPABASE_SERVICE_ROLE_KEY: presente.SUPABASE_SERVICE_ROLE_KEY }), null)
+  assert.deepEqual(diagnosticarSupabaseEnv({ SUPABASE_URL: ' ', SUPABASE_SERVICE_KEY: 'alias-incorreto' }), {
+    SUPABASE_URL: { encontrada: true, comprimentoMaiorQueZero: false },
+    SUPABASE_SERVICE_ROLE_KEY: { encontrada: false, comprimentoMaiorQueZero: false }, urlHttps: false,
+  })
+  assert.equal(JSON.stringify(diagnosticarSupabaseEnv(presente)).includes(presente.SUPABASE_SERVICE_ROLE_KEY), false)
+})
+
+test('gateway insere nas colunas corretas e preserva status e erro seguro do Supabase', async () => {
+  const capturas = []
+  let falhar = false
+  const enviar = async (url, options) => {
+    capturas.push({ url, body: JSON.parse(options.body) })
+    return falhar ? new Response(JSON.stringify({ code: '42501', message: 'permission denied', details: 'RLS', hint: 'service role' }), {
+      status: 403, headers: { 'Content-Type': 'application/json' },
+    }) : new Response(null, { status: 201 })
+  }
+  const gateway = criarCliquesGateway(config, enviar)
+  await gateway.registrar({ mercadoLivreId: 'MLB1', categoria: 'Achados para Casa', origem: 'vitrine' })
+  assert.match(capturas[0].url, /\/rest\/v1\/produto_cliques$/)
+  assert.deepEqual(capturas[0].body, { mercado_livre_id: 'MLB1', categoria: 'Achados para Casa', origem: 'vitrine' })
+  assert.equal('clicked_at' in capturas[0].body, false)
+  falhar = true
+  await assert.rejects(gateway.registrar({ mercadoLivreId: 'MLB1', categoria: null, origem: null }), (erro) => {
+    assert.deepEqual(diagnosticarErroClique(erro), { status: 403, code: '42501', message: 'permission denied', details: 'RLS', hint: 'service role' })
+    return true
+  })
+  const seguro = diagnosticarErroClique({ message: `Falha ${config.serviceRoleKey} e sb_secret_qualquer`, code: '42501' }, { SUPABASE_SERVICE_ROLE_KEY: config.serviceRoleKey })
+  assert.equal(JSON.stringify(seguro).includes(config.serviceRoleKey), false)
+  assert.equal(JSON.stringify(seguro).includes('sb_secret_qualquer'), false)
+})
 
 test('valida somente ITEM_ID, categoria e origem; recusa dados pessoais e campos extras', () => {
   assert.deepEqual(validarClique({ mercadoLivreId: 'MLB123', origem: 'vitrine' }), { mercadoLivreId: 'MLB123', categoria: null, origem: 'vitrine' })
@@ -98,6 +141,28 @@ test('rotas pública e protegida validam payload, falha de banco, limite e segre
     assert.equal(falhaMetricas.status, 502)
     assert.equal(JSON.stringify(await falhaMetricas.json()).includes('Segredo do banco'), false)
   } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
+test('configuração ausente retorna 503 antes do insert; entrypoint da Vercel monta a rota', async () => {
+  let insercoes = 0
+  const semConfig = express(); semConfig.use(express.json())
+  semConfig.use('/api/valio', criarRotaValioProdutos({ config: () => null, cliques: () => ({ async registrar() { insercoes++ } }) }))
+  const { default: vercelApp } = await vite.ssrLoadModule('/api/index.ts')
+  const verificar = async (app, caminho, body) => {
+    const server = app.listen(0, '127.0.0.1')
+    try {
+      await new Promise((resolve) => server.once('listening', resolve))
+      const resposta = await fetch(`http://127.0.0.1:${server.address().port}${caminho}`, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      return { status: resposta.status, json: await resposta.json() }
+    } finally { await new Promise((resolve) => server.close(resolve)) }
+  }
+  const indisponivel = await verificar(semConfig, '/api/valio/cliques', { mercadoLivreId: 'MLB1' })
+  assert.deepEqual(indisponivel, { status: 503, json: { ok: false, erro: 'Registro de cliques indisponível.' } })
+  assert.equal(insercoes, 0)
+  const entradaVercel = await verificar(vercelApp, '/api/index?__route=valio/cliques', {})
+  assert.equal(entradaVercel.status, 400)
+  assert.match(entradaVercel.json.erro, /ITEM_ID/)
 })
 
 test('SQL manual contém somente campos mínimos e restringe leitura direta', async () => {

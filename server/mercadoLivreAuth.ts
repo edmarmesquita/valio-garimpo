@@ -364,7 +364,8 @@ router.get('/diagnostico/search', async (req, res) => {
       .replace(/(?:access_token|refresh_token|authorization|cookie|client_secret|database_url)/gi, '[REDACTED]')
     const scalar = (value: unknown): string | number | null | undefined => {
       if (typeof value === 'string') return safeText(value)
-      if (value === null || (typeof value === 'number' && Number.isFinite(value))) return value
+      if (value === null) return null
+      if (typeof value === 'number' && Number.isFinite(value)) return value
       return undefined
     }
     const fields = (source: Record<string, unknown>, names: string[]) => {
@@ -446,7 +447,8 @@ router.get('/diagnostico/status', async (req, res) => {
       .replace(/Bearer\s+[^\s,;"']+/gi, 'Bearer [REDACTED]')
     const scalar = (value: unknown): string | number | boolean | null | undefined => {
       if (typeof value === 'string') return safeText(value)
-      if (value === null || typeof value === 'number' || typeof value === 'boolean') return value
+      if (value === null) return null
+      if (typeof value === 'number' || typeof value === 'boolean') return value
       return undefined
     }
     const fields = (source: Record<string, unknown>, names: string[]) => {

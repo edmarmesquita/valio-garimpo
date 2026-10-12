@@ -39,9 +39,22 @@ export type CatalogoGateway = {
   atualizarPreco: (id: string, preco: number, dataPreco: string, updatedAt: string, confirmar: boolean) => Promise<boolean>
 }
 
-export function getSupabaseConfig(): SupabaseConfig | null {
-  const url = process.env.SUPABASE_URL?.trim()
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+export function diagnosticarSupabaseEnv(env: NodeJS.ProcessEnv = process.env) {
+  const url = env.SUPABASE_URL
+  const chave = env.SUPABASE_SERVICE_ROLE_KEY
+  let urlHttps = false
+  try { urlHttps = Boolean(url?.trim() && new URL(url.trim()).protocol === 'https:') }
+  catch { /* URL ausente ou inválida */ }
+  return {
+    SUPABASE_URL: { encontrada: url !== undefined, comprimentoMaiorQueZero: Boolean(url?.trim()) },
+    SUPABASE_SERVICE_ROLE_KEY: { encontrada: chave !== undefined, comprimentoMaiorQueZero: Boolean(chave?.trim()) },
+    urlHttps,
+  }
+}
+
+export function getSupabaseConfig(env: NodeJS.ProcessEnv = process.env): SupabaseConfig | null {
+  const url = env.SUPABASE_URL?.trim()
+  const serviceRoleKey = env.SUPABASE_SERVICE_ROLE_KEY?.trim()
   if (!url || !serviceRoleKey) return null
   try {
     if (new URL(url).protocol !== 'https:') return null

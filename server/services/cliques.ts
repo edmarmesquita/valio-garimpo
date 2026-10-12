@@ -8,16 +8,17 @@ export type CliquesGateway = {
   listarPorDia: (inicio?: string) => Promise<LinhaCliquesDia[]>
 }
 
-export function criarCliquesGateway(config: SupabaseConfig): CliquesGateway {
+export function criarCliquesGateway(config: SupabaseConfig, enviar: typeof fetch = fetch): CliquesGateway {
   const supabase = createClient(config.url, config.serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
+    global: { fetch: enviar },
   })
   return {
     async registrar(clique) {
-      const { error } = await supabase.from('produto_cliques').insert({
+      const { error, status } = await supabase.from('produto_cliques').insert({
         mercado_livre_id: clique.mercadoLivreId, categoria: clique.categoria, origem: clique.origem,
       })
-      if (error) throw error
+      if (error) throw { status, code: error.code, message: error.message, details: error.details, hint: error.hint }
     },
     async listarPorDia(inicio) {
       const linhas: LinhaCliquesDia[] = []

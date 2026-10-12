@@ -1,10 +1,11 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
-import { criarCatalogoGateway, criarConsultaProdutosGateway, criarProdutosGateway, getSupabaseConfig, publicarProduto } from './services/supabase.js'
+import { criarCatalogoGateway, criarConsultaProdutosGateway, criarProdutosGateway, diagnosticarSupabaseEnv, getSupabaseConfig, publicarProduto } from './services/supabase.js'
 import type { CatalogoGateway, ConsultaProdutosGateway, ProdutosGateway, SupabaseConfig } from './services/supabase.js'
 import { CATEGORIAS_VALIO, validarProdutoPublicacao } from './valioProduto.js'
 import { criarCliquesGateway } from './services/cliques.js'
 import type { CliquesGateway } from './services/cliques.js'
+import { diagnosticarErroClique } from './services/diagnosticoCliques.js'
 import { agregarCliques, inicioPeriodo, PERIODOS_CLIQUES, validarClique } from './metricasCliques.js'
 import type { PeriodoCliques } from './metricasCliques.js'
 
@@ -74,11 +75,18 @@ export function criarRotaValioProdutos(deps: Dependencias = {}) {
     if (cliquesNaJanela >= (deps.limiteCliques ?? 600)) { res.status(429).json({ ok: false, erro: 'Limite de cliques atingido. Tente novamente depois.' }); return }
     cliquesNaJanela++
     const config = (deps.config ?? getSupabaseConfig)()
-    if (!config) { res.status(503).json({ ok: false, erro: 'Registro de cliques indisponível.' }); return }
+    if (!config) {
+      if (!deps.config) console.error('Valiô cliques: configuração Supabase indisponível', diagnosticarSupabaseEnv())
+      res.status(503).json({ ok: false, erro: 'Registro de cliques indisponível.' })
+      return
+    }
     try {
       await (deps.cliques ?? criarCliquesGateway)(config).registrar(clique)
       res.status(201).json({ ok: true })
-    } catch { res.status(502).json({ ok: false, erro: 'Não foi possível registrar o clique.' }) }
+    } catch (erro) {
+      console.error('Valiô cliques: falha na inserção Supabase', diagnosticarErroClique(erro))
+      res.status(502).json({ ok: false, erro: 'Não foi possível registrar o clique.' })
+    }
   })
   router.get('/metricas/cliques', async (req, res) => {
     res.set('Cache-Control', 'no-store')
