@@ -8,6 +8,7 @@ import type { ResumoEnvio } from '../lib/publicarProdutosValio'
 import { compararProdutoComValio, idsParaVerificar, separarSelecionados, verificarProdutosValio } from '../lib/verificarProdutosValio'
 import type { ProdutoExistente } from '../lib/verificarProdutosValio'
 import ManutencaoVitrine from './ManutencaoVitrine'
+import MetricasVitrine from './MetricasVitrine'
 import './ExtrairAfiliados.css'
 
 const filtrosIniciais: Filtros = { somenteComPreco: false, somenteComissaoExtra: false, comissaoMinima: null, avaliacaoMinima: null }
@@ -225,5 +226,6 @@ export default function ExtrairAfiliados() {
       <details className="extrair-card extrair-detalhes"><summary>JSON normalizado do Garimpa</summary><p>Dados extraídos da Central de Afiliados, separados do formato para o Valiô.</p><button type="button" onClick={() => void copiar(JSON.stringify(produtos, null, 2))}>Copiar JSON normalizado</button><pre aria-label="JSON normalizado do Garimpa">{JSON.stringify(produtos, null, 2)}</pre></details>
     </>}
     <ManutencaoVitrine token={tokenPublicacao} lote={produtos} categorias={categorias} />
+    <MetricasVitrine token={tokenPublicacao} />
   </main>
 }

@@ -36,6 +36,14 @@ Para provar o fluxo com **um** produto: inicie a API com `npm run server` e o fr
 
 ## Manutenção da vitrine (Fase 4)
 
+### Métricas de cliques (fase preparada)
+
+Execute manualmente [migrations/003_valio_produto_cliques.sql](migrations/003_valio_produto_cliques.sql) no SQL Editor do Supabase antes de usar esta função. O script cria `public.produto_cliques` com apenas ITEM_ID, horário, origem e categoria, dois índices e a view agregada `public.produto_cliques_diario`; não é executado pelo aplicativo. A tabela não concede leitura ou escrita direta a `anon`/`authenticated`. A Service Role fica somente no backend.
+
+O futuro Valiô principal deverá chamar `POST /api/valio/cliques` no Garimpo com JSON como `{ "mercadoLivreId": "MLB123", "categoria": "Achados para Casa", "origem": "vitrine" }`. `categoria` e `origem` são opcionais; origens aceitas: `vitrine`, `busca`, `colecao`. A rota pública aceita apenas esses campos, valida o ITEM_ID e limita a 600 tentativas por minuto por instância, sem usar IP ou cookies para limitar. No clique do botão de oferta, envie o `fetch` com `keepalive: true` e `credentials: 'omit'`, sem aguardar sua conclusão; mantenha o redirecionamento atual para o Mercado Livre mesmo se a API falhar. A resposta de sucesso é HTTP 201 com `{ "ok": true }`.
+
+O painel **Métricas da vitrine** usa `GET /api/valio/metricas/cliques?periodo=hoje|7dias|30dias|todos`, protegido pelo `VALIO_PUBLISH_TOKEN`. Exibe totais, produtos ativos sem clique, top 10 produtos, categorias e cliques por dia. Os períodos e dias usam `America/Sao_Paulo`. A API lê somente dados agregados da view e os títulos/categorias do catálogo, sem expor eventos individuais. Nenhum nome, email, IP, localização, fingerprint, cookie ou identificador de visitante é gravado. Não é necessário criar cookie novo; eventual menção genérica a métricas agregadas na política de privacidade pode ser avaliada antes da integração no Valiô principal.
+
 Na página `/extrair-afiliados`, informe o token de publicação em **Acesso à vitrine** e clique em **Carregar catálogo** na área **Manutenção da vitrine**. O painel consulta o Supabase pelo backend e inclui produtos ativos e inativos. A Service Role permanece no servidor.
 
 O preço é classificado por `data_preco` (dd/mm/aaaa): até 7 dias, **Atualizado**; de 8 a 15 dias, **Revisar em breve**; acima de 15 dias, **Precisa revisão**. Há filtros por status e idade, ordenação por data, preço e categoria, além de **Revisar catálogo**, que prioriza preços antigos, preços alterados, inativos e outros dados alterados.
