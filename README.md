@@ -34,13 +34,29 @@ Gere um token local com `node -e "console.log(require('node:crypto').randomBytes
 
 Para provar o fluxo com **um** produto: inicie a API com `npm run server` e o frontend com `npm run dev`; cole o JSON bruto manualmente, extraia, digite o token de publicação, selecione um card que tenha preço, imagem, link e ITEM_ID, escolha a coleção e clique em **Enviar novos para o Valiô** ou **Atualizar existentes**, conforme o badge. Confira o resumo na tela e, no SQL Editor, execute `select mercado_livre_id, titulo, preco, ativo from public.produtos where mercado_livre_id = 'MLB...';` substituindo pelo ID do teste. A tabela não é criada pelo aplicativo.
 
+## Manutenção da vitrine (Fase 4)
+
+Na página `/extrair-afiliados`, informe o token de publicação em **Acesso à vitrine** e clique em **Carregar catálogo** na área **Manutenção da vitrine**. O painel consulta o Supabase pelo backend e inclui produtos ativos e inativos. A Service Role permanece no servidor.
+
+O preço é classificado por `data_preco` (dd/mm/aaaa): até 7 dias, **Atualizado**; de 8 a 15 dias, **Revisar em breve**; acima de 15 dias, **Precisa revisão**. Há filtros por status e idade, ordenação por data, preço e categoria, além de **Revisar catálogo**, que prioriza preços antigos, preços alterados, inativos e outros dados alterados.
+
+Após extrair um lote da Central, o painel compara os itens pelo ITEM_ID e mostra alterações de preço, título, imagem, link e categoria atribuída. Um item ausente do lote recebe apenas uma indicação informativa. **Atualizar existentes** continua sendo a ação manual que aplica os dados extraídos pelo UPSERT atual.
+
+`GET /api/valio/catalogo` lista o catálogo. `PATCH /api/valio/produtos/:mercadoLivreId/status` aceita somente `{ "ativo": true | false }` e altera apenas `ativo`, com confirmação visual antes de desativar. `PATCH /api/valio/produtos/:mercadoLivreId/categoria` aceita somente uma das categorias do Valiô e altera apenas `categoria` e `updated_at`. As três rotas exigem `Authorization: Bearer <VALIO_PUBLISH_TOKEN>`.
+
+### Revisão de preços em lote (Fase 4.1)
+
+Na **Fila de revisão de preços**, cole cada JSON da Central e use **Adicionar lote**. Os lotes ficam apenas na memória da página; o ITEM_ID deduplica os produtos e a entrada mais recente prevalece. **Limpar lotes de revisão** remove todos os lotes. A fila cruza esses IDs com o catálogo carregado e prioriza preços com mais de 15 dias, depois os de 8 a 15 dias. Produtos atualizados podem ser incluídos pelo controle da fila. As listas mostram 40 itens por página.
+
+Selecione os encontrados com preço alterado para **Atualizar preços selecionados** (`preco`, `data_preco`, `updated_at`) ou os encontrados com preço igual para **Confirmar preços iguais selecionados** (somente `data_preco` e `updated_at`). A data usa o dia corrente em `America/Sao_Paulo`. As ações enviam blocos de até 50 itens sequencialmente para `PATCH /api/valio/produtos/precos-lote`, autenticada pelo mesmo Bearer. A rota atualiza somente IDs existentes, devolve resultado por ITEM_ID e permite identificar falhas parciais. Título, imagem, link, categoria, rating e status não são alterados por essa rota; a atualização completa continua em **Atualizar existentes**.
+
 ## Verificação de produtos cadastrados (Fase 3)
 
 Com o token informado, a tela consulta `POST /api/valio/produtos/verificar` em um único lote de ITEM_IDs válidos e únicos. A rota exige o mesmo Bearer de publicação, consulta a tabela com a Service Role apenas no backend e inclui registros inativos. O resultado alimenta badges, contagens e o filtro de cadastro; diferenças de preço são exibidas sem atualizar automaticamente. **Enviar novos** usa apenas selecionados ausentes da consulta; **Atualizar existentes** usa apenas selecionados encontrados e mantém o upsert por `mercado_livre_id`. Depois de um envio bem-sucedido, a tela consulta novamente. Sem verificação confiável, ambos os envios ficam desabilitados; a geração e cópia de JSON permanecem disponíveis.
 
 ## Migração do catálogo estático (Fase 3.1)
 
-`npm run migrar:produtos:dry` lê `../valio/src/data/products.ts`, consulta apenas os `mercado_livre_id` dos candidatos no Supabase e gera `migration-reports/valio-produtos-migracao.json` e `.md`. O dry-run não grava produtos. O JSON inclui os payloads exatos dos candidatos migráveis; o Markdown lista separadamente os antigos sem ITEM_ID. O script não executa `products.ts` nem infere IDs por título, link ou imagem.
+`npm run migrar:produtos:dry` lê `../valio/src/data/products-legacy-backup.ts`, consulta apenas os `mercado_livre_id` dos candidatos no Supabase e gera `migration-reports/valio-produtos-migracao.json` e `.md`. O dry-run não grava produtos. O JSON inclui os payloads exatos dos candidatos migráveis; o Markdown lista separadamente os antigos sem ITEM_ID. O script não executa o backup nem infere IDs por título, link ou imagem. O catálogo ativo em `products.ts` pode permanecer vazio.
 
 A execução real está preparada em `npm run migrar:produtos -- --confirm=INSERIR_APENAS_NOVOS`. Ela exige confirmação explícita, insere apenas candidatos com marketplaceId válido e dados completos, ignora conflitos pelo `mercado_livre_id` e nunca atualiza ou remove registros existentes. Revise o relatório do dry-run antes de autorizar essa execução. Esta fase preparou a ferramenta e o relatório; a execução real não foi feita.
 

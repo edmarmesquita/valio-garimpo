@@ -7,6 +7,7 @@ import { enviarSelecionadosValio, selecionadosPublicaveis } from '../lib/publica
 import type { ResumoEnvio } from '../lib/publicarProdutosValio'
 import { compararProdutoComValio, idsParaVerificar, separarSelecionados, verificarProdutosValio } from '../lib/verificarProdutosValio'
 import type { ProdutoExistente } from '../lib/verificarProdutosValio'
+import ManutencaoVitrine from './ManutencaoVitrine'
 import './ExtrairAfiliados.css'
 
 const filtrosIniciais: Filtros = { somenteComPreco: false, somenteComissaoExtra: false, comissaoMinima: null, avaliacaoMinima: null }
@@ -125,6 +126,11 @@ export default function ExtrairAfiliados() {
   return <main className="extrair-afiliados">
     <a href="/">← Voltar ao Valiô Garimpo</a>
     <header><p className="extrair-marca">VALIÔ GARIMPO</p><h1>Produtos garimpados</h1><p>Cole o JSON da Central de Afiliados, revise os produtos e prepare uma lista para o Valiô.</p></header>
+    <section className="extrair-card extrair-acesso" aria-labelledby="acesso-titulo"><h2 id="acesso-titulo">Acesso à vitrine</h2>
+      <label htmlFor="token-publicacao">Token de publicação</label>
+      <input id="token-publicacao" type="password" autoComplete="off" value={tokenPublicacao} onChange={(event) => { setTokenPublicacao(event.target.value); setExistentes(new Map()); setEstadoVerificacao(produtos && event.target.value.trim() ? 'consultando' : 'pendente') }} placeholder="Token configurado no backend" />
+      <p>Use o token de publicação do Garimpo para verificar, enviar e manter produtos. Não informe a Service Role nesta tela.</p>
+    </section>
     <section className="extrair-card" aria-labelledby="entrada-titulo">
       <h2 id="entrada-titulo">JSON bruto</h2>
       <label htmlFor="json-afiliados">Cole a resposta JSON</label>
@@ -200,9 +206,7 @@ export default function ExtrairAfiliados() {
         <div className="extrair-publicacao">
           <h3>Envio direto</h3>
           <p>Para enviar, todos os selecionados precisam de categoria, ITEM_ID, título, preço, link e imagem.</p>
-          <label htmlFor="token-publicacao">Token de publicação</label>
-          <input id="token-publicacao" type="password" autoComplete="off" value={tokenPublicacao} onChange={(event) => { setTokenPublicacao(event.target.value); setExistentes(new Map()); setEstadoVerificacao(produtos && event.target.value.trim() ? 'consultando' : 'pendente') }} placeholder="Token configurado no backend" />
-          <p>Use o token de publicação do Garimpo. Não informe a Service Role do Supabase nesta tela.</p>
+          <p>Use o token de publicação informado em “Acesso à vitrine”.</p>
           <div className="extrair-acoes-publicacao"><button type="button" disabled={!podeEnviarNovos || !tokenPublicacao.trim() || enviando} onClick={() => void enviarParaValio('novos')}>{enviando ? 'Enviando...' : 'Enviar novos para o Valiô'}</button>
           <button type="button" className="extrair-secundario" disabled={!podeAtualizar || !tokenPublicacao.trim() || enviando} onClick={() => void enviarParaValio('cadastrados')}>Atualizar existentes</button></div>
           {erroEnvio && <p role="alert" className="extrair-erro">{erroEnvio}</p>}
@@ -220,5 +224,6 @@ export default function ExtrairAfiliados() {
       </section>}
       <details className="extrair-card extrair-detalhes"><summary>JSON normalizado do Garimpa</summary><p>Dados extraídos da Central de Afiliados, separados do formato para o Valiô.</p><button type="button" onClick={() => void copiar(JSON.stringify(produtos, null, 2))}>Copiar JSON normalizado</button><pre aria-label="JSON normalizado do Garimpa">{JSON.stringify(produtos, null, 2)}</pre></details>
     </>}
+    <ManutencaoVitrine token={tokenPublicacao} lote={produtos} categorias={categorias} />
   </main>
 }

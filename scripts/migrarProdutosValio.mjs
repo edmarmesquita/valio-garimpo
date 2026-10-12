@@ -6,7 +6,7 @@ import ts from 'typescript'
 import { createClient } from '@supabase/supabase-js'
 
 const raiz = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-export const arquivoCatalogo = path.resolve(raiz, '..', 'valio', 'src', 'data', 'products.ts')
+export const arquivoCatalogo = path.resolve(raiz, '..', 'valio', 'src', 'data', 'products-legacy-backup.ts')
 export const arquivoRelatorio = path.join(raiz, 'migration-reports', 'valio-produtos-migracao.json')
 export const arquivoRelatorioMarkdown = path.join(raiz, 'migration-reports', 'valio-produtos-migracao.md')
 const categorias = new Set(['Achados para Casa', 'Achados para Maridos', 'Achados para Elas', 'Achados para Presentear'])
@@ -21,7 +21,7 @@ function literal(no) {
 }
 
 export function lerCatalogoTexto(texto) {
-  const fonte = ts.createSourceFile('products.ts', texto, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
+  const fonte = ts.createSourceFile('products-legacy-backup.ts', texto, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
   let lista
   fonte.forEachChild((no) => {
     if (!ts.isVariableStatement(no)) return
@@ -29,7 +29,7 @@ export function lerCatalogoTexto(texto) {
       if (declaracao.name.getText(fonte) === 'products' && ts.isArrayLiteralExpression(declaracao.initializer)) lista = declaracao.initializer
     }
   })
-  if (!lista) throw new Error('Array products não encontrado em products.ts.')
+  if (!lista) throw new Error('Array products não encontrado na origem informada.')
   return lista.elements.map((elemento) => {
     if (!ts.isObjectLiteralExpression(elemento)) throw new Error('Produto fora do formato literal esperado.')
     const produto = {}

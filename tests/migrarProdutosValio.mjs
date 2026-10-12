@@ -13,7 +13,11 @@ const produto = (id, marketplaceId, outros = {}) => ({
 })
 const serializar = (produtos) => `export const products = ${JSON.stringify(produtos, null, 2)}\n`
 
-test('catálogo real tem 56 produtos e seis ITEM_IDs explícitos; source preservado', async () => {
+test('backup legado tem 56 produtos e seis ITEM_IDs; catálogo ativo continua vazio e ambos são preservados', async () => {
+  assert.equal(path.basename(arquivoCatalogo), 'products-legacy-backup.ts')
+  const arquivoAtivo = path.join(path.dirname(arquivoCatalogo), 'products.ts')
+  const ativoAntes = await fs.readFile(arquivoAtivo, 'utf8')
+  assert.deepEqual(lerCatalogoTexto(ativoAntes), [])
   const antes = await fs.readFile(arquivoCatalogo, 'utf8')
   const produtos = lerCatalogoTexto(antes)
   assert.equal(produtos.length, 56)
@@ -21,6 +25,7 @@ test('catálogo real tem 56 produtos e seis ITEM_IDs explícitos; source preserv
   assert.equal(produtos.find((p) => p.id === 22).marketplaceId, undefined)
   assert.equal(produtos.find((p) => p.id === 56).marketplaceId, 'MLB6718143858')
   assert.equal(await fs.readFile(arquivoCatalogo, 'utf8'), antes)
+  assert.equal(await fs.readFile(arquivoAtivo, 'utf8'), ativoAntes)
 })
 
 test('planejamento separa migráveis, existentes, sem ID, inválidos e duplicados sem usar preço para existência', () => {
