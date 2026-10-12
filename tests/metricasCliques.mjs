@@ -127,23 +127,36 @@ test('rotas pública e protegida validam payload, falha de banco, limite e segre
     assert.equal((await post({ mercadoLivreId: 'MLB2' })).status, 201)
     assert.equal((await post({ mercadoLivreId: 'MLB3' })).status, 429)
     const metricas = (periodo, bearer = token) => fetch(`${base}/metricas/cliques?periodo=${periodo}`, { headers: { Authorization: `Bearer ${bearer}` } })
-    assert.equal((await metricas('7dias', 'errado')).status, 401)
+    const semAutorizacao = await metricas('hoje', 'errado')
+    assert.equal(semAutorizacao.status, 401)
+    assert.match(semAutorizacao.headers.get('content-type'), /^application\/json\b/)
+    assert.equal((await semAutorizacao.json()).ok, false)
     assert.equal((await metricas('invalido')).status, 400)
+    const hoje = await metricas('hoje')
+    assert.equal(hoje.status, 200)
+    assert.match(hoje.headers.get('content-type'), /^application\/json\b/)
+    const corpoHoje = await hoje.text()
+    assert.equal(corpoHoje.trimStart().startsWith('<'), false)
+    assert.equal(JSON.parse(corpoHoje).totalCliques, 3)
     const resposta = await metricas('7dias')
     assert.equal(resposta.status, 200)
     const json = await resposta.json()
     assert.deepEqual([json.totalCliques, json.totalProdutosComClique, json.produtosSemClique], [9, 2, 1])
-    assert.deepEqual(consultas, ['2026-10-06'])
+    assert.deepEqual(consultas, ['2026-10-12', '2026-10-06'])
     assert.equal(JSON.stringify(json).includes(config.serviceRoleKey), false)
     assert.equal(JSON.stringify(json).includes(token), false)
     falharBanco = true
     const falhaMetricas = await metricas('hoje')
     assert.equal(falhaMetricas.status, 502)
+    assert.match(falhaMetricas.headers.get('content-type'), /^application\/json\b/)
     assert.equal(JSON.stringify(await falhaMetricas.json()).includes('Segredo do banco'), false)
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
 test('configuração ausente retorna 503 antes do insert; entrypoint da Vercel monta a rota', async () => {
+  const vercel = JSON.parse(await fs.readFile(new URL('../vercel.json', import.meta.url), 'utf8'))
+  assert.deepEqual(vercel.rewrites[0], { source: '/api/:path*', destination: '/api/index?__route=:path*' })
+  assert.ok(vercel.rewrites.some(({ source, destination }) => source === '/extrair-afiliados' && destination === '/index.html'))
   let insercoes = 0
   const semConfig = express(); semConfig.use(express.json())
   semConfig.use('/api/valio', criarRotaValioProdutos({ config: () => null, cliques: () => ({ async registrar() { insercoes++ } }) }))
@@ -163,6 +176,18 @@ test('configuração ausente retorna 503 antes do insert; entrypoint da Vercel m
   const entradaVercel = await verificar(vercelApp, '/api/index?__route=valio/cliques', {})
   assert.equal(entradaVercel.status, 400)
   assert.match(entradaVercel.json.erro, /ITEM_ID/)
+  const server = vercelApp.listen(0, '127.0.0.1')
+  try {
+    await new Promise((resolve) => server.once('listening', resolve))
+    const resposta = await fetch(`http://127.0.0.1:${server.address().port}/api/index?__route=valio/metricas/cliques&periodo=hoje`, {
+      headers: { Authorization: 'Bearer token-invalido' },
+    })
+    assert.ok([401, 503].includes(resposta.status))
+    assert.match(resposta.headers.get('content-type'), /^application\/json\b/)
+    const corpo = await resposta.text()
+    assert.equal(corpo.trimStart().startsWith('<'), false)
+    assert.equal(JSON.parse(corpo).ok, false)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
 test('SQL manual contém somente campos mínimos e restringe leitura direta', async () => {

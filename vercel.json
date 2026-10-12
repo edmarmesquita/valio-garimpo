@@ -3,6 +3,8 @@
   "framework": "vite",
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/index?__route=:path*" },
+    { "source": "/extrair-afiliados", "destination": "/index.html" },
+    { "source": "/extrair-afiliados/", "destination": "/index.html" },
     { "source": "/importar-produtos", "destination": "/index.html" },
     { "source": "/importar-produtos/", "destination": "/index.html" }
   ]
