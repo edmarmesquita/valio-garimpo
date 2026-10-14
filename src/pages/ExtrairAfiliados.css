@@ -9,6 +9,8 @@
 .extrair-card label { display: block; margin-bottom: 8px; font-weight: 600; }
 .extrair-card textarea { width: 100%; min-height: 240px; padding: 14px; resize: vertical; border: 1px solid #bba59b; border-radius: 10px; background: white; color: #3f302a; font: 14px/1.5 monospace; }
 .extrair-html-entrada input { display: block; width: 100%; min-height: 46px; padding: 10px 14px; border: 1px solid #bba59b; border-radius: 10px; background: white; color: #3f302a; font: inherit; }
+.extrair-link-oficial { margin-top: 16px; }
+.extrair-link-oficial input { display: block; width: 100%; min-height: 42px; margin-top: 7px; padding: 8px 10px; border: 1px solid #bba59b; border-radius: 9px; background: white; color: #3f302a; font: inherit; font-weight: 400; }
 .extrair-html-entrada label:not(:first-of-type) { margin-top: 16px; }
 .extrair-card button { margin-top: 16px; padding: 12px 20px; border: 0; border-radius: 10px; background: #a3432b; color: white; font: inherit; font-weight: 600; cursor: pointer; }
 .extrair-card button:hover { background: #84331f; }

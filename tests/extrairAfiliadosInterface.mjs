@@ -154,6 +154,16 @@ test('a interface gera e mostra JSON para o Valiô com dois selecionados e erro 
     await act(async () => [...document.querySelectorAll('button')].find((button) => button.textContent === 'Gerar produtos para o Valiô').click())
     assert.equal(document.querySelector('#json-valio-titulo'), null)
     assert.match(document.querySelector('.extrair-erro-exportacao').textContent, /Produto sem link: link original/)
+
+    const oficial = 'https://meli.la/1Yu9QRC'
+    await act(async () => {
+      const campo = document.querySelectorAll('.extrair-link-oficial input')[2]
+      inputSetter.call(campo, oficial)
+      campo.dispatchEvent(new dom.window.FocusEvent('focusout', { bubbles: true }))
+    })
+    await act(async () => [...document.querySelectorAll('button')].find((button) => button.textContent === 'Gerar produtos para o Valiô').click())
+    const comLinkOficial = JSON.parse(document.querySelector('[aria-label="JSON para o Valiô"]').textContent)
+    assert.equal(comLinkOficial.find((produto) => produto.id === 'MLB3').link, oficial)
   } finally {
     if (root) await act(async () => root.unmount())
     if (vite) await vite.close()

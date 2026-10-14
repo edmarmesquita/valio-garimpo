@@ -68,6 +68,18 @@ test('extrai card product, preserva link e ignora blocos sem estrutura de card',
   assert.equal(produtos[1].linkOriginal, `https://${product.metadata.url}${product.metadata.url_params}${product.metadata.url_fragments}`)
 })
 
+test('link afiliado oficial importado prevalece sobre URL comum do card sem alterações', () => {
+  const curto = 'https://meli.la/1Yu9QRC'
+  const social = 'https://www.mercadolivre.com.br/social/ee20260414070618?matt_word=valiosite&matt_tool=20840303&forceInApp=true&ref=a%2Fb#origem=afiliado'
+  for (const oficial of [curto, social]) {
+    const [produto] = extrairProdutosAfiliados([{ ...item, metadata: { ...item.metadata, affiliate_url: oficial } }])
+    assert.equal(produto.itemId, item.metadata.id)
+    assert.equal(produto.linkOriginal, oficial)
+    const [direto] = extrairProdutosAfiliados([{ ...item, metadata: { ...item.metadata, url: oficial } }])
+    assert.equal(direto.linkOriginal, oficial)
+  }
+})
+
 test('card incompleto retorna null nos campos ausentes e não fabrica imagem', () => {
   const [produto] = extrairProdutosAfiliados({ polycard_context: { picture_template: 'modelo-sem-placeholder' },
     data: [{ unique_id: 'incompleto', metadata: {}, pictures: [{ id: 'foto' }], components: [] }] })

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { extrairProdutosAfiliados } from '../lib/extrairProdutosAfiliados'
 import type { ProdutoAfiliado } from '../lib/extrairProdutosAfiliados'
-import { extrairProdutoHtml } from '../lib/extrairProdutoHtml'
+import { extrairProdutoHtml, validarLinkHtml } from '../lib/extrairProdutoHtml'
 import { alternarSelecao, CATEGORIAS_VALIO, filtrarEOrdenarProdutos, gerarProdutosValio, selecionarTodos } from '../lib/produtosGarimpados'
 import type { CategoriaValio, Filtros, Ordenacao } from '../lib/produtosGarimpados'
 import { enviarSelecionadosValio, selecionadosPublicaveis } from '../lib/publicarProdutosValio'
@@ -154,6 +154,13 @@ export default function ExtrairAfiliados() {
     else proximas.delete(indice)
     setCategorias(proximas); invalidarResultado()
   }
+  function atualizarLinkOficial(indice: number, link: string): boolean {
+    try { validarLinkHtml(link) }
+    catch (falha) { setErro(falha instanceof Error ? falha.message : 'Link afiliado inválido.'); return false }
+    setProdutos((atuais) => atuais?.map((produto, posicao) => posicao === indice ? { ...produto, linkOriginal: link } : produto) ?? null)
+    invalidarResultado()
+    return true
+  }
   return <main className="extrair-afiliados">
     <a href="/">← Voltar ao Valiô Garimpo</a>
     <header><p className="extrair-marca">VALIÔ GARIMPO</p><h1>Produtos garimpados</h1><p>Cole o JSON da Central de Afiliados, revise os produtos e prepare uma lista para o Valiô.</p></header>
@@ -168,6 +175,7 @@ export default function ExtrairAfiliados() {
       <textarea id="json-afiliados" value={entrada} onChange={(e) => { setEntrada(e.target.value); setProdutos(null); setSelecionados(new Set()); setCategorias(new Map()); setExistentes(new Map()); setEstadoVerificacao('pendente'); invalidarResultado() }} rows={9} spellCheck={false} placeholder='{"results": [...]}' />
       <button type="button" onClick={extrair}>Extrair produtos</button>
       <p>O processamento acontece no navegador. Esta tela não envia nem salva o JSON.</p>
+      <p>Se você tiver um link afiliado oficial, cole-o no campo do produto antes de enviar ao Valiô.</p>
     </section>
     <section className="extrair-card extrair-html-entrada" aria-labelledby="html-titulo">
       <h2 id="html-titulo">Importar por HTML da página</h2>
@@ -242,6 +250,13 @@ export default function ExtrairAfiliados() {
               {(p.avaliacao !== null || p.vendidosTexto) && <p>{p.avaliacao !== null && `★ ${p.avaliacao.toLocaleString('pt-BR')}`}{p.avaliacao !== null && p.vendidosTexto ? ' · ' : ''}{p.vendidosTexto}</p>}
               {p.comissaoTexto && <p className="extrair-comissao">{p.comissaoTexto}</p>}
               {p.linkOriginal && <a className="extrair-link" href={p.linkOriginal} target="_blank" rel="noopener noreferrer">Ver no Mercado Livre ↗</a>}
+              <label className="extrair-link-oficial">Link afiliado oficial
+                <input key={`${indice}:${p.linkOriginal}`} type="url" defaultValue={p.linkOriginal ?? ''} placeholder="https://meli.la/..." onBlur={(event) => {
+                  const link = event.currentTarget.value
+                  if (link === p.linkOriginal) return
+                  if (!atualizarLinkOficial(indice, link)) event.currentTarget.value = p.linkOriginal ?? ''
+                }} />
+              </label>
               {escolhido && <label className="extrair-categoria">Coleção do Valiô<select value={categorias.get(indice) ?? ''} onChange={(e) => categoria(indice, e.target.value)}><option value="">Escolha uma coleção</option>{CATEGORIAS_VALIO.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>}
             </div>
           </article>

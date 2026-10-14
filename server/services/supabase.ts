@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import { ehLinkMonetizado } from '../../src/lib/linksAfiliados.js'
 import type { ProdutoPublicacao } from '../valioProduto.js'
 
 export type SupabaseConfig = { url: string; serviceRoleKey: string }
@@ -17,7 +18,7 @@ export type ProdutoRow = {
   updated_at: string
 }
 export type ProdutosGateway = {
-  existe: (mercadoLivreId: string) => Promise<boolean>
+  obterLinkAfiliado: (mercadoLivreId: string) => Promise<string | null>
   upsert: (row: ProdutoRow) => Promise<void>
 }
 export type ProdutoExistente = {
@@ -67,11 +68,11 @@ export function criarProdutosGateway(config: SupabaseConfig): ProdutosGateway {
     auth: { persistSession: false, autoRefreshToken: false },
   })
   return {
-    async existe(mercadoLivreId) {
+    async obterLinkAfiliado(mercadoLivreId) {
       const { data, error } = await supabase.from('produtos')
-        .select('id').eq('mercado_livre_id', mercadoLivreId).maybeSingle()
+        .select('link_afiliado').eq('mercado_livre_id', mercadoLivreId).maybeSingle()
       if (error) throw error
-      return data !== null
+      return data?.link_afiliado ?? null
     },
     async upsert(row) {
       const { error } = await supabase.from('produtos')
@@ -147,19 +148,21 @@ export function criarCatalogoGateway(config: SupabaseConfig): CatalogoGateway {
 }
 
 export async function publicarProduto(produto: ProdutoPublicacao, gateway: ProdutosGateway): Promise<AcaoPublicacao> {
-  const existente = await gateway.existe(produto.mercadoLivreId)
+  const linkExistente = await gateway.obterLinkAfiliado(produto.mercadoLivreId)
+  const linkAfiliado = linkExistente && ehLinkMonetizado(linkExistente) && !ehLinkMonetizado(produto.linkAfiliado)
+    ? linkExistente : produto.linkAfiliado
   await gateway.upsert({
     mercado_livre_id: produto.mercadoLivreId,
     titulo: produto.titulo,
     descricao: produto.descricao,
     preco: produto.preco,
     data_preco: produto.dataPreco,
-    link_afiliado: produto.linkAfiliado,
+    link_afiliado: linkAfiliado,
     categoria: produto.categoria,
     rating: produto.rating,
     imagem: produto.imagem,
     ativo: true,
     updated_at: new Date().toISOString(),
   })
-  return existente ? 'atualizado' : 'criado'
+  return linkExistente === null ? 'criado' : 'atualizado'
 }

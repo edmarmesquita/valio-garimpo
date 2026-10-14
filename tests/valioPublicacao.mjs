@@ -47,7 +47,7 @@ async function servidor(deps, executar) {
 test('rota protegida cria produto novo e atualiza existente por ID sem duplicar', async () => {
   const linhas = new Map()
   const gateway = {
-    async existe(id) { return linhas.has(id) },
+    async obterLinkAfiliado(id) { return linhas.get(id)?.link_afiliado ?? null },
     async upsert(row) { linhas.set(row.mercado_livre_id, row) },
   }
   await servidor({ config: () => config, token: () => token, gateway: () => gateway }, async (postar) => {
@@ -59,6 +59,28 @@ test('rota protegida cria produto novo e atualiza existente por ID sem duplicar'
     assert.equal(linhas.get('MLB6706221784').ativo, true)
     assert.equal((await postar(payload(), 'errado')).status, 401)
     assert.equal((await postar(payload(), config.serviceRoleKey)).status, 401)
+  })
+})
+
+test('preserva meli.la e URL social integral; URL comum não substitui link monetizado', async () => {
+  const linhas = new Map()
+  const gateway = {
+    async obterLinkAfiliado(id) { return linhas.get(id)?.link_afiliado ?? null },
+    async upsert(row) { linhas.set(row.mercado_livre_id, row) },
+  }
+  const curto = 'https://meli.la/1Yu9QRC'
+  const social = 'https://www.mercadolivre.com.br/social/ee20260414070618?matt_word=valiosite&matt_tool=20840303&forceInApp=true&ref=a%2Fb#origem=afiliado'
+  const comum = 'https://produto.mercadolivre.com.br/MLB-6706221784-produto-_JM?extra_comm=false#sid=affiliates'
+  await servidor({ config: () => config, token: () => token, gateway: () => gateway }, async (postar) => {
+    assert.equal((await postar({ ...payload(), linkAfiliado: curto })).status, 200)
+    assert.equal(linhas.get(payload().mercadoLivreId).link_afiliado, curto)
+    assert.equal((await postar({ ...payload(), linkAfiliado: comum, preco: 180 })).status, 200)
+    assert.equal(linhas.get(payload().mercadoLivreId).link_afiliado, curto)
+    assert.equal(linhas.get(payload().mercadoLivreId).preco, 180)
+    assert.equal((await postar({ ...payload(), linkAfiliado: social })).status, 200)
+    assert.equal(linhas.get(payload().mercadoLivreId).link_afiliado, social)
+    assert.equal((await postar({ ...payload(), linkAfiliado: comum })).status, 200)
+    assert.equal(linhas.get(payload().mercadoLivreId).link_afiliado, social)
   })
 })
 
@@ -79,7 +101,7 @@ test('rota recusa configuração que reutiliza a Service Role como token de publ
 test('rota recusa payload inválido e não escreve no gateway', async () => {
   let escritas = 0
   await servidor({ config: () => config, token: () => token, gateway: () => ({
-    async existe() { return false }, async upsert() { escritas++ },
+    async obterLinkAfiliado() { return null }, async upsert() { escritas++ },
   }) }, async (postar) => {
     assert.equal((await postar({ ...payload(), mercadoLivreId: '' })).status, 400)
     assert.equal((await postar({ ...payload(), categoria: 'Inexistente' })).status, 400)

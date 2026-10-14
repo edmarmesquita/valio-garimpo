@@ -1,3 +1,5 @@
+import { ehLinkMonetizado } from './linksAfiliados.ts'
+
 export type ProdutoAfiliado = {
   itemId: string | null
   productId: string | null
@@ -71,8 +73,13 @@ function componentes(card: Registro, nome: string): Registro | null {
 }
 
 function montarLink(metadata: Registro): string | null {
+  // O link oficial, quando fornecido, é independente da URL do anúncio usada no card.
+  const afiliado = [metadata.affiliate_url, metadata.affiliateUrl, metadata.link_afiliado]
+    .find((valor): valor is string => typeof valor === 'string' && valor.trim().length > 0)
+  if (afiliado) return afiliado
   const url = texto(metadata.url)
   if (!url) return null
+  if (ehLinkMonetizado(url)) return url
   const base = /^https?:\/\//i.test(url) ? url : `https://${url.replace(/^\/\//, '')}`
   return `${base}${texto(metadata.url_params) ?? ''}${texto(metadata.url_fragments) ?? ''}`
 }
