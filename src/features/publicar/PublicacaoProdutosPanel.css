@@ -1,5 +1,4 @@
-.extrair-resumo { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
-.extrair-resumo { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.extrair-resumo { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 12px; }
 .extrair-acoes-publicacao { display: flex; flex-wrap: wrap; gap: 10px; }
 .extrair-categoria { display: block; margin: 0; font-size: 14px; font-weight: 600; }
 .extrair-categoria select { display: block; margin-top: 7px; }

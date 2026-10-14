@@ -1,4 +1,4 @@
-.extrair-afiliados { max-width: 1100px; margin: auto; padding: 36px 24px 64px; color: #5b4037; }
+.extrair-afiliados { max-width: 1240px; margin: auto; padding: 36px 24px 64px; color: #5b4037; }
 .extrair-afiliados a { color: #795548; }
 .extrair-afiliados header { margin: 32px 0; }
 .extrair-afiliados h1 { margin: 8px 0; font-size: clamp(30px, 5vw, 44px); }
@@ -17,7 +17,6 @@
 .extrair-erro { color: #b42318; font-weight: 600; }
 @media (max-width: 600px) { .extrair-afiliados { padding: 24px 12px; } .extrair-card { padding: 18px 14px; } }
 
-.extrair-afiliados { max-width: 1240px; }
 .extrair-card { box-shadow: 0 12px 30px rgba(91, 64, 55, .06); }
 .extrair-card button:disabled { cursor: not-allowed; opacity: .5; }
 .extrair-card button.extrair-secundario { background: #fff4ef; color: #7b3928; border: 1px solid #e8b7a5; }

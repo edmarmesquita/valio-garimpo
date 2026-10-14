@@ -2,6 +2,18 @@
 
 Frontend Vite/React e API Express publicada como Vercel Function. A conexão OAuth com o Mercado Livre usa PostgreSQL exclusivo deste projeto.
 
+## Áreas do Garimpo
+
+- `/`: início e status básico;
+- `/importar-produtos`: consulta individual de anúncio do Mercado Livre;
+- `/extrair-afiliados`: importação manual por JSON ou HTML, preparação, seleção e publicação no Valiô;
+- `/manutencao`: catálogo, status e categoria;
+- `/links-afiliados`: atualização individual ou em lote de links oficiais, com prévia antes da confirmação do lote;
+- `/precos`: fila de revisão e atualização de preços;
+- `/diagnostico`: status e métricas disponíveis no frontend.
+
+O token de publicação é compartilhado entre essas áreas por contexto React e permanece apenas em memória durante a sessão; não é gravado em `localStorage` nem em `sessionStorage`. A API mantém os mesmos endpoints em `/api/valio`, registrados por `server/valioProdutos.ts` a partir de módulos de domínio em `server/routes/` (`produtos`, `manutencao`, `linksAfiliados`, `precos` e `metricas`).
+
 ## Preparação do OAuth
 
 1. Crie um banco PostgreSQL/Neon **separado do projeto Valiô principal** e execute `migrations/001_mercado_livre_oauth.sql` uma vez antes do deploy. Use a URL de conexão com pool do Neon e TLS obrigatório.
@@ -30,7 +42,7 @@ Configure **somente no backend** (`.env` local e Environment Variables na Vercel
 - `SUPABASE_SERVICE_ROLE_KEY`: chave administrativa do projeto, nunca em `VITE_*` ou no navegador;
 - `VALIO_PUBLISH_TOKEN`: segredo aleatório de pelo menos 32 caracteres para proteger `POST /api/valio/produtos`.
 
-Gere um token local com `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`. Digite **esse token de publicação** na tela `/extrair-afiliados`; ele fica apenas na memória da página. A Service Role nunca deve ser digitada ali nem reutilizada como token de publicação. A rota aceita um produto por requisição, exige `Authorization: Bearer <VALIO_PUBLISH_TOKEN>` e retorna `acao: criado` ou `acao: atualizado`. Um ID repetido é atualizado por upsert, mantendo `ativo = true`. O JSON para copiar continua disponível como fallback.
+Gere um token local com `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"`. Digite **esse token de publicação** em **Acesso à vitrine**; ele fica apenas no contexto React em memória durante a sessão. A Service Role nunca deve ser digitada ali nem reutilizada como token de publicação. A rota aceita um produto por requisição, exige `Authorization: Bearer <VALIO_PUBLISH_TOKEN>` e retorna `acao: criado` ou `acao: atualizado`. Um ID repetido é atualizado por upsert, mantendo `ativo = true`. O JSON para copiar continua disponível como fallback.
 
 Para provar o fluxo com **um** produto: inicie a API com `npm run server` e o frontend com `npm run dev`; cole o JSON bruto manualmente, extraia, digite o token de publicação, selecione um card que tenha preço, imagem, link e ITEM_ID, escolha a coleção e clique em **Enviar novos para o Valiô** ou **Atualizar existentes**, conforme o badge. Confira o resumo na tela e, no SQL Editor, execute `select mercado_livre_id, titulo, preco, ativo from public.produtos where mercado_livre_id = 'MLB...';` substituindo pelo ID do teste. A tabela não é criada pelo aplicativo.
 
@@ -44,7 +56,7 @@ O futuro Valiô principal deverá chamar `POST /api/valio/cliques` no Garimpo co
 
 O painel **Métricas da vitrine** usa `GET /api/valio/metricas/cliques?periodo=hoje|7dias|30dias|todos`, protegido pelo `VALIO_PUBLISH_TOKEN`. Exibe totais, produtos ativos sem clique, top 10 produtos, categorias e cliques por dia. Os períodos e dias usam `America/Sao_Paulo`. A API lê somente dados agregados da view e os títulos/categorias do catálogo, sem expor eventos individuais. Nenhum nome, email, IP, localização, fingerprint, cookie ou identificador de visitante é gravado. Não é necessário criar cookie novo; eventual menção genérica a métricas agregadas na política de privacidade pode ser avaliada antes da integração no Valiô principal.
 
-Na página `/extrair-afiliados`, informe o token de publicação em **Acesso à vitrine** e clique em **Carregar catálogo** na área **Manutenção da vitrine**. O painel consulta o Supabase pelo backend e inclui produtos ativos e inativos. A Service Role permanece no servidor.
+Informe o token de publicação em **Acesso à vitrine** e clique em **Carregar catálogo** na página `/manutencao`. O painel consulta o Supabase pelo backend e inclui produtos ativos e inativos. A Service Role permanece no servidor.
 
 O preço é classificado por `data_preco` (dd/mm/aaaa): até 7 dias, **Atualizado**; de 8 a 15 dias, **Revisar em breve**; acima de 15 dias, **Precisa revisão**. Há filtros por status e idade, ordenação por data, preço e categoria, além de **Revisar catálogo**, que prioriza preços antigos, preços alterados, inativos e outros dados alterados.
 
