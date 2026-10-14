@@ -47,22 +47,6 @@ test('painel consulta, filtra e mantém a tela em falha de backend', async () =>
     assert.deepEqual([...document.querySelectorAll('.vitrine-resumo strong')].slice(0, 2).map((el) => el.textContent), ['1', '1'])
     assert.equal(chamadas[0].url, '/api/valio/catalogo')
     assert.equal(chamadas[0].options.headers.Authorization, 'Bearer token-de-teste')
-    const [campoId, campoLink] = document.querySelectorAll('.vitrine-atualizar-link input')
-    const escrever = (campo, valor) => {
-      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(campo, valor)
-      campo.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-    }
-    await act(async () => {
-      escrever(campoId, 'MLB1')
-      escrever(campoLink, 'https://meli.la/1Yu9QRC')
-    })
-    await act(async () => document.querySelector('.vitrine-atualizar-link').dispatchEvent(new dom.window.Event('submit', { bubbles: true, cancelable: true })))
-    assert.equal(catalogo[0].linkAfiliado, 'https://meli.la/1Yu9QRC')
-    assert.match(document.querySelector('.vitrine-link-resultado').textContent, /Link anterior: https:\/\/mercadolivre.com.br\/MLB1/)
-    assert.match(document.querySelector('.vitrine-link-resultado').textContent, /Link novo: https:\/\/meli.la\/1Yu9QRC/)
-    assert.deepEqual(JSON.parse(chamadas.at(-1).options.body), {
-      mercado_livre_id: 'MLB1', link_afiliado: 'https://meli.la/1Yu9QRC',
-    })
     const filtro = document.querySelector('[aria-label="Filtrar vitrine"]')
     await act(async () => { filtro.value = 'inativos'; filtro.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
     assert.equal(document.querySelectorAll('.vitrine-produto').length, 1)
@@ -75,7 +59,7 @@ test('painel consulta, filtra e mantém a tela em falha de backend', async () =>
     await act(async () => { categoria.value = 'Achados para Casa'; categoria.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
     await act(async () => [...document.querySelectorAll('.vitrine-produto')][0].querySelector('button').click())
     assert.equal(catalogo[0].categoria, 'Achados para Casa')
-    assert.equal(catalogo[0].linkAfiliado, 'https://meli.la/1Yu9QRC')
+    assert.equal(catalogo[0].linkAfiliado, produto('MLB1', true).linkAfiliado)
     await act(async () => botao('Desativar').click())
     assert.equal(catalogo[0].ativo, true)
     assert.ok(botao('Confirmar desativação'))

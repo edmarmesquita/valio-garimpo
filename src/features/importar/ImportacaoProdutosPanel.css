@@ -1,0 +1,39 @@
+.extrair-html-entrada input { display: block; width: 100%; min-height: 46px; padding: 10px 14px; border: 1px solid #bba59b; border-radius: 10px; background: white; color: #3f302a; font: inherit; }
+.extrair-link-oficial { margin-top: 16px; }
+.extrair-link-oficial input { display: block; width: 100%; min-height: 42px; margin-top: 7px; padding: 8px 10px; border: 1px solid #bba59b; border-radius: 9px; background: white; color: #3f302a; font: inherit; font-weight: 400; }
+.extrair-html-entrada label:not(:first-of-type) { margin-top: 16px; }
+.extrair-estado { display: inline-block; padding: 5px 9px; border-radius: 7px; font-size: 12px; font-weight: 700; }
+.extrair-estado.extrair-novo { background: #e8f5ed; color: #206144; }
+.extrair-estado.extrair-existente { background: #fff0dc; color: #844612; }
+.extrair-alteracao { padding: 9px 11px; border-radius: 8px; background: #fff4ef; color: #7b3928; font-size: 13px; line-height: 1.5; }
+.extrair-sem-alteracoes { color: #795548; font-size: 13px; }
+.extrair-acoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.extrair-acoes button { margin: 0; }
+.extrair-controles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: end; gap: 14px; margin: 24px 0 12px; padding: 18px; background: #fffaf7; border-radius: 12px; }
+.extrair-controles label { display: block; margin: 0; font-size: 14px; font-weight: 600; }
+.extrair-controles select, .extrair-controles input[type="number"] { display: block; margin-top: 7px; }
+.extrair-controles .extrair-filtro-check { display: flex; align-items: center; gap: 8px; min-height: 42px; }
+.extrair-filtro-check input, .extrair-selecao input { width: 18px; height: 18px; accent-color: #a3432b; }
+.extrair-contagem { color: #795548; }
+.extrair-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 16px; }
+.extrair-produto { min-width: 0; overflow: hidden; border: 1px solid #e9d5cc; border-radius: 14px; background: white; }
+.extrair-produto.extrair-selecionado { border-color: #a3432b; box-shadow: 0 0 0 2px #f4c7b8; }
+.extrair-selecao { display: flex !important; align-items: center; gap: 8px; margin: 0 !important; padding: 12px 14px; }
+.extrair-imagem { display: flex; justify-content: center; align-items: center; height: 190px; background: #fffaf7; color: #947d73; }
+.extrair-imagem img { width: 100%; height: 100%; object-fit: contain; }
+.extrair-produto-conteudo { padding: 16px; }
+.extrair-produto h3 { margin: 8px 0; font-size: 17px; line-height: 1.35; }
+.extrair-produto p { margin: 9px 0; }
+.extrair-id { color: #795548; font-size: 12px; overflow-wrap: anywhere; }
+.extrair-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.extrair-badges span { padding: 5px 8px; border-radius: 6px; background: #ffe5d9; color: #863920; font-size: 11px; font-weight: 700; }
+.extrair-preco { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; }
+.extrair-preco strong { font-size: 22px; }
+.extrair-preco del { color: #927e75; font-size: 13px; }
+.extrair-preco span { color: #9a3e23; font-size: 13px; font-weight: 700; }
+.extrair-comissao { color: #26734d; font-weight: 700; }
+.extrair-link { display: inline-block; margin: 8px 0; font-weight: 700; }
+.extrair-detalhes summary { cursor: pointer; font-weight: 700; }
+.extrair-afiliados .extrair-detalhes summary { color: #5b4037; }
+@media (max-width: 900px) { .extrair-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 620px) { .extrair-controles { grid-template-columns: 1fr; } .extrair-grid { grid-template-columns: 1fr; } .extrair-acoes { width: 100%; } .extrair-acoes button { flex: 1; } }

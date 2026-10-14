@@ -34,8 +34,9 @@ test('HTML manual cria card sem carregar imagem, verifica duplicidade e reutiliz
     const { createRoot } = await import('react-dom/client')
     vite = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
     const { default: ExtrairAfiliados } = await vite.ssrLoadModule('/src/pages/ExtrairAfiliados.tsx')
+    const { SessaoOperacionalProvider } = await vite.ssrLoadModule('/src/app/SessaoOperacional.tsx')
     root = createRoot(document.getElementById('root'))
-    await act(async () => root.render(createElement(ExtrairAfiliados)))
+    await act(async () => root.render(createElement(SessaoOperacionalProvider, null, createElement(ExtrairAfiliados))))
     const setInput = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set
     const setTextarea = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set
     await act(async () => {

@@ -42,8 +42,9 @@ test('a interface gera e mostra JSON para o Valiô com dois selecionados e erro 
     const { createRoot } = await import('react-dom/client')
     vite = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
     const { default: ExtrairAfiliados } = await vite.ssrLoadModule('/src/pages/ExtrairAfiliados.tsx')
+    const { SessaoOperacionalProvider } = await vite.ssrLoadModule('/src/app/SessaoOperacional.tsx')
     root = createRoot(document.getElementById('root'))
-    await act(async () => root.render(createElement(ExtrairAfiliados)))
+    await act(async () => root.render(createElement(SessaoOperacionalProvider, null, createElement(ExtrairAfiliados))))
 
     const textarea = document.getElementById('json-afiliados')
     const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set
@@ -113,7 +114,6 @@ test('a interface gera e mostra JSON para o Valiô com dois selecionados e erro 
     assert.match(document.querySelectorAll('.extrair-estado')[1].textContent, /Já está no Valiô/)
     assert.match(document.querySelector('.extrair-alteracao').textContent, /Preço alterado.*Valiô: R\$\s+59,90.*Agora: R\$\s+49,90/s)
     assert.deepEqual([...document.querySelectorAll('.extrair-resumo strong')].slice(0, 3).map((el) => el.textContent), ['3', '2', '1'])
-    assert.match(document.querySelector('.extrair-diagnostico').textContent, /IDs enviados: 3.*MLB1, MLB2, MLB3.*Existentes retornados: 1.*MLB2.*2 novos; 1 existentes/s)
     assert.match(document.querySelector('.extrair-aviso').textContent, /Produtos antigos exibidos no Valiô fora dessa tabela/)
 
     const filtroCadastro = [...document.querySelectorAll('.extrair-controles select')].find((el) => el.parentElement.textContent.includes('Cadastro no Valiô'))

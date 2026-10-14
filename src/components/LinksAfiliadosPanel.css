@@ -1,0 +1,19 @@
+.vitrine-atualizar-link { margin: 24px 0; padding: 20px; border: 1px solid #e9d5cc; border-radius: 12px; background: #fffaf7; }
+.vitrine-atualizar-link h3 { margin: 0 0 8px; color: #5b4037; }
+.vitrine-atualizar-link p { overflow-wrap: anywhere; }
+.vitrine-atualizar-link-campos { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(280px, 2fr); gap: 14px; }
+.vitrine-atualizar-link-campos input { display: block; box-sizing: border-box; width: 100%; margin-top: 6px; padding: 11px; border: 1px solid #bba59b; border-radius: 8px; font: inherit; }
+.vitrine-link-resultado { margin-top: 16px; padding: 14px; border-radius: 8px; background: #edf8ef; overflow-wrap: anywhere; }
+.vitrine-link-resultado p { margin: 7px 0 0; }
+.vitrine-lote-links { margin: 24px 0; padding: 20px; border: 1px solid #e9d5cc; border-radius: 12px; background: #fffaf7; }
+.vitrine-lote-links h3 { margin: 0 0 8px; color: #5b4037; }
+.vitrine-lote-links > p { overflow-wrap: anywhere; }
+.vitrine-lote-links textarea { min-height: 140px; margin-top: 6px; }
+.vitrine-lote-links-acoes { display: flex; flex-wrap: wrap; gap: 10px; }
+.vitrine-lote-links-acoes button { margin-top: 12px; }
+.vitrine-lote-previa { margin-top: 20px; }
+.vitrine-lote-tabela { overflow-x: auto; }
+.vitrine-lote-tabela table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.vitrine-lote-tabela th, .vitrine-lote-tabela td { padding: 9px; border-bottom: 1px solid #e9d5cc; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.vitrine-lote-tabela th { min-width: 110px; }
+@media (max-width: 620px) { .vitrine-atualizar-link-campos { grid-template-columns: 1fr; } }

@@ -6,6 +6,14 @@
     { "source": "/extrair-afiliados", "destination": "/index.html" },
     { "source": "/extrair-afiliados/", "destination": "/index.html" },
     { "source": "/importar-produtos", "destination": "/index.html" },
-    { "source": "/importar-produtos/", "destination": "/index.html" }
+    { "source": "/importar-produtos/", "destination": "/index.html" },
+    { "source": "/manutencao", "destination": "/index.html" },
+    { "source": "/manutencao/", "destination": "/index.html" },
+    { "source": "/links-afiliados", "destination": "/index.html" },
+    { "source": "/links-afiliados/", "destination": "/index.html" },
+    { "source": "/precos", "destination": "/index.html" },
+    { "source": "/precos/", "destination": "/index.html" },
+    { "source": "/diagnostico", "destination": "/index.html" },
+    { "source": "/diagnostico/", "destination": "/index.html" }
   ]
 }

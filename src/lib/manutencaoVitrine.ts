@@ -98,7 +98,7 @@ function compararDatas(a: string, b: string) {
   return chave(a).localeCompare(chave(b))
 }
 
-async function requisitar(url: string, token: string, metodo: 'GET' | 'PATCH', corpo?: object, enviar: typeof fetch = fetch) {
+async function requisitar(url: string, token: string, metodo: 'GET' | 'POST' | 'PATCH', corpo?: object, enviar: typeof fetch = fetch) {
   if (!token.trim()) throw new Error('Informe o token de publicação para acessar a vitrine.')
   let resposta: Response
   try { resposta = await enviar(url, { method: metodo, headers: {
@@ -141,4 +141,34 @@ export async function atualizarLinkAfiliado(id: string, link: string, token: str
     throw new Error('A API não confirmou o link salvo para este produto.')
   }
   return resultado as ResultadoLinkAfiliado
+}
+
+export type LinhaPreviaLink = {
+  linha: number; mercado_livre_id: string | null; link_novo: string | null
+  titulo: string | null; link_anterior: string | null; motivo: string | null
+}
+export type PreviaLinksLote = { solicitadas: number; linhas: LinhaPreviaLink[] }
+export type ResultadoLinksLote = {
+  solicitadas: number; atualizadas: number; erros: number; idsAtualizados: string[]
+  falhas: { linha: number; mercado_livre_id: string | null; motivo: string }[]
+}
+
+export async function preverLinksLote(texto: string, token: string, enviar: typeof fetch = fetch): Promise<PreviaLinksLote> {
+  const resultado = await requisitar('/api/valio/produtos/links-afiliados/previa', token, 'POST', { texto }, enviar)
+  if (!Number.isInteger(resultado.solicitadas) || !Array.isArray(resultado.linhas)
+    || resultado.linhas.length !== resultado.solicitadas) throw new Error('Resposta inválida da prévia.')
+  return resultado as PreviaLinksLote
+}
+
+export async function confirmarLinksLote(texto: string, previa: PreviaLinksLote, token: string,
+  enviar: typeof fetch = fetch): Promise<ResultadoLinksLote> {
+  const confirmacoes = previa.linhas.filter((item) => !item.motivo && item.mercado_livre_id && item.link_anterior)
+    .map((item) => ({ linha: item.linha, mercado_livre_id: item.mercado_livre_id, link_anterior: item.link_anterior }))
+  if (!confirmacoes.length) throw new Error('Nenhuma linha válida para confirmar.')
+  const resultado = await requisitar('/api/valio/produtos/links-afiliados', token, 'PATCH',
+    { texto, confirmacoes }, enviar)
+  if (resultado.solicitadas !== previa.solicitadas || !Number.isInteger(resultado.atualizadas)
+    || !Number.isInteger(resultado.erros) || !Array.isArray(resultado.idsAtualizados)
+    || !Array.isArray(resultado.falhas)) throw new Error('Resposta inválida da atualização em lote.')
+  return resultado as ResultadoLinksLote
 }

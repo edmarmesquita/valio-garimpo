@@ -1,0 +1,18 @@
+.fila-revisao { margin: 24px 0; padding: 20px; border: 1px solid #e9d5cc; border-radius: 12px; background: #fffaf7; }
+.fila-revisao h3 { margin: 0 0 8px; color: #5b4037; }
+.fila-revisao > p { margin: 10px 0; }
+.fila-revisao textarea { min-height: 120px; margin-top: 8px; }
+.fila-contadores, .fila-acoes, .fila-controles { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0; align-items: center; }
+.fila-contadores span { padding: 8px 11px; border-radius: 8px; background: #fff0e8; font-size: 13px; font-weight: 600; }
+.fila-acoes button { margin: 0; }
+.fila-controles label { min-width: 180px; margin: 0; }
+.fila-controles select { display: block; margin-top: 5px; }
+.fila-controles .fila-checkbox { display: flex; align-items: center; gap: 7px; min-width: auto; }
+.fila-checkbox input, .fila-selecao input { width: 18px; height: 18px; accent-color: #a3432b; }
+.fila-lista { display: grid; gap: 6px; }
+.fila-item { display: grid; grid-template-columns: minmax(200px, 2fr) minmax(160px, 1fr) minmax(120px, 1fr); gap: 12px; align-items: start; padding: 10px; border: 1px solid #e9d5cc; border-radius: 8px; background: white; font-size: 13px; }
+.fila-item > div { display: grid; gap: 3px; }
+.fila-item .fila-selecao { display: flex; gap: 8px; margin: 0; font-weight: 400; }
+.fila-selecao span { display: grid; gap: 3px; }
+.fila-selecao small { color: #795548; overflow-wrap: anywhere; }
+@media (max-width: 620px) { .fila-item { grid-template-columns: 1fr; } .fila-revisao { padding: 14px; } }

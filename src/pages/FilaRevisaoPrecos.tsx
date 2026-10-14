@@ -3,6 +3,7 @@ import { extrairProdutosAfiliados } from '../lib/extrairProdutosAfiliados'
 import type { ProdutoCatalogo } from '../lib/manutencaoVitrine'
 import { adicionarLote, enviarPrecosEmBlocos, filtrarFila, lotesVazios, montarFila, selecionarFila } from '../lib/revisaoPrecosLote'
 import type { EntradaPreco, FiltroFila, OrdemFila, ResultadoPreco } from '../lib/revisaoPrecosLote'
+import './FilaRevisaoPrecos.css'
 
 const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
 type Props = { catalogo: ProdutoCatalogo[]; token: string; onResultados: (resultados: ResultadoPreco[], entradas: EntradaPreco[]) => void }

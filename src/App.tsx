@@ -9,7 +9,8 @@ type GarimpoStatus = {
 
 type MercadoLivreStatus = 'carregando' | 'conectado' | 'desconectado' | 'erro'
 
-function App() {
+function App({ componente = 'main' }: { componente?: 'main' | 'section' }) {
+  const Container = componente
   const [status, setStatus] = useState<GarimpoStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -80,7 +81,7 @@ function App() {
   }, [retornoOAuth])
 
   return (
-    <main className="garimpo">
+    <Container className="garimpo">
       <section className="painel">
         <div className="cabecalho">
           <span className="icone">🔎</span>
@@ -169,7 +170,7 @@ function App() {
           <a className="garimpo-link" href="/extrair-afiliados">Abrir extrator de produtos</a>
         </div>
       </section>
-    </main>
+    </Container>
   )
 }
 
