@@ -21,6 +21,11 @@ export type ProdutosGateway = {
   obterLinkAfiliado: (mercadoLivreId: string) => Promise<string | null>
   upsert: (row: ProdutoRow) => Promise<void>
 }
+export type LinhaLinkAfiliado = { mercado_livre_id: string; titulo: string; link_afiliado: string }
+export type LinkAfiliadoGateway = {
+  buscar: (mercadoLivreId: string) => Promise<LinhaLinkAfiliado[]>
+  atualizar: (mercadoLivreId: string, linkAnterior: string, linkNovo: string) => Promise<Pick<LinhaLinkAfiliado, 'mercado_livre_id' | 'link_afiliado'>[]>
+}
 export type ProdutoExistente = {
   mercadoLivreId: string
   titulo: string
@@ -78,6 +83,28 @@ export function criarProdutosGateway(config: SupabaseConfig): ProdutosGateway {
       const { error } = await supabase.from('produtos')
         .upsert(row, { onConflict: 'mercado_livre_id' }).select('id').single()
       if (error) throw error
+    },
+  }
+}
+
+export function criarLinkAfiliadoGateway(config: SupabaseConfig): LinkAfiliadoGateway {
+  const supabase = createClient(config.url, config.serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  return {
+    async buscar(mercadoLivreId) {
+      const { data, error } = await supabase.from('produtos')
+        .select('mercado_livre_id,titulo,link_afiliado').eq('mercado_livre_id', mercadoLivreId).limit(2)
+      if (error) throw error
+      return data ?? []
+    },
+    async atualizar(mercadoLivreId, linkAnterior, linkNovo) {
+      const { data, error } = await supabase.from('produtos')
+        .update({ link_afiliado: linkNovo })
+        .eq('mercado_livre_id', mercadoLivreId).eq('link_afiliado', linkAnterior)
+        .select('mercado_livre_id,link_afiliado')
+      if (error) throw error
+      return data ?? []
     },
   }
 }

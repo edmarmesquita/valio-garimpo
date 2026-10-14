@@ -1,7 +1,8 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import { Router } from 'express'
-import { criarCatalogoGateway, criarConsultaProdutosGateway, criarProdutosGateway, diagnosticarSupabaseEnv, getSupabaseConfig, publicarProduto } from './services/supabase.js'
-import type { CatalogoGateway, ConsultaProdutosGateway, ProdutosGateway, SupabaseConfig } from './services/supabase.js'
+import { criarCatalogoGateway, criarConsultaProdutosGateway, criarLinkAfiliadoGateway, criarProdutosGateway, diagnosticarSupabaseEnv, getSupabaseConfig, publicarProduto } from './services/supabase.js'
+import type { CatalogoGateway, ConsultaProdutosGateway, LinkAfiliadoGateway, ProdutosGateway, SupabaseConfig } from './services/supabase.js'
+import { ehLinkOficialParaAtualizacao } from '../src/lib/linksAfiliados.js'
 import { CATEGORIAS_VALIO, validarProdutoPublicacao } from './valioProduto.js'
 import { criarCliquesGateway } from './services/cliques.js'
 import type { CliquesGateway } from './services/cliques.js'
@@ -14,6 +15,7 @@ type Dependencias = {
   gateway?: (config: SupabaseConfig) => ProdutosGateway
   consulta?: (config: SupabaseConfig) => ConsultaProdutosGateway
   catalogo?: (config: SupabaseConfig) => CatalogoGateway
+  linkAfiliado?: (config: SupabaseConfig) => LinkAfiliadoGateway
   cliques?: (config: SupabaseConfig) => CliquesGateway
   token?: () => string | undefined
   agora?: () => Date
@@ -173,6 +175,36 @@ export function criarRotaValioProdutos(deps: Dependencias = {}) {
       res.json({ ok: true, mercadoLivreId: id, categoria })
     } catch {
       res.status(502).json({ ok: false, erro: 'Não foi possível alterar a categoria do produto.' })
+    }
+  })
+  router.patch('/produtos/link-afiliado', async (req, res) => {
+    const config = autorizar(req, res)
+    if (!config) return
+    const entrada = req.body
+    if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada)
+      || Object.keys(entrada).length !== 2 || !Object.hasOwn(entrada, 'mercado_livre_id')
+      || !Object.hasOwn(entrada, 'link_afiliado')
+      || typeof entrada.mercado_livre_id !== 'string' || !/^MLB\d+$/.test(entrada.mercado_livre_id)
+      || typeof entrada.link_afiliado !== 'string' || !ehLinkOficialParaAtualizacao(entrada.link_afiliado)) {
+      res.status(400).json({ ok: false, erro: 'Informe um ITEM_ID válido e um link oficial HTTPS meli.la ou /social/ com rastreamento.' })
+      return
+    }
+    try {
+      const gateway = (deps.linkAfiliado ?? criarLinkAfiliadoGateway)(config)
+      const encontrados = await gateway.buscar(entrada.mercado_livre_id)
+      if (!encontrados.length) { res.status(404).json({ ok: false, erro: 'Produto não encontrado.' }); return }
+      if (encontrados.length !== 1) { res.status(409).json({ ok: false, erro: 'Mais de um produto corresponde ao ITEM_ID.' }); return }
+      const anterior = encontrados[0]
+      const atualizados = await gateway.atualizar(entrada.mercado_livre_id, anterior.link_afiliado, entrada.link_afiliado)
+      if (atualizados.length !== 1 || atualizados[0].mercado_livre_id !== entrada.mercado_livre_id
+        || atualizados[0].link_afiliado !== entrada.link_afiliado) {
+        res.status(409).json({ ok: false, erro: 'O link mudou durante a atualização ou mais de um produto foi afetado. Confira o cadastro.' })
+        return
+      }
+      res.json({ ok: true, produto: anterior.titulo, mercado_livre_id: entrada.mercado_livre_id,
+        link_anterior: anterior.link_afiliado, link_afiliado: atualizados[0].link_afiliado })
+    } catch {
+      res.status(502).json({ ok: false, erro: 'Não foi possível atualizar o link afiliado.' })
     }
   })
   router.post('/produtos/verificar', async (req, res) => {

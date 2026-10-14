@@ -70,3 +70,85 @@ test('API lista ativos e inativos e altera somente status ou categoria com auten
     assert.equal(linhas.get('MLB1').dataPreco, '01/10/2026')
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
+
+test('atualização rápida aceita meli.la e /social/, rejeita URL comum e preserva todos os demais campos', async () => {
+  const original = produto('MLB5348529958', { titulo: 'Kit 10 Esmaltes', linkAfiliado: 'https://www.mercadolivre.com.br/produto' })
+  const linhas = new Map([[original.mercadoLivreId, { ...original }]])
+  const escritas = []
+  const gateway = {
+    async buscar(id) {
+      const salvo = linhas.get(id)
+      return salvo ? [{ mercado_livre_id: id, titulo: salvo.titulo, link_afiliado: salvo.linkAfiliado }] : []
+    },
+    async atualizar(id, anterior, novo) {
+      escritas.push({ id, anterior, novo })
+      const salvo = linhas.get(id)
+      if (!salvo || salvo.linkAfiliado !== anterior) return []
+      linhas.set(id, { ...salvo, linkAfiliado: novo })
+      return [{ mercado_livre_id: id, link_afiliado: novo }]
+    },
+  }
+  const app = express(); app.use(express.json())
+  app.use('/api/valio', criarRotaValioProdutos({ config: () => config, token: () => token, linkAfiliado: () => gateway }))
+  const server = app.listen(0, '127.0.0.1')
+  try {
+    await new Promise((resolve) => server.once('listening', resolve))
+    const req = async (body, bearer = token) => {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/valio/produtos/link-afiliado`, {
+        method: 'PATCH', headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      })
+      return { status: response.status, json: await response.json() }
+    }
+    const id = original.mercadoLivreId
+    const curto = 'https://meli.la/1Yu9QRC'
+    const social = 'https://www.mercadolivre.com.br/social/ee20260414070618?matt_word=valiosite&matt_tool=20840303&forceInApp=true&ref=a%2Fb'
+    const primeiro = await req({ mercado_livre_id: id, link_afiliado: curto })
+    assert.equal(primeiro.status, 200)
+    assert.deepEqual(primeiro.json, { ok: true, produto: original.titulo, mercado_livre_id: id,
+      link_anterior: original.linkAfiliado, link_afiliado: curto })
+    assert.deepEqual(linhas.get(id), { ...original, linkAfiliado: curto })
+    const segundo = await req({ mercado_livre_id: id, link_afiliado: social })
+    assert.equal(segundo.status, 200)
+    assert.equal(segundo.json.link_afiliado, social)
+    assert.equal(segundo.json.link_anterior, curto)
+    assert.deepEqual(linhas.get(id), { ...original, linkAfiliado: social })
+    assert.equal((await req({ mercado_livre_id: id, link_afiliado: 'https://www.mercadolivre.com.br/produto/p/MLB123?extra_comm=true#sid=affiliates' })).status, 400)
+    assert.equal((await req({ mercado_livre_id: 'MLB999999', link_afiliado: curto })).status, 404)
+    assert.equal((await req({ mercado_livre_id: id, link_afiliado: curto }, 'token-errado')).status, 401)
+    assert.equal((await req({ mercado_livre_id: id, link_afiliado: curto, preco: 1 })).status, 400)
+    assert.equal((await req({ mercado_livre_id: 'MLB-123', link_afiliado: curto })).status, 400)
+    assert.equal((await req({ mercado_livre_id: id, link_afiliado: 'http://meli.la/1Yu9QRC' })).status, 400)
+    assert.equal((await req({ mercado_livre_id: id, link_afiliado: 'https://www.mercadolivre.com.br/social/abc?forceInApp=true' })).status, 400)
+    assert.equal(escritas.length, 2)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
+test('atualização rápida rejeita resultados múltiplos e alteração concorrente', async () => {
+  const link = 'https://meli.la/1Yu9QRC'
+  const app = express(); app.use(express.json())
+  let mode = 'duplicado'
+  const gateway = {
+    async buscar(id) { return mode === 'duplicado'
+      ? [{ mercado_livre_id: id, titulo: 'Um', link_afiliado: 'https://meli.la/1' },
+        { mercado_livre_id: id, titulo: 'Dois', link_afiliado: 'https://meli.la/2' }]
+      : [{ mercado_livre_id: id, titulo: 'Um', link_afiliado: 'https://meli.la/1' }] },
+    async atualizar() { return mode === 'concorrente' ? [] : [
+      { mercado_livre_id: 'MLB1', link_afiliado: link }, { mercado_livre_id: 'MLB1', link_afiliado: link },
+    ] },
+  }
+  app.use('/api/valio', criarRotaValioProdutos({ config: () => config, token: () => token, linkAfiliado: () => gateway }))
+  const server = app.listen(0, '127.0.0.1')
+  try {
+    await new Promise((resolve) => server.once('listening', resolve))
+    const req = async () => {
+      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/valio/produtos/link-afiliado`, {
+        method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mercado_livre_id: 'MLB1', link_afiliado: link }),
+      })
+      return response.status
+    }
+    assert.equal(await req(), 409)
+    mode = 'concorrente'; assert.equal(await req(), 409)
+    mode = 'multiplosAtualizados'; assert.equal(await req(), 409)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})

@@ -1,5 +1,6 @@
 import type { ProdutoAfiliado } from './extrairProdutosAfiliados'
 import type { CategoriaValio } from './produtosGarimpados'
+import { ehLinkOficialParaAtualizacao } from './linksAfiliados'
 
 export type ProdutoCatalogo = {
   mercadoLivreId: string; titulo: string; preco: number; dataPreco: string
@@ -124,4 +125,20 @@ export async function alterarStatusProduto(id: string, ativo: boolean, token: st
 
 export async function alterarCategoriaProduto(id: string, categoria: CategoriaValio, token: string, enviar: typeof fetch = fetch) {
   await requisitar(`/api/valio/produtos/${encodeURIComponent(id)}/categoria`, token, 'PATCH', { categoria }, enviar)
+}
+
+export type ResultadoLinkAfiliado = {
+  produto: string; mercado_livre_id: string; link_anterior: string; link_afiliado: string
+}
+
+export async function atualizarLinkAfiliado(id: string, link: string, token: string, enviar: typeof fetch = fetch): Promise<ResultadoLinkAfiliado> {
+  if (!/^MLB\d+$/.test(id)) throw new Error('Informe um ITEM_ID no formato MLB seguido de números.')
+  if (!ehLinkOficialParaAtualizacao(link)) throw new Error('Informe um link oficial HTTPS meli.la ou /social/ com rastreamento.')
+  const resultado = await requisitar('/api/valio/produtos/link-afiliado', token, 'PATCH',
+    { mercado_livre_id: id, link_afiliado: link }, enviar)
+  if (resultado.mercado_livre_id !== id || resultado.link_afiliado !== link
+    || typeof resultado.produto !== 'string' || typeof resultado.link_anterior !== 'string') {
+    throw new Error('A API não confirmou o link salvo para este produto.')
+  }
+  return resultado as ResultadoLinkAfiliado
 }

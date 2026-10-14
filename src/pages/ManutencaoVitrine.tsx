@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import type { ProdutoAfiliado } from '../lib/extrairProdutosAfiliados'
 import { CATEGORIAS_VALIO } from '../lib/produtosGarimpados'
 import type { CategoriaValio } from '../lib/produtosGarimpados'
-import { alterarCategoriaProduto, alterarStatusProduto, analisarCatalogo, carregarCatalogo, filtrarCatalogo, resumirCatalogo } from '../lib/manutencaoVitrine'
-import type { FiltroVitrine, OrdemVitrine, ProdutoCatalogo } from '../lib/manutencaoVitrine'
+import { alterarCategoriaProduto, alterarStatusProduto, analisarCatalogo, atualizarLinkAfiliado, carregarCatalogo, filtrarCatalogo, resumirCatalogo } from '../lib/manutencaoVitrine'
+import type { FiltroVitrine, OrdemVitrine, ProdutoCatalogo, ResultadoLinkAfiliado } from '../lib/manutencaoVitrine'
 import type { EntradaPreco, ResultadoPreco } from '../lib/revisaoPrecosLote'
 import FilaRevisaoPrecos from './FilaRevisaoPrecos'
 
@@ -26,6 +26,11 @@ export default function ManutencaoVitrine({ token, lote, categorias }: Props) {
   const [paginaCatalogo, setPaginaCatalogo] = useState(1)
   const [mensagem, setMensagem] = useState('')
   const [erro, setErro] = useState('')
+  const [itemIdLink, setItemIdLink] = useState('')
+  const [linkOficial, setLinkOficial] = useState('')
+  const [salvandoLink, setSalvandoLink] = useState(false)
+  const [erroLink, setErroLink] = useState('')
+  const [resultadoLink, setResultadoLink] = useState<ResultadoLinkAfiliado | null>(null)
   const analisados = analisarCatalogo(catalogo ?? [], lote, categorias)
   const resumo = resumirCatalogo(analisados)
   const visiveis = filtrarCatalogo(analisados, filtro, ordem)
@@ -67,6 +72,18 @@ export default function ManutencaoVitrine({ token, lote, categorias }: Props) {
     finally { setOcupadoId('') }
   }
 
+  async function salvarLink(evento: React.SubmitEvent<HTMLFormElement>) {
+    evento.preventDefault()
+    setSalvandoLink(true); setErroLink(''); setResultadoLink(null)
+    try {
+      const resultado = await atualizarLinkAfiliado(itemIdLink.trim(), linkOficial.trim(), token)
+      setResultadoLink(resultado)
+      setCatalogo((atual) => atual?.map((produto) => produto.mercadoLivreId === resultado.mercado_livre_id
+        ? { ...produto, linkAfiliado: resultado.link_afiliado } : produto) ?? null)
+    } catch (falha) { setErroLink(falha instanceof Error ? falha.message : 'Não foi possível atualizar o link afiliado.') }
+    finally { setSalvandoLink(false) }
+  }
+
   function aplicarPrecos(resultados: ResultadoPreco[], entradas: EntradaPreco[]) {
     const porId = new Map(entradas.map((item) => [item.mercadoLivreId, item]))
     const exitos = new Map(resultados.filter((item) => item.status !== 'erro').map((item) => [item.mercadoLivreId, item]))
@@ -87,6 +104,25 @@ export default function ManutencaoVitrine({ token, lote, categorias }: Props) {
     {!token.trim() && <p className="extrair-aviso">Informe o token de publicação acima para consultar a vitrine.</p>}
     {erro && <p role="alert" className="extrair-erro">{erro}</p>}
     {mensagem && <p role="status" className="extrair-notificacao">{mensagem}</p>}
+    <form className="vitrine-atualizar-link" onSubmit={(evento) => void salvarLink(evento)}>
+      <h3>Atualizar link afiliado</h3>
+      <p>Atualize um produto por vez usando o link oficial gerado pelo Mercado Livre.</p>
+      <div className="vitrine-atualizar-link-campos">
+        <label>ITEM_ID<input type="text" value={itemIdLink} onChange={(evento) => setItemIdLink(evento.target.value)}
+          placeholder="MLB5348529958" required autoComplete="off" /></label>
+        <label>Link afiliado oficial<input type="url" value={linkOficial} onChange={(evento) => setLinkOficial(evento.target.value)}
+          placeholder="https://meli.la/..." required autoComplete="off" /></label>
+      </div>
+      <button type="submit" disabled={!token.trim() || salvandoLink}>{salvandoLink ? 'Atualizando...' : 'Atualizar link'}</button>
+      {erroLink && <p role="alert" className="extrair-erro">{erroLink}</p>}
+      {resultadoLink && <div role="status" className="vitrine-link-resultado">
+        <strong>Link afiliado atualizado.</strong>
+        <p>Produto encontrado: {resultadoLink.produto}</p>
+        <p>ITEM_ID: {resultadoLink.mercado_livre_id}</p>
+        <p>Link anterior: {resultadoLink.link_anterior}</p>
+        <p>Link novo: {resultadoLink.link_afiliado}</p>
+      </div>}
+    </form>
     {catalogo && <>
       <FilaRevisaoPrecos catalogo={catalogo} token={token} onResultados={aplicarPrecos} />
       <div className="vitrine-resumo" role="status">

@@ -89,6 +89,14 @@
 .vitrine-controles { display: flex; flex-wrap: wrap; gap: 16px; margin: 20px 0 8px; }
 .vitrine-controles label { min-width: 220px; }
 .vitrine-controles select, .vitrine-acoes select { display: block; margin-top: 7px; }
+.vitrine-atualizar-link { margin: 24px 0; padding: 20px; border: 1px solid #e9d5cc; border-radius: 12px; background: #fffaf7; }
+.vitrine-atualizar-link h3 { margin: 0 0 8px; color: #5b4037; }
+.vitrine-atualizar-link p { overflow-wrap: anywhere; }
+.vitrine-atualizar-link-campos { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(280px, 2fr); gap: 14px; }
+.vitrine-atualizar-link-campos input { display: block; box-sizing: border-box; width: 100%; margin-top: 6px; padding: 11px; border: 1px solid #bba59b; border-radius: 8px; font: inherit; }
+.vitrine-link-resultado { margin-top: 16px; padding: 14px; border-radius: 8px; background: #edf8ef; overflow-wrap: anywhere; }
+.vitrine-link-resultado p { margin: 7px 0 0; }
+@media (max-width: 620px) { .vitrine-atualizar-link-campos { grid-template-columns: 1fr; } }
 .vitrine-lista { display: grid; gap: 14px; }
 .vitrine-produto { display: grid; grid-template-columns: 100px minmax(0, 1fr) 200px; gap: 18px; padding: 16px; border: 1px solid #e9d5cc; border-radius: 12px; }
 .vitrine-produto > img { width: 100px; height: 100px; object-fit: contain; }
