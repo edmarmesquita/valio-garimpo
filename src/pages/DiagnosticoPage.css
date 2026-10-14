@@ -1,0 +1,32 @@
+/* A mesma leitura de estado da página inicial, dentro da área técnica. */
+.garimpo-shell .garimpo--diagnostico { min-height: 0; padding: 0; }
+.garimpo-shell .garimpo--diagnostico .garimpo-status { margin: 24px 0 0; }
+.garimpo-shell .garimpo--diagnostico .garimpo-secao-cabecalho h2 { font-size: 20px; }
+.garimpo-shell .garimpo-status .status-card :is(.status-ok, .status-loading, .status-error) {
+  display: inline-flex; align-items: center; min-height: 32px; padding: 5px 10px;
+  border: 1px solid currentColor; border-radius: 999px; font-size: 12px;
+}
+.garimpo-shell .garimpo-status .status-card .status-ok { background: var(--success-soft); }
+.garimpo-shell .garimpo-status .status-card .status-loading { background: var(--bg-elevated); }
+.garimpo-shell .garimpo-status .status-card .status-error { background: var(--danger-soft); }
+.garimpo-shell .metricas-vitrine { border-top: 2px solid var(--yellow-border); }
+.garimpo-shell .metricas-vitrine .extrair-resultado-cabecalho { align-items: end; }
+.garimpo-shell .metricas-vitrine .extrair-resultado-cabecalho p { color: var(--text-secondary); }
+.garimpo-shell .metricas-vitrine > label { font-size: 13px; }
+.garimpo-shell .metricas-vitrine > select { width: 100%; }
+.garimpo-shell .metricas-resumo { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+.garimpo-shell .metricas-resumo div { min-width: 0; border: 1px solid var(--border); }
+.garimpo-shell .metricas-resumo strong { font-size: 22px; line-height: 1.2; }
+.garimpo-shell .metricas-listas > div { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.garimpo-shell .metricas-listas h3 { color: var(--text-primary); font-size: 15px; }
+.garimpo-shell .metricas-listas li { color: var(--text-secondary); line-height: 1.5; }
+.garimpo-shell .metricas-listas small { color: var(--text-muted); }
+.garimpo-shell .extrair-diagnostico { border-top: 2px solid var(--yellow-border); }
+.garimpo-shell .extrair-diagnostico summary { color: var(--text-primary); cursor: pointer; font-weight: 700; }
+.garimpo-shell .extrair-diagnostico[open] summary { margin-bottom: 16px; }
+.garimpo-shell .extrair-diagnostico p { margin-top: 9px; overflow-wrap: anywhere; }
+@media (max-width: 620px) {
+  .garimpo-shell .metricas-vitrine .extrair-resultado-cabecalho { align-items: stretch; }
+  .garimpo-shell .metricas-vitrine .extrair-resultado-cabecalho button { width: 100%; }
+  .garimpo-shell .metricas-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

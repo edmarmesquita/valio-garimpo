@@ -17,6 +17,8 @@ export default function LinksAfiliadosPanel({ token, onLinksAtualizados }: Props
   const [erroLote, setErroLote] = useState('')
   const [carregandoPrevia, setCarregandoPrevia] = useState(false)
   const [confirmandoLote, setConfirmandoLote] = useState(false)
+  const linhasProntas = previaLote?.linhas.filter((item) => !item.motivo).length ?? 0
+  const linhasComErro = previaLote?.linhas.filter((item) => item.motivo).length ?? 0
 
   async function salvarLink(evento: React.SubmitEvent<HTMLFormElement>) {
     evento.preventDefault()
@@ -56,8 +58,8 @@ export default function LinksAfiliadosPanel({ token, onLinksAtualizados }: Props
 
   return <>
     <form className="vitrine-atualizar-link" onSubmit={(evento) => void salvarLink(evento)}>
-      <h3>Atualizar link afiliado</h3>
-      <p>Atualize um produto por vez usando o link oficial gerado pelo Mercado Livre.</p>
+      <div className="vitrine-links-cabecalho"><span className="vitrine-links-etapa">01 · INDIVIDUAL</span><h3>Atualizar link afiliado</h3>
+        <p>Atualize um produto por vez usando o link oficial gerado pelo Mercado Livre.</p></div>
       <div className="vitrine-atualizar-link-campos">
         <label>ITEM_ID<input type="text" value={itemIdLink} onChange={(evento) => setItemIdLink(evento.target.value)}
           placeholder="MLB5348529958" required autoComplete="off" /></label>
@@ -75,14 +77,14 @@ export default function LinksAfiliadosPanel({ token, onLinksAtualizados }: Props
       </div>}
     </form>
     <section className="vitrine-lote-links" aria-labelledby="vitrine-lote-links-titulo">
-      <h3 id="vitrine-lote-links-titulo">Atualizar links afiliados em lote</h3>
-      <p>Até 20 produtos por vez. Uma linha por produto: <code>MLB5348529958 | https://meli.la/...</code></p>
+      <div className="vitrine-links-cabecalho"><span className="vitrine-links-etapa">02 · EM LOTE</span><h3 id="vitrine-lote-links-titulo">Atualizar links afiliados em lote</h3>
+        <p>Até 20 produtos por vez. Uma linha por produto:</p><code className="vitrine-lote-instrucao">MLB5348529958 | https://meli.la/...</code></div>
       <label htmlFor="vitrine-lote-links-texto">ITEM_ID | Link afiliado oficial</label>
       <textarea id="vitrine-lote-links-texto" value={textoLote} disabled={carregandoPrevia || confirmandoLote}
         onChange={(evento) => { setTextoLote(evento.target.value); setPreviaLote(null); setResultadoLote(null); setErroLote('') }}
         placeholder={'MLB5348529958 | https://meli.la/...\nMLB6234029308 | https://meli.la/...'} spellCheck={false} />
       <div className="vitrine-lote-links-acoes">
-        <button type="button" disabled={!token.trim() || !textoLote.trim() || carregandoPrevia || confirmandoLote}
+        <button type="button" className="extrair-secundario" disabled={!token.trim() || !textoLote.trim() || carregandoPrevia || confirmandoLote}
           onClick={() => void prepararLote()}>{carregandoPrevia ? 'Consultando...' : 'Ver prévia'}</button>
         {previaLote && <button type="button" className="extrair-secundario" disabled={confirmandoLote}
           onClick={() => { setPreviaLote(null); setErroLote('') }}>Cancelar prévia</button>}
@@ -90,14 +92,14 @@ export default function LinksAfiliadosPanel({ token, onLinksAtualizados }: Props
       {erroLote && <p role="alert" className="extrair-erro">{erroLote}</p>}
       {previaLote && <div className="vitrine-lote-previa">
         <h4>Prévia — nenhuma alteração feita</h4>
-        <p>{previaLote.solicitadas} linha(s) solicitada(s); {previaLote.linhas.filter((item) => !item.motivo).length} pronta(s) para atualizar.</p>
+        <div className="vitrine-lote-contadores" role="status"><span><strong>{previaLote.solicitadas}</strong>Solicitados</span><span><strong>{linhasProntas}</strong>Prontos</span><span><strong>{linhasComErro}</strong>Erros</span></div>
         <div className="vitrine-lote-tabela"><table><thead><tr><th>Linha / ITEM_ID</th><th>Produto</th><th>Link atual</th><th>Link novo</th><th>Situação</th></tr></thead>
-          <tbody>{previaLote.linhas.map((item) => <tr key={item.linha}>
+          <tbody>{previaLote.linhas.map((item) => <tr key={item.linha} className={item.motivo ? 'vitrine-lote-linha-erro' : undefined}>
             <td>{item.linha} · {item.mercado_livre_id ?? 'Inválido'}</td><td>{item.titulo ?? '—'}</td>
-            <td>{item.link_anterior ?? '—'}</td><td>{item.link_novo ?? '—'}</td><td>{item.motivo ?? 'Pronto'}</td>
+            <td>{item.link_anterior ?? '—'}</td><td>{item.link_novo ?? '—'}</td><td><span className={item.motivo ? 'vitrine-lote-status vitrine-lote-status--erro' : 'vitrine-lote-status vitrine-lote-status--pronto'}>{item.motivo ?? 'Pronto'}</span></td>
           </tr>)}</tbody></table></div>
-        <button type="button" disabled={confirmandoLote || !previaLote.linhas.some((item) => !item.motivo)}
-          onClick={() => void aplicarLote()}>{confirmandoLote ? 'Atualizando...' : `Confirmar atualização de ${previaLote.linhas.filter((item) => !item.motivo).length} link(s)`}</button>
+        <button type="button" className="vitrine-lote-confirmar" disabled={confirmandoLote || !linhasProntas}
+          onClick={() => void aplicarLote()}>{confirmandoLote ? 'Atualizando...' : `Confirmar atualização de ${linhasProntas} link(s)`}</button>
       </div>}
       {resultadoLote && <div role="status" className="vitrine-link-resultado">
         <strong>Resultado da atualização em lote</strong>

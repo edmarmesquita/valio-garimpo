@@ -1,19 +1,46 @@
-.vitrine-atualizar-link { margin: 24px 0; padding: 20px; border: 1px solid #e9d5cc; border-radius: 12px; background: #fffaf7; }
-.vitrine-atualizar-link h3 { margin: 0 0 8px; color: #5b4037; }
-.vitrine-atualizar-link p { overflow-wrap: anywhere; }
-.vitrine-atualizar-link-campos { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(280px, 2fr); gap: 14px; }
-.vitrine-atualizar-link-campos input { display: block; box-sizing: border-box; width: 100%; margin-top: 6px; padding: 11px; border: 1px solid #bba59b; border-radius: 8px; font: inherit; }
-.vitrine-link-resultado { margin-top: 16px; padding: 14px; border-radius: 8px; background: #edf8ef; overflow-wrap: anywhere; }
-.vitrine-link-resultado p { margin: 7px 0 0; }
-.vitrine-lote-links { margin: 24px 0; padding: 20px; border: 1px solid #e9d5cc; border-radius: 12px; background: #fffaf7; }
-.vitrine-lote-links h3 { margin: 0 0 8px; color: #5b4037; }
-.vitrine-lote-links > p { overflow-wrap: anywhere; }
-.vitrine-lote-links textarea { min-height: 140px; margin-top: 6px; }
-.vitrine-lote-links-acoes { display: flex; flex-wrap: wrap; gap: 10px; }
-.vitrine-lote-links-acoes button { margin-top: 12px; }
-.vitrine-lote-previa { margin-top: 20px; }
-.vitrine-lote-tabela { overflow-x: auto; }
-.vitrine-lote-tabela table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.vitrine-lote-tabela th, .vitrine-lote-tabela td { padding: 9px; border-bottom: 1px solid #e9d5cc; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
-.vitrine-lote-tabela th { min-width: 110px; }
-@media (max-width: 620px) { .vitrine-atualizar-link-campos { grid-template-columns: 1fr; } }
+.links-afiliados-layout { display: grid; gap: 20px; margin-top: 24px; }
+.vitrine-atualizar-link, .vitrine-lote-links { min-width: 0; margin: 0; padding: 26px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-card); box-shadow: var(--shadow-card); }
+.garimpo-shell .links-afiliados-layout :is(.vitrine-atualizar-link, .vitrine-lote-links) { background: var(--bg-card); }
+.vitrine-links-cabecalho { margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid var(--border); }
+.vitrine-links-etapa { display: block; margin-bottom: 7px; color: var(--yellow-primary); font-size: 10px; font-weight: 750; letter-spacing: .13em; }
+.vitrine-links-cabecalho h3 { margin: 0 0 6px; color: var(--text-primary); font-size: 19px; font-weight: 710; letter-spacing: -.02em; }
+.vitrine-links-cabecalho p { color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.vitrine-atualizar-link-campos { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(280px, 2fr); gap: 16px; }
+.vitrine-atualizar-link-campos label, .vitrine-lote-links > label { display: block; color: var(--text-secondary); font-size: 12px; font-weight: 680; }
+.vitrine-atualizar-link-campos input { display: block; width: 100%; margin-top: 8px; padding: 11px 13px; }
+.vitrine-atualizar-link > button { min-width: 160px; margin-top: 20px; }
+.vitrine-atualizar-link p, .vitrine-lote-links p { overflow-wrap: anywhere; }
+.vitrine-link-resultado { margin-top: 20px; padding: 16px 18px; border: 1px solid rgba(117, 214, 165, .28); border-radius: var(--radius-sm); background: var(--success-soft); color: var(--text-primary); overflow-wrap: anywhere; }
+.vitrine-link-resultado strong { color: var(--success); }
+.vitrine-link-resultado p { margin: 7px 0 0; color: var(--text-secondary); font-size: 13px; }
+.vitrine-link-resultado ul { margin: 12px 0 0; padding-left: 20px; color: var(--danger); font-size: 13px; }
+.vitrine-link-resultado li + li { margin-top: 5px; }
+.vitrine-lote-instrucao { display: inline-block; max-width: 100%; margin-top: 10px; padding: 8px 11px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-elevated); color: var(--text-primary); font-size: 12px; overflow-wrap: anywhere; }
+.vitrine-lote-links textarea { display: block; width: 100%; min-height: 210px; margin-top: 8px; padding: 14px; resize: vertical; font-family: var(--font-mono); font-size: 13px; line-height: 1.55; }
+.vitrine-lote-links-acoes { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+.vitrine-lote-links-acoes button { margin: 0; }
+.vitrine-lote-previa { min-width: 0; margin-top: 24px; padding: 20px; border: 1px solid var(--yellow-border); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.vitrine-lote-previa h4 { margin: 0 0 16px; color: var(--text-primary); font-size: 16px; }
+.vitrine-lote-contadores { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.vitrine-lote-contadores span { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 11px 13px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-secondary); font-size: 11px; }
+.vitrine-lote-contadores strong { color: var(--text-primary); font-size: 20px; font-variant-numeric: tabular-nums; line-height: 1; }
+.vitrine-lote-contadores span:last-child strong { color: var(--danger); }
+.vitrine-lote-tabela { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; }
+.vitrine-lote-tabela table { min-width: 780px; width: 100%; border-collapse: collapse; font-size: 12px; }
+.vitrine-lote-tabela th, .vitrine-lote-tabela td { padding: 12px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.vitrine-lote-tabela th { min-width: 100px; background: var(--bg-card); color: var(--text-primary); white-space: nowrap; }
+.garimpo-shell .vitrine-lote-tabela th { background: var(--bg-card); }
+.vitrine-lote-tabela tbody tr:last-child td { border-bottom: 0; }
+.vitrine-lote-tabela .vitrine-lote-linha-erro { background: var(--danger-soft); }
+.vitrine-lote-status { display: inline-block; padding: 4px 7px; border-radius: 6px; font-size: 11px; font-weight: 700; line-height: 1.3; }
+.vitrine-lote-status--pronto { background: var(--success-soft); color: var(--success); }
+.vitrine-lote-status--erro { background: var(--danger-soft); color: var(--danger); }
+.garimpo-shell .vitrine-lote-previa .vitrine-lote-confirmar { min-width: min(100%, 290px); margin-top: 18px; padding-inline: 18px; border-color: var(--yellow-primary); background: var(--yellow-primary); color: var(--text-on-yellow); }
+.garimpo-shell .vitrine-lote-previa .vitrine-lote-confirmar:hover:not(:disabled) { border-color: var(--yellow-hover); background: var(--yellow-hover); }
+@media (max-width: 720px) {
+  .vitrine-atualizar-link, .vitrine-lote-links { padding: 18px; }
+  .vitrine-atualizar-link-campos { grid-template-columns: 1fr; }
+  .vitrine-atualizar-link > button, .vitrine-lote-links-acoes button { width: 100%; }
+  .vitrine-lote-previa { padding: 14px; }
+}
+@media (max-width: 440px) { .vitrine-lote-contadores { gap: 6px; } .vitrine-lote-contadores span { padding: 9px; } }

@@ -85,7 +85,7 @@ export default function ImportacaoProdutosPanel({ visivel, produtos, selecionado
 
   if (!visivel) return null
   return <>
-    <section className="extrair-card" aria-labelledby="entrada-titulo">
+    <section className="extrair-card extrair-entrada-json" aria-labelledby="entrada-titulo">
       <h2 id="entrada-titulo">JSON bruto</h2>
       <label htmlFor="json-afiliados">Cole a resposta JSON</label>
       <textarea id="json-afiliados" value={entrada} onChange={(e) => { setEntrada(e.target.value); onLimparJson() }} rows={9} spellCheck={false} placeholder='{"results": [...]}' />
@@ -110,7 +110,7 @@ export default function ImportacaoProdutosPanel({ visivel, produtos, selecionado
     {erro && <p role="alert" className="extrair-erro">{erro}</p>}
     {produtos && <>
       {resumo}
-      <section className="extrair-card" aria-labelledby="resultado-titulo">
+      <section className="extrair-card extrair-preparacao" aria-labelledby="resultado-titulo">
         <div className="extrair-resultado-cabecalho"><div><h2 id="resultado-titulo">Produtos encontrados</h2><p>{selecionados.size} de {produtos.length} produtos selecionados</p></div>
           <div className="extrair-acoes"><button type="button" disabled={!produtos.length || origemHtml && totalCadastrados > 0} onClick={() => onSelecionarTodos(produtos.length)}>Selecionar todos</button><button type="button" className="extrair-secundario" disabled={!selecionados.size} onClick={onDesmarcarTodos}>Desmarcar todos</button></div>
         </div>

@@ -37,3 +37,39 @@
 .extrair-afiliados .extrair-detalhes summary { color: #5b4037; }
 @media (max-width: 900px) { .extrair-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .extrair-controles { grid-template-columns: 1fr; } .extrair-grid { grid-template-columns: 1fr; } .extrair-acoes { width: 100%; } .extrair-acoes button { flex: 1; } }
+
+/* Importação e preparação, sobre as superfícies do design system. */
+.garimpo-shell .extrair-entrada-json,
+.garimpo-shell .extrair-html-entrada { position: relative; padding-top: 27px; }
+.garimpo-shell .extrair-entrada-json::before,
+.garimpo-shell .extrair-html-entrada::before,
+.garimpo-shell .extrair-preparacao::before {
+  display: block; margin-bottom: 8px; color: var(--yellow-primary);
+  font-size: 11px; font-weight: 750; letter-spacing: .14em;
+}
+.garimpo-shell .extrair-entrada-json::before { content: 'ENTRADA JSON'; }
+.garimpo-shell .extrair-html-entrada::before { content: 'ENTRADA HTML'; }
+.garimpo-shell .extrair-preparacao::before { content: 'PREPARAÇÃO E SELEÇÃO'; }
+.garimpo-shell :is(.extrair-entrada-json, .extrair-html-entrada) textarea { min-height: 190px; margin-bottom: 14px; }
+.garimpo-shell :is(.extrair-entrada-json, .extrair-html-entrada) > button { margin: 0 0 14px; }
+.garimpo-shell :is(.extrair-entrada-json, .extrair-html-entrada) > p { max-width: 76ch; line-height: 1.55; }
+.garimpo-shell .extrair-html-entrada input { max-width: 100%; }
+.garimpo-shell .extrair-preparacao { border-top: 2px solid var(--yellow-border); }
+.garimpo-shell .extrair-controles { border-radius: var(--radius-sm); }
+.garimpo-shell .extrair-produto { display: flex; flex-direction: column; }
+.garimpo-shell .extrair-selecao { min-height: 48px; border-bottom: 1px solid var(--border); color: var(--text-secondary); font-size: 13px; font-weight: 700; cursor: pointer; }
+.garimpo-shell .extrair-produto.extrair-selecionado .extrair-selecao { background: var(--yellow-soft); color: var(--yellow-primary); }
+.garimpo-shell .extrair-produto-conteudo { display: flex; flex: 1; flex-direction: column; gap: 4px; }
+.garimpo-shell .extrair-produto h3 { margin: 8px 0 2px; min-height: 2.7em; }
+.garimpo-shell .extrair-id { margin-top: 0; font-family: var(--font-mono); font-size: 11px; }
+.garimpo-shell .extrair-preco { margin: 12px 0 4px; }
+.garimpo-shell .extrair-preco strong { color: var(--yellow-primary); font-size: 24px; letter-spacing: -.02em; }
+.garimpo-shell .extrair-link-oficial { margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border); }
+.garimpo-shell .extrair-categoria { padding-top: 12px; border-top: 1px solid var(--border); }
+.garimpo-shell .extrair-detalhes summary { color: var(--text-secondary); }
+@media (max-width: 620px) {
+  .garimpo-shell :is(.extrair-entrada-json, .extrair-html-entrada) > button { width: 100%; }
+  .garimpo-shell .extrair-resultado-cabecalho { align-items: stretch; }
+  .garimpo-shell .extrair-acoes { flex-direction: column; }
+  .garimpo-shell .extrair-acoes button { width: 100%; }
+}

@@ -1,0 +1,10 @@
+.garimpo-shell .precos-acesso { border-top: 2px solid var(--yellow-border); }
+.garimpo-shell .precos-acesso::before {
+  content: 'CATÁLOGO'; display: block; margin-bottom: 12px;
+  color: var(--yellow-primary); font-size: 11px; font-weight: 750; letter-spacing: .14em;
+}
+.garimpo-shell .precos-acesso > button { margin-top: 0; }
+.garimpo-shell .precos-acesso > .fila-revisao { margin-top: 20px; }
+@media (max-width: 620px) {
+  .garimpo-shell .precos-acesso > button { width: 100%; }
+}

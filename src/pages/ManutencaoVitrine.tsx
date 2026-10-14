@@ -4,6 +4,7 @@ import { CATEGORIAS_VALIO } from '../lib/produtosGarimpados'
 import type { CategoriaValio } from '../lib/produtosGarimpados'
 import { alterarCategoriaProduto, alterarStatusProduto, analisarCatalogo, carregarCatalogo, filtrarCatalogo, resumirCatalogo } from '../lib/manutencaoVitrine'
 import type { FiltroVitrine, OrdemVitrine, ProdutoCatalogo } from '../lib/manutencaoVitrine'
+import './ManutencaoVitrine.css'
 
 const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
 const dataAtualizacao = (valor: string) => {
@@ -81,7 +82,7 @@ export default function ManutencaoVitrine({ token, lote, categorias }: Props) {
         <div><strong>{resumo.precisamRevisao}</strong><span>Precisam revisão</span></div>
         <div><strong>{resumo.precosAlterados}</strong><span>Preço alterado detectado</span></div>
       </div>
-      <div className="vitrine-controles">
+      <section className="vitrine-filtros" aria-label="Filtros do catálogo"><h3>Filtros e ordenação</h3><div className="vitrine-controles">
         <label>Mostrar<select aria-label="Filtrar vitrine" value={filtro} onChange={(evento) => { setFiltro(evento.target.value as FiltroVitrine); setPaginaCatalogo(1) }}>
           <option value="todos">Todos</option><option value="ativos">Ativos</option><option value="inativos">Inativos</option>
           <option value="atualizados">Atualizados</option><option value="revisar-breve">Revisar em breve</option>
@@ -91,8 +92,8 @@ export default function ManutencaoVitrine({ token, lote, categorias }: Props) {
           <option value="antigos">Mais antigos primeiro</option><option value="recentes">Mais recentes primeiro</option>
           <option value="menor-preco">Menor preço</option><option value="maior-preco">Maior preço</option><option value="categoria">Categoria</option>
         </select></label>
-      </div>
-      <p className="extrair-contagem">{visiveis.length} de {catalogo.length} produtos exibidos.</p>
+      </div></section>
+      <div className="vitrine-lista-cabecalho"><h3>Catálogo</h3><p className="extrair-contagem">{visiveis.length} de {catalogo.length} produtos exibidos.</p></div>
       {visiveis.length === 0 && <p>Nenhum produto corresponde ao filtro.</p>}
       <div className="vitrine-lista">{exibidos.map(({ produto, idade, encontrado, precoAlterado, camposAlterados }) => {
         const indice = lote?.findIndex((item) => item.itemId === produto.mercadoLivreId) ?? -1
@@ -100,7 +101,7 @@ export default function ManutencaoVitrine({ token, lote, categorias }: Props) {
         const categoriaRascunho = rascunhos.get(produto.mercadoLivreId) ?? produto.categoria
         return <article key={produto.mercadoLivreId} className="vitrine-produto">
           <img src={produto.imagem} alt={produto.titulo} loading="lazy" />
-          <div className="vitrine-dados"><div className="vitrine-badges"><span>{produto.ativo ? 'Ativo' : 'Inativo'}</span><span>{idade}</span>
+          <div className="vitrine-dados"><div className="vitrine-badges"><span className={produto.ativo ? 'badge--ativo' : 'badge--inativo'}>{produto.ativo ? 'Ativo' : 'Inativo'}</span><span>{idade}</span>
             {precoAlterado && <span>Preço alterado</span>}{camposAlterados.length > 0 && <span>Outros dados alterados</span>}
           </div><h3>{produto.titulo}</h3><p className="extrair-id">ITEM_ID: {produto.mercadoLivreId}</p>
             <p><strong>{moeda(produto.preco)}</strong> · Preço de {produto.dataPreco}</p>
@@ -129,7 +130,7 @@ export default function ManutencaoVitrine({ token, lote, categorias }: Props) {
           </div>
         </article>
       })}</div>
-      {visiveis.length > 40 && <div className="fila-paginas"><button type="button" className="extrair-secundario" disabled={paginaAtual === 1} onClick={() => setPaginaCatalogo(paginaAtual - 1)}>Anterior</button>
+      {visiveis.length > 40 && <div className="fila-paginas vitrine-paginacao"><button type="button" className="extrair-secundario" disabled={paginaAtual === 1} onClick={() => setPaginaCatalogo(paginaAtual - 1)}>Anterior</button>
         <span>Página {paginaAtual} de {Math.ceil(visiveis.length / 40)}</span>
         <button type="button" className="extrair-secundario" disabled={paginaAtual * 40 >= visiveis.length} onClick={() => setPaginaCatalogo(paginaAtual + 1)}>Próxima</button></div>}
       {lote && <p className="extrair-aviso">A ausência de um produto neste lote é apenas informativa. Para aplicar dados extraídos a produtos existentes, selecione-os acima e use “Atualizar existentes”.</p>}

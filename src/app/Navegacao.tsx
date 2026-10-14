@@ -11,10 +11,17 @@ const destinos = [
 
 export default function Navegacao({ caminho, navegar }: { caminho: string; navegar: (destino: string) => void }) {
   return <nav className="garimpo-navegacao" aria-label="Áreas do Garimpo">
-    {destinos.map(([destino, nome]) => <a key={destino} href={destino} aria-current={caminho === destino ? 'page' : undefined}
-      onClick={(evento) => {
-        if (evento.button !== 0 || evento.metaKey || evento.ctrlKey || evento.shiftKey || evento.altKey) return
-        evento.preventDefault(); navegar(destino)
-      }}>{nome}</a>)}
+    <div className="garimpo-navegacao__marca" aria-label="Valiô Garimpo">
+      <span className="garimpo-navegacao__simbolo" aria-hidden="true">G</span>
+      <span><strong>Valiô Garimpo</strong><small>Painel administrativo</small></span>
+    </div>
+    <p className="garimpo-navegacao__rotulo">ÁREAS DE TRABALHO</p>
+    <div className="garimpo-navegacao__links">
+      {destinos.map(([destino, nome]) => <a key={destino} href={destino} aria-current={caminho === destino ? 'page' : undefined}
+        onClick={(evento) => {
+          if (evento.button !== 0 || evento.metaKey || evento.ctrlKey || evento.shiftKey || evento.altKey) return
+          evento.preventDefault(); navegar(destino)
+        }}>{nome}</a>)}
+    </div>
   </nav>
 }

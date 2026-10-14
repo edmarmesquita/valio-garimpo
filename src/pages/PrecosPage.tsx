@@ -5,6 +5,7 @@ import { carregarCatalogo } from '../lib/manutencaoVitrine'
 import type { ProdutoCatalogo } from '../lib/manutencaoVitrine'
 import type { EntradaPreco, ResultadoPreco } from '../lib/revisaoPrecosLote'
 import FilaRevisaoPrecos from './FilaRevisaoPrecos'
+import './PrecosPage.css'
 
 export default function PrecosPage() {
   const { token } = useSessaoOperacional()
@@ -32,7 +33,7 @@ export default function PrecosPage() {
   }
 
   return <AreaOperacional titulo="Preços" descricao="Revise preços do catálogo com os JSONs da Central de Afiliados.">
-    <section className="extrair-card" aria-label="Revisão de preços">
+    <section className="extrair-card precos-acesso" aria-label="Revisão de preços">
       <button type="button" disabled={!token.trim() || carregando} onClick={() => void carregar()}>
         {carregando ? 'Carregando...' : 'Carregar catálogo'}
       </button>

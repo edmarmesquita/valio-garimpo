@@ -7,7 +7,6 @@
   color-scheme: light;
 }
 
-.importar-produtos * { box-sizing: border-box; }
 .importar-produtos header { margin: 28px 0; }
 .importar-produtos h1 { margin: 8px 0 16px; font-size: clamp(30px, 5vw, 44px); line-height: 1.15; color: #5b4037; }
 .importar-produtos h2 { color: #5b4037; margin-bottom: 16px; }

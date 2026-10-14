@@ -21,3 +21,27 @@
 .extrair-afiliados .extrair-publicacao h3 { color: #5b4037; }
 @media (max-width: 900px) { .extrair-resumo { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 620px) { .extrair-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Resumo e envio com hierarquia própria dentro do fluxo de importação. */
+.garimpo-shell [aria-labelledby="resumo-titulo"] { border-top: 2px solid var(--yellow-border); }
+.garimpo-shell [aria-labelledby="resumo-titulo"]::before,
+.garimpo-shell [aria-labelledby="exportar-titulo"]::before {
+  display: block; margin-bottom: 8px; color: var(--yellow-primary);
+  font-size: 11px; font-weight: 750; letter-spacing: .14em;
+}
+.garimpo-shell [aria-labelledby="resumo-titulo"]::before { content: 'VISÃO DO LOTE'; }
+.garimpo-shell [aria-labelledby="exportar-titulo"]::before { content: 'PUBLICAÇÃO'; }
+.garimpo-shell .extrair-resumo { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.garimpo-shell .extrair-resumo div { min-width: 0; border: 1px solid var(--border); }
+.garimpo-shell .extrair-resumo strong { font-size: 23px; line-height: 1.2; overflow-wrap: anywhere; }
+.garimpo-shell [aria-labelledby="exportar-titulo"] { border-top: 2px solid var(--yellow-primary); }
+.garimpo-shell .extrair-publicacao { padding-top: 22px; border-color: var(--border); }
+.garimpo-shell .extrair-acoes-publicacao { align-items: center; margin-top: 12px; }
+.garimpo-shell .extrair-acoes-publicacao button:first-child { min-height: 48px; padding-inline: 22px; }
+.garimpo-shell .extrair-resumo-envio { line-height: 1.55; }
+.garimpo-shell .extrair-resumo-envio ul { color: var(--danger); }
+@media (max-width: 620px) {
+  .garimpo-shell .extrair-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .garimpo-shell .extrair-acoes-publicacao { flex-direction: column; align-items: stretch; }
+  .garimpo-shell .extrair-acoes-publicacao button { width: 100%; }
+}

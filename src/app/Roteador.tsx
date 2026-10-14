@@ -43,6 +43,17 @@ export default function Roteador() {
         : caminho === '/links-afiliados' ? <LinksAfiliadosPage />
           : caminho === '/precos' ? <PrecosPage />
             : caminho === '/diagnostico' ? <DiagnosticoPage /> : <App />
-  return <><Navegacao caminho={caminho} navegar={navegar} />
-    <ExtrairAfiliados visivel={caminho === '/extrair-afiliados'} />{pagina}</>
+  const areaAtual = caminho === '/importar-produtos' ? 'Importar produtos'
+    : caminho === '/extrair-afiliados' ? 'Importação / Publicação'
+      : caminho === '/manutencao' ? 'Manutenção'
+        : caminho === '/links-afiliados' ? 'Links afiliados'
+          : caminho === '/precos' ? 'Preços'
+            : caminho === '/diagnostico' ? 'Diagnóstico' : 'Início'
+  return <div className="garimpo-shell">
+    <Navegacao caminho={caminho} navegar={navegar} />
+    <div className="garimpo-shell__conteudo">
+      <div className="garimpo-topo"><span>Painel administrativo</span><span className="garimpo-topo__area">{areaAtual}</span></div>
+      <ExtrairAfiliados visivel={caminho === '/extrair-afiliados'} />{pagina}
+    </div>
+  </div>
 }

@@ -1,0 +1,95 @@
+/* Base visual compartilhada. As telas internas mantêm sua composição nesta fase. */
+.garimpo-shell { background: var(--bg-main); color: var(--text-primary); }
+.garimpo-shell :is(h1, h2, h3, h4) { color: var(--text-primary); }
+.garimpo-shell .extrair-afiliados header h1,
+.garimpo-shell .extrair-afiliados .extrair-card h2 { color: var(--text-primary); }
+.garimpo-shell :is(.extrair-afiliados, .importar-produtos) {
+  width: 100%; max-width: var(--content-max); margin: 0 auto;
+  padding: 28px var(--space-page) 72px; background: transparent; color: var(--text-primary);
+  text-align: left; color-scheme: dark;
+}
+.garimpo-shell :is(.extrair-afiliados, .importar-produtos) > header { margin: 4px 0 28px; }
+.garimpo-shell :is(.extrair-afiliados, .importar-produtos) > header h1 { margin: 6px 0 8px; font-size: clamp(28px, 3vw, 38px); font-weight: 720; letter-spacing: -.035em; line-height: 1.15; }
+.garimpo-shell :is(.extrair-afiliados, .importar-produtos) > header p:last-child { max-width: 70ch; color: var(--text-secondary); }
+.garimpo-shell :is(.extrair-marca, .importar-marca) { color: var(--yellow-primary); letter-spacing: .12em; }
+.garimpo-shell :is(.extrair-afiliados, .importar-produtos) a { color: var(--yellow-primary); }
+.garimpo-shell :is(.extrair-afiliados, .importar-produtos) a:hover { color: var(--yellow-hover); }
+
+/* Cards, painéis e superfícies elevadas */
+.garimpo-shell :is(.extrair-card, .importar-card, .status-card) {
+  border: 1px solid var(--border); border-radius: var(--radius-card);
+  background: var(--bg-card); color: var(--text-primary); box-shadow: var(--shadow-card);
+}
+.garimpo-shell :is(.fila-revisao, .vitrine-atualizar-link, .vitrine-lote-links, .extrair-controles) { border: 1px solid var(--border); background: var(--bg-elevated); color: var(--text-primary); }
+.garimpo-shell :is(.fila-revisao, .vitrine-atualizar-link, .vitrine-lote-links) h3 { color: var(--text-primary); }
+.garimpo-shell :is(.extrair-produto, .vitrine-produto, .fila-item) { border-color: var(--border); background: var(--bg-elevated); color: var(--text-primary); }
+.garimpo-shell .extrair-produto.extrair-selecionado { border-color: var(--yellow-primary); box-shadow: 0 0 0 2px var(--yellow-soft); }
+.garimpo-shell .extrair-imagem { background: var(--bg-input); color: var(--text-muted); }
+.garimpo-shell :is(.extrair-card pre, .vitrine-confirmacao, .status-info, .extrair-alteracao) { background: var(--bg-elevated); color: var(--text-secondary); }
+.garimpo-shell :is(.vitrine-resumo div, .metricas-resumo div, .extrair-resumo div) { background: var(--bg-elevated); color: var(--text-primary); }
+.garimpo-shell :is(.vitrine-resumo span, .metricas-resumo span, .extrair-resumo span, .vitrine-dados p) { color: var(--text-secondary); }
+.garimpo-shell :is(.vitrine-resumo strong, .metricas-resumo strong, .extrair-resumo strong, .status-info strong, .metricas-listas h3) { color: var(--text-primary); }
+
+/* Controles de formulário */
+.garimpo-shell :is(input:not([type="checkbox"]), textarea, select) {
+  min-height: 44px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-input); color: var(--text-primary);
+}
+.garimpo-shell :is(input, textarea)::placeholder { color: var(--text-muted); opacity: 1; }
+.garimpo-shell :is(input, textarea, select):hover { border-color: #5a606b; }
+.garimpo-shell :is(input, textarea, select):focus-visible { border-color: var(--yellow-primary); outline: 2px solid var(--yellow-primary); outline-offset: 2px; }
+.garimpo-shell :is(input, textarea, select):disabled { cursor: not-allowed; opacity: .56; }
+.garimpo-shell :is(input[type="checkbox"], input[type="radio"]) { accent-color: var(--yellow-primary); }
+.garimpo-shell :is(.extrair-card textarea, .importar-card textarea, .extrair-afiliados select, .extrair-afiliados input[type="number"], .extrair-acesso input[type="password"], .extrair-publicacao input[type="password"], .extrair-html-entrada input, .extrair-link-oficial input, .vitrine-atualizar-link-campos input) { border-color: var(--border); background: var(--bg-input); color: var(--text-primary); }
+.garimpo-shell :is(.extrair-card textarea, .importar-card textarea) { font-family: var(--font-mono); }
+
+/* Ações: primária, secundária, perigo e ghost */
+.garimpo-shell button, .garimpo-shell .garimpo-link {
+  min-height: 44px; border: 1px solid var(--yellow-primary); border-radius: var(--radius-sm);
+  background: var(--yellow-primary); color: var(--text-on-yellow);
+  font: inherit; font-size: 14px; font-weight: 720; line-height: 1.25;
+  cursor: pointer; transition: background .16s ease, border-color .16s ease, color .16s ease;
+}
+.garimpo-shell button:hover:not(:disabled), .garimpo-shell .garimpo-link:hover { border-color: var(--yellow-hover); background: var(--yellow-hover); color: var(--text-on-yellow); }
+.garimpo-shell :is(button.extrair-secundario, button.botao-secundario) { border-color: var(--border); background: var(--bg-elevated); color: var(--text-primary); }
+.garimpo-shell :is(button.extrair-secundario, button.botao-secundario):hover:not(:disabled) { border-color: var(--yellow-border); background: #30343b; color: var(--text-primary); }
+.garimpo-shell button.botao-perigo { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+.garimpo-shell button.botao-perigo:hover:not(:disabled) { background: rgba(255, 144, 150, .2); color: var(--danger); }
+.garimpo-shell button.botao-ghost { border-color: transparent; background: transparent; color: var(--text-secondary); }
+.garimpo-shell button.botao-ghost:hover:not(:disabled) { border-color: var(--border); background: var(--bg-elevated); color: var(--text-primary); }
+.garimpo-shell button:disabled { cursor: not-allowed; opacity: .5; }
+.garimpo-shell button:disabled:hover { border-color: var(--yellow-primary); background: var(--yellow-primary); color: var(--text-on-yellow); }
+.garimpo-shell button.extrair-secundario:disabled:hover { border-color: var(--border); background: var(--bg-elevated); color: var(--text-primary); }
+.garimpo-shell :is(button, a, summary):focus-visible { outline: 2px solid var(--yellow-primary); outline-offset: 3px; }
+
+/* Tabelas e indicadores de estado */
+.garimpo-shell table { width: 100%; border-collapse: separate; border-spacing: 0; color: var(--text-secondary); }
+.garimpo-shell th { background: var(--bg-elevated); color: var(--text-primary); font-weight: 700; }
+.garimpo-shell :is(th, td) { border-bottom: 1px solid var(--border); }
+.garimpo-shell tbody tr:hover { background: rgba(255, 255, 255, .025); }
+.garimpo-shell :is(.vitrine-lote-tabela, .importar-tabela) { max-width: 100%; overflow-x: auto; }
+.garimpo-shell :is(.extrair-badges span, .vitrine-badges span, .extrair-estado, .fila-contadores span) { border: 1px solid var(--yellow-border); background: var(--yellow-soft); color: var(--yellow-primary); }
+.garimpo-shell .extrair-estado.extrair-novo { border-color: rgba(117, 214, 165, .3); background: var(--success-soft); color: var(--success); }
+.garimpo-shell .extrair-estado.extrair-existente { background: var(--warning-soft); color: var(--warning); }
+.garimpo-shell .vitrine-badges .badge--ativo { border-color: rgba(117, 214, 165, .3); background: var(--success-soft); color: var(--success); }
+.garimpo-shell .vitrine-badges .badge--inativo { border-color: var(--border); background: var(--bg-card); color: var(--text-muted); }
+.badge { display: inline-flex; align-items: center; min-height: 26px; padding: 3px 9px; border: 1px solid currentColor; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.badge--ativo, .badge--sucesso, .badge--publicado { color: var(--success); background: var(--success-soft); }
+.badge--inativo, .badge--pendente { color: var(--text-muted); background: var(--bg-elevated); }
+.badge--erro, .badge--nao-publicado { color: var(--danger); background: var(--danger-soft); }
+.badge--aviso { color: var(--warning); background: var(--warning-soft); }
+
+/* Mensagens e leitura secundária */
+.garimpo-shell :is(.extrair-card > p, .extrair-publicacao > p, .importar-nota, .importar-card #links-ajuda, .extrair-sem-alteracoes, .extrair-id, .fila-selecao small, .status-loading, .status-info span) { color: var(--text-secondary); }
+.garimpo-shell :is(.extrair-notificacao, .extrair-resumo-envio, .vitrine-link-resultado) { border: 1px solid rgba(117, 214, 165, .27); background: var(--success-soft); color: var(--success); }
+.garimpo-shell :is(.extrair-erro, .status-error, .importar-motivo) { color: var(--danger); }
+.garimpo-shell .extrair-erro { border: 1px solid rgba(255, 144, 150, .27); background: var(--danger-soft); }
+.garimpo-shell :is(.extrair-aviso, .status-info) { border: 1px solid var(--yellow-border); background: var(--warning-soft); color: var(--text-secondary); }
+.garimpo-shell .status-ok { color: var(--success); }
+.garimpo-shell :is(.extrair-preco span, .extrair-comissao) { color: var(--success); }
+.garimpo-shell .extrair-preco del { color: var(--text-muted); }
+
+@media (max-width: 600px) {
+  .garimpo-shell :is(.extrair-afiliados, .importar-produtos) { padding: 20px 14px 48px; }
+  .garimpo-shell :is(.extrair-card, .importar-card, .status-card) { padding: 18px; }
+}
