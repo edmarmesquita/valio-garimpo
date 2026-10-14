@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { extrairProdutosAfiliados } from '../lib/extrairProdutosAfiliados'
 import type { ProdutoAfiliado } from '../lib/extrairProdutosAfiliados'
+import { extrairProdutoHtml } from '../lib/extrairProdutoHtml'
 import { alternarSelecao, CATEGORIAS_VALIO, filtrarEOrdenarProdutos, gerarProdutosValio, selecionarTodos } from '../lib/produtosGarimpados'
 import type { CategoriaValio, Filtros, Ordenacao } from '../lib/produtosGarimpados'
 import { enviarSelecionadosValio, selecionadosPublicaveis } from '../lib/publicarProdutosValio'
@@ -21,6 +22,11 @@ const numero = (texto: string) => texto.trim() === '' ? null : Number(texto.repl
 
 export default function ExtrairAfiliados() {
   const [entrada, setEntrada] = useState('')
+  const [htmlEntrada, setHtmlEntrada] = useState('')
+  const [urlPaginaHtml, setUrlPaginaHtml] = useState('')
+  const [linkHtml, setLinkHtml] = useState('')
+  const [origemHtml, setOrigemHtml] = useState(false)
+  const [erroHtml, setErroHtml] = useState('')
   const [produtos, setProdutos] = useState<ProdutoAfiliado[] | null>(null)
   const [selecionados, setSelecionados] = useState<Set<number>>(new Set())
   const [categorias, setCategorias] = useState<Map<number, CategoriaValio>>(new Map())
@@ -46,7 +52,7 @@ export default function ExtrairAfiliados() {
   const precoMedio = media(escolhidos.flatMap((p) => p.precoAtual === null ? [] : [p.precoAtual]))
   const separados = produtos ? separarSelecionados(produtos, selecionados, existentes) : { novos: new Set<number>(), cadastrados: new Set<number>() }
   const podeEnviarNovos = produtos !== null && estadoVerificacao === 'pronto' && selecionadosPublicaveis(produtos, separados.novos, categorias)
-  const podeAtualizar = produtos !== null && estadoVerificacao === 'pronto' && selecionadosPublicaveis(produtos, separados.cadastrados, categorias)
+  const podeAtualizar = !origemHtml && produtos !== null && estadoVerificacao === 'pronto' && selecionadosPublicaveis(produtos, separados.cadastrados, categorias)
   const totalCadastrados = produtos?.filter((produto) => produto.itemId && existentes.has(produto.itemId)).length ?? 0
   const totalNovos = produtos?.filter((produto) => produto.itemId && /^MLB\d+$/.test(produto.itemId) && !existentes.has(produto.itemId)).length ?? 0
   const idsEnviadosVerificacao = produtos ? idsParaVerificar(produtos) : []
@@ -75,8 +81,15 @@ export default function ExtrairAfiliados() {
   }, [resultadoValio])
 
   function invalidarResultado() { setResultadoValio(null); setErroExportacao(''); setResumoEnvio(null); setErroEnvio(''); setMensagem(''); setErro('') }
+  function invalidarHtmlResultado() {
+    setErroHtml('')
+    if (!origemHtml) return
+    setProdutos(null); setSelecionados(new Set()); setCategorias(new Map()); setExistentes(new Map())
+    setEstadoVerificacao('pendente'); setOrigemHtml(false); invalidarResultado()
+  }
   function extrair() {
     invalidarResultado()
+    setOrigemHtml(false)
     try {
       const encontrados = extrairProdutosAfiliados(JSON.parse(entrada))
       setProdutos(encontrados); setSelecionados(new Set()); setCategorias(new Map())
@@ -84,6 +97,23 @@ export default function ExtrairAfiliados() {
       setFiltros(filtrosIniciais); setOrdenacao('original'); setFiltroCadastro('todos')
       setMensagem(`${encontrados.length} produto${encontrados.length === 1 ? '' : 's'} encontrado${encontrados.length === 1 ? '' : 's'}.`)
     } catch { setProdutos(null); setErro('JSON inválido. Confira o conteúdo colado e tente novamente.') }
+  }
+  function importarHtml() {
+    setErroHtml('')
+    try {
+      const produto = extrairProdutoHtml(htmlEntrada, linkHtml, urlPaginaHtml)
+      invalidarResultado()
+      setProdutos([produto]); setSelecionados(new Set()); setCategorias(new Map())
+      setExistentes(new Map()); setEstadoVerificacao(tokenPublicacao.trim() ? 'consultando' : 'pendente')
+      setFiltros(filtrosIniciais); setOrdenacao('original'); setFiltroCadastro('todos'); setOrigemHtml(true)
+      setMensagem('Produto extraído do HTML. Revise os dados e escolha uma coleção antes de enviar.')
+    } catch (falha) {
+      if (origemHtml) {
+        setProdutos(null); setSelecionados(new Set()); setExistentes(new Map()); setEstadoVerificacao('pendente')
+        setOrigemHtml(false); invalidarResultado()
+      }
+      setErroHtml(falha instanceof Error ? falha.message : 'Não foi possível extrair o produto do HTML.')
+    }
   }
   async function copiar(conteudo: string) {
     try { await navigator.clipboard.writeText(conteudo); setErro(''); setMensagem('JSON copiado.') }
@@ -139,6 +169,19 @@ export default function ExtrairAfiliados() {
       <button type="button" onClick={extrair}>Extrair produtos</button>
       <p>O processamento acontece no navegador. Esta tela não envia nem salva o JSON.</p>
     </section>
+    <section className="extrair-card extrair-html-entrada" aria-labelledby="html-titulo">
+      <h2 id="html-titulo">Importar por HTML da página</h2>
+      <p>Cole o HTML/Response copiado manualmente da página do produto.</p>
+      <label htmlFor="url-pagina-html">URL da página do produto</label>
+      <input id="url-pagina-html" type="url" value={urlPaginaHtml} onChange={(e) => { setUrlPaginaHtml(e.target.value); invalidarHtmlResultado() }} placeholder="https://www.mercadolivre.com.br/..." />
+      <label htmlFor="html-produto">HTML da página</label>
+      <textarea id="html-produto" value={htmlEntrada} onChange={(e) => { setHtmlEntrada(e.target.value); invalidarHtmlResultado() }} rows={9} spellCheck={false} />
+      <label htmlFor="link-html-produto">Link afiliado</label>
+      <input id="link-html-produto" type="url" value={linkHtml} onChange={(e) => { setLinkHtml(e.target.value); invalidarHtmlResultado() }} placeholder="https://meli.la/..." />
+      <button type="button" onClick={importarHtml}>Extrair produto do HTML</button>
+      <p>O HTML é processado somente no navegador. Nenhum recurso da página é carregado automaticamente.</p>
+      {erroHtml && <p role="alert" className="extrair-erro">{erroHtml}</p>}
+    </section>
     {mensagem && <p role="status" className="extrair-notificacao">{mensagem}</p>}
     {erro && <p role="alert" className="extrair-erro">{erro}</p>}
     {produtos && <>
@@ -156,6 +199,7 @@ export default function ExtrairAfiliados() {
         {estadoVerificacao === 'consultando' && <p role="status" className="extrair-aviso">Verificando produtos no Valiô...</p>}
         {estadoVerificacao === 'erro' && <p role="status" className="extrair-aviso">Não foi possível verificar quais produtos já estão no Valiô. O JSON continua disponível; o envio fica desabilitado.</p>}
         {estadoVerificacao === 'pronto' && <p className="extrair-aviso">A verificação cobre os ITEM_IDs da tabela de produtos do Supabase. Produtos antigos exibidos no Valiô fora dessa tabela não são reconhecidos por esta consulta.</p>}
+        {origemHtml && estadoVerificacao === 'pronto' && totalCadastrados > 0 && <p role="status" className="extrair-aviso">Produto já cadastrado. O envio deste HTML está bloqueado.</p>}
         <details className="extrair-diagnostico"><summary>Diagnóstico da verificação (ITEM_IDs)</summary>
           <p>IDs enviados: {idsEnviadosVerificacao.length}</p><p>{idsEnviadosVerificacao.join(', ') || 'Nenhum'}</p>
           <p>Existentes retornados: {estadoVerificacao === 'pronto' ? idsRetornadosVerificacao.length : 'verificação pendente'}</p>
@@ -165,7 +209,7 @@ export default function ExtrairAfiliados() {
       </section>
       <section className="extrair-card" aria-labelledby="resultado-titulo">
         <div className="extrair-resultado-cabecalho"><div><h2 id="resultado-titulo">Produtos encontrados</h2><p>{selecionados.size} de {produtos.length} produtos selecionados</p></div>
-          <div className="extrair-acoes"><button type="button" disabled={!produtos.length} onClick={() => { setSelecionados(selecionarTodos(produtos.length)); invalidarResultado() }}>Selecionar todos</button><button type="button" className="extrair-secundario" disabled={!selecionados.size} onClick={() => { setSelecionados(new Set()); invalidarResultado() }}>Desmarcar todos</button></div>
+          <div className="extrair-acoes"><button type="button" disabled={!produtos.length || origemHtml && totalCadastrados > 0} onClick={() => { setSelecionados(selecionarTodos(produtos.length)); invalidarResultado() }}>Selecionar todos</button><button type="button" className="extrair-secundario" disabled={!selecionados.size} onClick={() => { setSelecionados(new Set()); invalidarResultado() }}>Desmarcar todos</button></div>
         </div>
         <div className="extrair-controles">
           <label>Ordenar por<select value={ordenacao} onChange={(e) => setOrdenacao(e.target.value as Ordenacao)}><option value="original">Ordem original</option><option value="comissao">Maior comissão</option><option value="menor-preco">Menor preço</option><option value="maior-preco">Maior preço</option><option value="desconto">Maior desconto</option><option value="avaliacao">Melhor avaliação</option></select></label>
@@ -183,8 +227,8 @@ export default function ExtrairAfiliados() {
           const existente = estadoVerificacao === 'pronto' ? existentes.get(p.itemId ?? '') : undefined
           const comparacao = compararProdutoComValio(p, categorias.get(indice), existente)
           return <article key={indice} className={`extrair-produto ${escolhido ? 'extrair-selecionado' : ''}`}>
-            <label className="extrair-selecao"><input type="checkbox" checked={escolhido} onChange={() => { setSelecionados((atual) => alternarSelecao(atual, indice)); invalidarResultado() }} /> Selecionar produto</label>
-            <div className="extrair-imagem">{p.imagemUrl ? <img src={p.imagemUrl} alt={p.titulo || 'Imagem do produto'} loading="lazy" /> : <span>Sem imagem</span>}</div>
+            <label className="extrair-selecao"><input type="checkbox" disabled={origemHtml && !!existente} checked={escolhido} onChange={() => { setSelecionados((atual) => alternarSelecao(atual, indice)); invalidarResultado() }} /> Selecionar produto</label>
+            <div className="extrair-imagem">{origemHtml ? <span>Imagem identificada (prévia desativada)</span> : p.imagemUrl ? <img src={p.imagemUrl} alt={p.titulo || 'Imagem do produto'} loading="lazy" /> : <span>Sem imagem</span>}</div>
             <div className="extrair-produto-conteudo">
               <div className="extrair-badges">{p.destaque && <span>{p.destaque}</span>}{p.extraCommission === true && <span>Comissão extra</span>}</div>
               {estadoVerificacao === 'pronto' && p.itemId && /^MLB\d+$/.test(p.itemId) && <p className={`extrair-estado ${existente ? 'extrair-existente' : 'extrair-novo'}`}>{existente ? 'Já está no Valiô' : 'Novo'}</p>}
@@ -192,6 +236,7 @@ export default function ExtrairAfiliados() {
               {existente && !comparacao.dadosAlterados && <p className="extrair-sem-alteracoes">Sem alterações relevantes</p>}
               <h3>{p.titulo || 'Produto sem título'}</h3>
               {p.itemId && <p className="extrair-id">ITEM_ID: {p.itemId}</p>}
+              {origemHtml && p.imagemUrl && <p className="extrair-id">Imagem: {p.imagemUrl}</p>}
               {p.precoAtual !== null && <p className="extrair-preco"><strong>{dinheiro(p.precoAtual, p.moeda)}</strong>{p.precoAnterior !== null && <del>{dinheiro(p.precoAnterior, p.moeda)}</del>}{p.desconto && <span>{p.desconto}</span>}</p>}
               {p.parcelas !== null && <p>{p.parcelas}x{p.valorParcela !== null ? ` de ${dinheiro(p.valorParcela, p.moeda)}` : ''}{p.semJuros === true ? ' sem juros' : ''}</p>}
               {(p.avaliacao !== null || p.vendidosTexto) && <p>{p.avaliacao !== null && `★ ${p.avaliacao.toLocaleString('pt-BR')}`}{p.avaliacao !== null && p.vendidosTexto ? ' · ' : ''}{p.vendidosTexto}</p>}
@@ -209,7 +254,7 @@ export default function ExtrairAfiliados() {
           <p>Para enviar, todos os selecionados precisam de categoria, ITEM_ID, título, preço, link e imagem.</p>
           <p>Use o token de publicação informado em “Acesso à vitrine”.</p>
           <div className="extrair-acoes-publicacao"><button type="button" disabled={!podeEnviarNovos || !tokenPublicacao.trim() || enviando} onClick={() => void enviarParaValio('novos')}>{enviando ? 'Enviando...' : 'Enviar novos para o Valiô'}</button>
-          <button type="button" className="extrair-secundario" disabled={!podeAtualizar || !tokenPublicacao.trim() || enviando} onClick={() => void enviarParaValio('cadastrados')}>Atualizar existentes</button></div>
+          {!origemHtml && <button type="button" className="extrair-secundario" disabled={!podeAtualizar || !tokenPublicacao.trim() || enviando} onClick={() => void enviarParaValio('cadastrados')}>Atualizar existentes</button>}</div>
           {erroEnvio && <p role="alert" className="extrair-erro">{erroEnvio}</p>}
           {resumoEnvio && <div role="status" className="extrair-resumo-envio">
             <strong>{resumoEnvio.enviados} produto{resumoEnvio.enviados === 1 ? '' : 's'} enviado{resumoEnvio.enviados === 1 ? '' : 's'} ao Valiô</strong>

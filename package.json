@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "typecheck:server": "tsc --ignoreConfig --noEmit --module nodenext --moduleResolution nodenext --target es2023 --esModuleInterop --skipLibCheck --types node api/index.ts server/server.ts server/local.ts",
-    "test:importar-produtos": "node --test tests/processarLinks.mjs tests/importarProdutos.mjs tests/extrairProdutosAfiliados.mjs tests/produtosGarimpados.mjs tests/extrairAfiliadosInterface.mjs",
+    "test:importar-produtos": "node --test tests/processarLinks.mjs tests/importarProdutos.mjs tests/extrairProdutosAfiliados.mjs tests/produtosGarimpados.mjs tests/extrairAfiliadosInterface.mjs tests/extrairProdutoHtml.mjs tests/extrairProdutoHtmlInterface.mjs",
     "test:oauth": "node tests/mercadoLivreOAuth.mjs",
     "test:valio": "node --test tests/valioPublicacao.mjs tests/publicarProdutosValio.mjs tests/valioSql.mjs tests/verificarProdutosValio.mjs tests/migrarProdutosValio.mjs tests/manutencaoVitrine.mjs tests/manutencaoVitrineInterface.mjs tests/revisaoPrecosLote.mjs tests/revisaoPrecosLoteInterface.mjs tests/metricasCliques.mjs tests/metricasVitrineInterface.mjs",
     "preview": "vite preview",
