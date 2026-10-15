@@ -16,11 +16,11 @@ type LinhaEntrada = { linha: number; mercado_livre_id: string | null; link_novo:
 
 export function analisarLinhasLinks(texto: unknown): LinhaEntrada[] {
   if (typeof texto !== 'string' || !texto.trim() || texto.length > 100_000) {
-    throw new Error('Informe de 1 a 20 linhas no formato ITEM_ID | link oficial.')
+    throw new Error('Informe de 1 a 50 linhas no formato ITEM_ID | link oficial.')
   }
   const linhas = texto.split(/\r?\n/).map((conteudo, indice) => ({ conteudo: conteudo.trim(), linha: indice + 1 }))
     .filter((item) => item.conteudo)
-  if (linhas.length > 20) throw new Error('O lote aceita no máximo 20 linhas. Nenhum link foi alterado.')
+  if (linhas.length > 50) throw new Error('O lote aceita no máximo 50 linhas. Nenhum link foi alterado.')
   const entradas = linhas.map(({ conteudo, linha }) => {
     const partes = conteudo.split('|')
     const id = partes[0]?.trim() || null
@@ -57,7 +57,7 @@ export async function criarPreviaLinks(texto: unknown, gateway: LinkAfiliadoGate
 }
 
 export function validarConfirmacoes(valor: unknown): ConfirmacaoLink[] {
-  if (!Array.isArray(valor) || valor.length > 20) throw new Error('Confirmações inválidas.')
+  if (!Array.isArray(valor) || valor.length > 50) throw new Error('Confirmações inválidas.')
   const numeros = new Set<number>()
   for (const item of valor) {
     if (!item || typeof item !== 'object' || Array.isArray(item)

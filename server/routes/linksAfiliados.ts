@@ -42,7 +42,7 @@ export function registrarLinksAfiliados(router: Router, { deps, autorizar }: Con
     if (!config) return
     if (!req.body || typeof req.body !== 'object' || Array.isArray(req.body)
       || Object.keys(req.body).length !== 1 || typeof req.body.texto !== 'string') {
-      res.status(400).json({ ok: false, erro: 'Envie somente texto com até 20 linhas.' }); return
+      res.status(400).json({ ok: false, erro: 'Envie somente texto com até 50 linhas.' }); return
     }
     try {
       const previa = await criarPreviaLinks(req.body.texto, (deps.linkAfiliado ?? criarLinkAfiliadoGateway)(config))

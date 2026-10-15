@@ -16,7 +16,7 @@ const produto = (n) => ({ mercado_livre_id: id(n), titulo: `Produto ${n}`, link_
   data_preco: '14/10/2026', updated_at: '2026-10-14T12:00:00Z' })
 
 async function servidor(executar) {
-  const linhas = new Map(Array.from({ length: 20 }, (_, i) => [id(i + 1), produto(i + 1)]))
+  const linhas = new Map(Array.from({ length: 50 }, (_, i) => [id(i + 1), produto(i + 1)]))
   const escritas = []
   const gateway = {
     async buscar(mercadoLivreId) {
@@ -105,11 +105,47 @@ test('lote identifica inexistente, URL comum, duplicatas e linha inválida sem c
   })
 })
 
-test('mais de 20 linhas e token inválido impedem toda atualização', async () => {
+for (const quantidade of [30, 50]) test(`prévia e confirmação aceitam ${quantidade} linhas com rechecagem`, async () => {
+  await servidor(async ({ linhas, escritas, requisitar }) => {
+    const texto = Array.from({ length: quantidade }, (_, i) => `${id(i + 1)} | ${link(i + 1)}`).join('\n')
+    const antes = new Map([...linhas].map(([key, value]) => [key, { ...value }]))
+    const previa = await requisitar('/previa', 'POST', { texto })
+    assert.equal(previa.status, 200)
+    assert.equal(previa.data.solicitadas, quantidade)
+    assert.equal(previa.data.linhas.filter((linha) => !linha.motivo).length, quantidade)
+    assert.equal(escritas.length, 0)
+    assert.deepEqual(linhas, antes)
+    const resultado = await requisitar('', 'PATCH', { texto, confirmacoes: confirmacoes(previa.data) })
+    assert.equal(resultado.status, 200)
+    assert.deepEqual([resultado.data.solicitadas, resultado.data.atualizadas, resultado.data.erros], [quantidade, quantidade, 0])
+    assert.equal(escritas.length, quantidade)
+    for (let i = 1; i <= quantidade; i++) assert.deepEqual(linhas.get(id(i)), { ...antes.get(id(i)), link_afiliado: link(i) })
+  })
+})
+
+test('51 linhas são bloqueadas na prévia e na confirmação sem nenhuma escrita', async () => {
+  await servidor(async ({ linhas, escritas, requisitar }) => {
+    const texto = Array.from({ length: 51 }, (_, i) => `${id(i + 1)} | ${link(i + 1)}`).join('\n')
+    const antes = new Map([...linhas].map(([key, value]) => [key, { ...value }]))
+    const previa = await requisitar('/previa', 'POST', { texto })
+    assert.equal(previa.status, 400)
+    assert.equal(previa.data.erro, 'O lote aceita no máximo 50 linhas. Nenhum link foi alterado.')
+    const confirmacao = await requisitar('', 'PATCH', { texto, confirmacoes: [] })
+    assert.equal(confirmacao.status, 400)
+    assert.equal(confirmacao.data.erro, 'O lote aceita no máximo 50 linhas. Nenhum link foi alterado.')
+    assert.equal(escritas.length, 0)
+    assert.deepEqual(linhas, antes)
+  })
+})
+
+test('mais de 50 confirmações e token inválido impedem atualização', async () => {
   await servidor(async ({ escritas, requisitar }) => {
-    const texto = Array.from({ length: 21 }, (_, i) => `${id(i + 1)} | ${link(i + 1)}`).join('\n')
-    assert.equal((await requisitar('/previa', 'POST', { texto })).status, 400)
-    assert.equal((await requisitar('', 'PATCH', { texto, confirmacoes: [] })).status, 400)
+    const texto = Array.from({ length: 50 }, (_, i) => `${id(i + 1)} | ${link(i + 1)}`).join('\n')
+    const confirmacoesExcedentes = Array.from({ length: 51 }, (_, i) => ({ linha: i + 1,
+      mercado_livre_id: id(i + 1), link_anterior: `https://mercadolivre.com.br/produto-${i + 1}` }))
+    const excedente = await requisitar('', 'PATCH', { texto, confirmacoes: confirmacoesExcedentes })
+    assert.equal(excedente.status, 400)
+    assert.equal(excedente.data.erro, 'Confirmações inválidas.')
     assert.equal((await requisitar('/previa', 'POST', { texto: `${id(1)} | ${link(1)}` }, 'token-errado')).status, 401)
     assert.equal(escritas.length, 0)
   })

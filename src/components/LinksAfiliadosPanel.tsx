@@ -78,7 +78,7 @@ export default function LinksAfiliadosPanel({ token, onLinksAtualizados }: Props
     </form>
     <section className="vitrine-lote-links" aria-labelledby="vitrine-lote-links-titulo">
       <div className="vitrine-links-cabecalho"><span className="vitrine-links-etapa">02 · EM LOTE</span><h3 id="vitrine-lote-links-titulo">Atualizar links afiliados em lote</h3>
-        <p>Até 20 produtos por vez. Uma linha por produto:</p><code className="vitrine-lote-instrucao">MLB5348529958 | https://meli.la/...</code></div>
+        <p>Até 50 produtos por vez. Uma linha por produto:</p><code className="vitrine-lote-instrucao">MLB5348529958 | https://meli.la/...</code></div>
       <label htmlFor="vitrine-lote-links-texto">ITEM_ID | Link afiliado oficial</label>
       <textarea id="vitrine-lote-links-texto" value={textoLote} disabled={carregandoPrevia || confirmandoLote}
         onChange={(evento) => { setTextoLote(evento.target.value); setPreviaLote(null); setResultadoLote(null); setErroLote('') }}
