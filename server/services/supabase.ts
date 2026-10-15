@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
-import { ehLinkMonetizado } from '../../src/lib/linksAfiliados.js'
+import { ehLinkMonetizado, ehLinkOficialParaAtualizacao } from '../../src/lib/linksAfiliados.js'
 import type { ProdutoPublicacao } from '../valioProduto.js'
 
 export type SupabaseConfig = { url: string; serviceRoleKey: string }
@@ -20,6 +20,7 @@ export type ProdutoRow = {
 export type ProdutosGateway = {
   obterLinkAfiliado: (mercadoLivreId: string) => Promise<string | null>
   upsert: (row: ProdutoRow) => Promise<void>
+  inserir?: (row: ProdutoRow) => Promise<void>
 }
 export type LinhaLinkAfiliado = { mercado_livre_id: string; titulo: string; link_afiliado: string }
 export type LinkAfiliadoGateway = {
@@ -82,6 +83,10 @@ export function criarProdutosGateway(config: SupabaseConfig): ProdutosGateway {
     async upsert(row) {
       const { error } = await supabase.from('produtos')
         .upsert(row, { onConflict: 'mercado_livre_id' }).select('id').single()
+      if (error) throw error
+    },
+    async inserir(row) {
+      const { error } = await supabase.from('produtos').insert(row).select('id').single()
       if (error) throw error
     },
   }
@@ -174,7 +179,18 @@ export function criarCatalogoGateway(config: SupabaseConfig): CatalogoGateway {
   }
 }
 
-export async function publicarProduto(produto: ProdutoPublicacao, gateway: ProdutosGateway): Promise<AcaoPublicacao> {
+export async function publicarProduto(produto: ProdutoPublicacao, gateway: ProdutosGateway, somenteCriar = false): Promise<AcaoPublicacao> {
+  if (somenteCriar) {
+    if (!ehLinkOficialParaAtualizacao(produto.linkAfiliado)) throw new Error('Produto novo sem link afiliado oficial.')
+    if (!gateway.inserir) throw new Error('Criação exclusiva indisponível.')
+    await gateway.inserir({
+      mercado_livre_id: produto.mercadoLivreId, titulo: produto.titulo, descricao: produto.descricao,
+      preco: produto.preco, data_preco: produto.dataPreco, link_afiliado: produto.linkAfiliado,
+      categoria: produto.categoria, rating: produto.rating, imagem: produto.imagem,
+      ativo: true, updated_at: new Date().toISOString(),
+    })
+    return 'criado'
+  }
   const linkExistente = await gateway.obterLinkAfiliado(produto.mercadoLivreId)
   const linkAfiliado = linkExistente && ehLinkMonetizado(linkExistente) && !ehLinkMonetizado(produto.linkAfiliado)
     ? linkExistente : produto.linkAfiliado

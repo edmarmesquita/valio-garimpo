@@ -1,0 +1,75 @@
+.garimpo-shell .lista-afiliados { border-top: 2px solid var(--yellow-border); }
+.garimpo-shell .lista-afiliados > .lista-afiliados-etapa { display: block; margin: 0 0 8px; color: var(--yellow-primary); font-size: 11px; font-weight: 750; letter-spacing: .14em; }
+.garimpo-shell .lista-afiliados > h2 { margin-bottom: 8px; }
+.garimpo-shell .lista-afiliados > p:not(.lista-afiliados-etapa) { max-width: 76ch; color: var(--text-secondary); line-height: 1.55; }
+.garimpo-shell .lista-afiliados > label { margin: 18px 0 7px; }
+.garimpo-shell .lista-afiliados-opcional { color: var(--text-muted); font-size: 12px; font-weight: 400; }
+.garimpo-shell .lista-afiliados > input { display: block; width: 100%; padding: 10px 14px; }
+.garimpo-shell .extrair-afiliados .lista-afiliados > textarea { display: block; min-height: 280px; margin-bottom: 14px; }
+.garimpo-shell .lista-afiliados-acoes-lista { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.garimpo-shell .lista-afiliados-lista-limpa { margin: 0 0 14px; color: var(--success); }
+.garimpo-shell .lista-afiliados-resultado { margin-top: 26px; padding-top: 22px; border-top: 1px solid var(--border); }
+.garimpo-shell .lista-afiliados-previa-lista > h3, .garimpo-shell .lista-afiliados-snapshot-produtos > h3 { margin: 0 0 16px; font-size: 19px; }
+.garimpo-shell .lista-afiliados-contadores { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+.garimpo-shell .lista-afiliados-contadores div { display: grid; gap: 3px; min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.garimpo-shell .lista-afiliados-contadores strong { color: var(--text-primary); font-size: 22px; line-height: 1.2; }
+.garimpo-shell .lista-afiliados-contadores span { color: var(--text-secondary); font-size: 12px; }
+.garimpo-shell .lista-afiliados-tabela { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.garimpo-shell .lista-afiliados-tabela table { min-width: 640px; font-size: 13px; }
+.garimpo-shell .lista-afiliados-tabela :is(th, td) { padding: 10px 12px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.garimpo-shell .lista-afiliados-tabela th:first-child { width: 72px; }
+.garimpo-shell .lista-afiliados-tabela th:nth-child(2) { width: 170px; }
+.garimpo-shell .lista-afiliados-tabela tr:last-child td { border-bottom: 0; }
+.garimpo-shell .lista-afiliados-urls { margin-top: 24px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.garimpo-shell .lista-afiliados-urls h3 { margin: 0 0 4px; font-size: 16px; }
+.garimpo-shell .lista-afiliados-urls p { color: var(--text-secondary); font-size: 13px; }
+.garimpo-shell .lista-afiliados .lista-afiliados-urls textarea { min-height: 160px; margin-top: 14px; font-size: 13px; }
+.garimpo-shell .lista-afiliados-urls .lista-afiliados-copia { margin-top: 8px; color: var(--success); }
+.garimpo-shell .lista-afiliados-retorno { margin-top: 24px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.garimpo-shell .lista-afiliados-retorno h3 { margin: 0 0 10px; font-size: 16px; }
+.garimpo-shell .lista-afiliados-retorno label { display: block; margin-bottom: 8px; color: var(--text-secondary); }
+.garimpo-shell .lista-afiliados-retorno textarea { display: block; width: 100%; min-height: 180px; margin-bottom: 12px; font-size: 13px; }
+.garimpo-shell .lista-afiliados-pareamento { margin-top: 20px; }
+.garimpo-shell .lista-afiliados-contadores-retorno { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.garimpo-shell .lista-afiliados-revisar { background: rgba(255, 173, 51, .13); }
+.garimpo-shell .lista-afiliados-revisar small { display: block; margin-top: 4px; overflow-wrap: anywhere; }
+.garimpo-shell .lista-afiliados-excedentes { margin-top: 12px; padding: 12px; border: 1px solid var(--yellow-border); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.garimpo-shell .lista-afiliados-excedentes ol { margin-bottom: 0; padding-left: 22px; }
+.garimpo-shell .lista-afiliados-bloco { margin-top: 20px; }
+.garimpo-shell .lista-afiliados-bloco p { color: var(--text-secondary); font-size: 13px; }
+.garimpo-shell .lista-afiliados-bloco textarea { min-height: 120px; margin-top: 12px; }
+.garimpo-shell .lista-afiliados-bloco .lista-afiliados-copia { color: var(--success); }
+.garimpo-shell .lista-afiliados-integracao { margin-top: 18px; padding-top: 18px; border-top: 1px solid var(--border); }
+.garimpo-shell .lista-afiliados-integracao > p { color: var(--text-secondary); font-size: 13px; }
+.garimpo-shell .lista-afiliados-previa { margin-top: 20px; }
+.garimpo-shell .lista-afiliados-previa > h3 { margin-bottom: 14px; }
+.garimpo-shell .lista-afiliados-confirmar { margin-top: 16px; }
+.garimpo-shell .lista-afiliados-confirmacao { margin-top: 16px; padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow-wrap: anywhere; }
+.garimpo-shell .lista-afiliados-confirmacao p { margin: 8px 0 0; }
+.garimpo-shell .lista-afiliados-novos { margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
+.garimpo-shell .lista-afiliados-novos h3 { margin: 0 0 8px; }
+.garimpo-shell .lista-afiliados-novos h3:not(:first-child) { margin-top: 20px; }
+.garimpo-shell .lista-afiliados-novos p { color: var(--text-secondary); font-size: 13px; }
+.garimpo-shell .lista-afiliados-novos select { width: 100%; min-width: 160px; }
+.garimpo-shell .lista-afiliados-novos small { display: block; margin-top: 4px; }
+.garimpo-shell .lista-afiliados-novos > button { margin-top: 14px; }
+.garimpo-shell .lista-afiliados-publicacao-previa { margin-top: 14px; padding: 14px; border: 1px solid var(--yellow-border); border-radius: var(--radius-sm); }
+.garimpo-shell .lista-afiliados-publicacao-previa button { margin-top: 10px; }
+.garimpo-shell .lista-afiliados-snapshot { margin-top: 22px; padding: 18px; border: 1px solid var(--yellow-border); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.garimpo-shell .lista-afiliados-snapshot h3 { margin: 0 0 8px; }
+.garimpo-shell .lista-afiliados-snapshot p { margin: 7px 0; overflow-wrap: anywhere; }
+.garimpo-shell .lista-afiliados-snapshot-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.garimpo-shell .lista-afiliados-snapshot-troca, .garimpo-shell .lista-afiliados-snapshot-aviso { margin-top: 16px; padding: 14px; border: 1px solid var(--yellow-border); border-radius: var(--radius-sm); }
+.garimpo-shell .lista-afiliados-snapshot-troca button, .garimpo-shell .lista-afiliados-snapshot-aviso button { margin: 8px 8px 0 0; }
+.garimpo-shell .lista-afiliados-snapshot-tabela { margin: 18px 0; }
+.garimpo-shell .lista-afiliados-urls > button { margin-top: 12px; }
+@media (max-width: 620px) {
+  .garimpo-shell .lista-afiliados-acoes-lista button { width: 100%; }
+  .garimpo-shell .lista-afiliados-contadores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .garimpo-shell .lista-afiliados-urls { padding: 14px; }
+  .garimpo-shell .lista-afiliados-urls button { width: 100%; margin-top: 14px; }
+  .garimpo-shell .lista-afiliados-retorno { padding: 14px; }
+  .garimpo-shell .lista-afiliados-contadores-retorno { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .garimpo-shell .lista-afiliados-bloco button { width: 100%; margin-top: 12px; }
+  .garimpo-shell .lista-afiliados-integracao > button, .garimpo-shell .lista-afiliados-confirmar { width: 100%; }
+}

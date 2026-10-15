@@ -42,17 +42,34 @@ export function registrarPublicacao(router: Router, { deps, autorizar }: Context
   router.post('/produtos', async (req, res) => {
     const config = autorizar(req, res)
     if (!config) return
+    const somenteCriar = req.body?.somenteCriar === true
+    if (req.body?.somenteCriar !== undefined && req.body.somenteCriar !== true) {
+      res.status(400).json({ ok: false, erro: 'somenteCriar inválido.' })
+      return
+    }
     let produto
-    try { produto = validarProdutoPublicacao(req.body) }
+    try {
+      const { somenteCriar: _opcao, ...dados } = req.body ?? {}
+      void _opcao
+      produto = validarProdutoPublicacao(dados)
+    }
     catch (erro) {
       res.status(400).json({ ok: false, erro: erro instanceof Error ? erro.message : 'Produto inválido.' })
       return
     }
     try {
       const gateway = (deps.gateway ?? criarProdutosGateway)(config)
-      const acao = await publicarProduto(produto, gateway)
+      const acao = await publicarProduto(produto, gateway, somenteCriar)
       res.json({ ok: true, acao })
-    } catch {
+    } catch (erro) {
+      if (somenteCriar && (erro as { code?: string })?.code === '23505') {
+        res.status(409).json({ ok: false, erro: 'Produto já existe no Valiô; nenhuma alteração foi feita.' })
+        return
+      }
+      if (somenteCriar && erro instanceof Error && /link afiliado oficial|Criação exclusiva/.test(erro.message)) {
+        res.status(400).json({ ok: false, erro: erro.message })
+        return
+      }
       res.status(502).json({ ok: false, erro: 'Falha ao publicar no Valiô. Confira a configuração e tente novamente.' })
     }
   })

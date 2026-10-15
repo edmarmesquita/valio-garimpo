@@ -84,6 +84,49 @@ test('preserva meli.la e URL social integral; URL comum não substitui link mone
   })
 })
 
+test('criação exclusiva aceita link oficial e não atualiza produto já existente', async () => {
+  const linhas = new Map()
+  const gateway = {
+    async obterLinkAfiliado(id) { return linhas.get(id)?.link_afiliado ?? null },
+    async upsert() { throw new Error('Upsert proibido neste teste') },
+    async inserir(row) {
+      if (linhas.has(row.mercado_livre_id)) throw Object.assign(new Error('duplicado'), { code: '23505' })
+      linhas.set(row.mercado_livre_id, row)
+    },
+  }
+  await servidor({ config: () => config, token: () => token, gateway: () => gateway }, async (postar) => {
+    const produto = { ...payload(), linkAfiliado: 'https://meli.la/abc', somenteCriar: true }
+    assert.deepEqual(await postar(produto), { status: 200, json: { ok: true, acao: 'criado' } })
+    const anterior = { ...linhas.get(produto.mercadoLivreId) }
+    const repetido = await postar({ ...produto, preco: 1 })
+    assert.equal(repetido.status, 409)
+    assert.match(repetido.json.erro, /já existe/)
+    assert.deepEqual(linhas.get(produto.mercadoLivreId), anterior)
+  })
+})
+
+test('criação exclusiva rejeita URL direta antes de gravar', async () => {
+  let escritas = 0
+  const gateway = { async obterLinkAfiliado() { return null }, async upsert() { escritas++ }, async inserir() { escritas++ } }
+  await servidor({ config: () => config, token: () => token, gateway: () => gateway }, async (postar) => {
+    const resposta = await postar({ ...payload(), somenteCriar: true })
+    assert.equal(resposta.status, 400)
+    assert.match(resposta.json.erro, /link afiliado oficial/)
+    assert.equal(escritas, 0)
+  })
+})
+
+test('criação exclusiva mantém whitelist rígida e rejeita metadata extra', async () => {
+  let escritas = 0
+  const gateway = { async obterLinkAfiliado() { return null }, async upsert() { escritas++ }, async inserir() { escritas++ } }
+  await servidor({ config: () => config, token: () => token, gateway: () => gateway }, async (postar) => {
+    const resposta = await postar({ ...payload(), linkAfiliado: 'https://meli.la/abc', somenteCriar: true, product_id: 'MLB999' })
+    assert.equal(resposta.status, 400)
+    assert.equal(resposta.json.erro, 'O produto contém campos não permitidos.')
+    assert.equal(escritas, 0)
+  })
+})
+
 test('Service Role ausente bloqueia rota antes de publicar', async () => {
   let chamadas = 0
   await servidor({ config: () => null, token: () => token, gateway: () => { chamadas++; throw new Error('Não usar') } }, async (postar) => {

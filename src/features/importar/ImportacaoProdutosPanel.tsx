@@ -7,6 +7,7 @@ import { filtrarEOrdenarProdutos } from '../../lib/produtosGarimpados'
 import type { CategoriaValio, Filtros, Ordenacao } from '../../lib/produtosGarimpados'
 import { compararProdutoComValio } from '../../lib/verificarProdutosValio'
 import type { ProdutoExistente } from '../../lib/verificarProdutosValio'
+import ImportarListaAfiliadosPanel from '../importar-lista-afiliados/ImportarListaAfiliadosPanel'
 import './ImportacaoProdutosPanel.css'
 
 const filtrosIniciais: Filtros = { somenteComPreco: false, somenteComissaoExtra: false, comissaoMinima: null, avaliacaoMinima: null }
@@ -42,7 +43,7 @@ type Props = {
   onCopiar: (conteudo: string) => void
 }
 
-export default function ImportacaoProdutosPanel({ visivel, produtos, selecionados, categorias, origemHtml, existentes,
+export default function ImportacaoProdutosPanel({ produtos, selecionados, categorias, origemHtml, existentes,
   estadoVerificacao, totalCadastrados, mensagem, erro, resumo, publicacao, onImportar, onLimparJson,
   onLimparHtml, onErroJson, onErroHtml, onSelecionar, onSelecionarTodos, onDesmarcarTodos,
   renderCategoria, onLinkOficial, onCopiar }: Props) {
@@ -83,7 +84,6 @@ export default function ImportacaoProdutosPanel({ visivel, produtos, selecionado
     }
   }
 
-  if (!visivel) return null
   return <>
     <section className="extrair-card extrair-entrada-json" aria-labelledby="entrada-titulo">
       <h2 id="entrada-titulo">JSON bruto</h2>
@@ -106,6 +106,7 @@ export default function ImportacaoProdutosPanel({ visivel, produtos, selecionado
       <p>O HTML é processado somente no navegador. Nenhum recurso da página é carregado automaticamente.</p>
       {erroHtml && <p role="alert" className="extrair-erro">{erroHtml}</p>}
     </section>
+    <ImportarListaAfiliadosPanel />
     {mensagem && <p role="status" className="extrair-notificacao">{mensagem}</p>}
     {erro && <p role="alert" className="extrair-erro">{erro}</p>}
     {produtos && <>
