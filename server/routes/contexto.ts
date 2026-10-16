@@ -3,6 +3,7 @@ import type { Request, Response } from 'express'
 import { getSupabaseConfig } from '../services/supabase.js'
 import type { CatalogoGateway, ConsultaProdutosGateway, LinkAfiliadoGateway, ProdutosGateway, SupabaseConfig } from '../services/supabase.js'
 import type { CliquesGateway } from '../services/cliques.js'
+import type { OfertaGateway } from '../ofertasRelampagoLote.js'
 
 export type Dependencias = {
   config?: () => SupabaseConfig | null
@@ -11,6 +12,7 @@ export type Dependencias = {
   catalogo?: (config: SupabaseConfig) => CatalogoGateway
   linkAfiliado?: (config: SupabaseConfig) => LinkAfiliadoGateway
   cliques?: (config: SupabaseConfig) => CliquesGateway
+  ofertas?: (config: SupabaseConfig) => OfertaGateway
   token?: () => string | undefined
   agora?: () => Date
   limiteCliques?: number

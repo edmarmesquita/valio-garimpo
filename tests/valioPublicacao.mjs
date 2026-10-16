@@ -200,3 +200,52 @@ test('verificação consulta IDs únicos em lote, inclui inativos e protege a ro
     assert.equal(lotes.length, 1)
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
+
+test('backend ativo verifica 30 ITEM_IDs e separa existentes dos novos sem gravar', async () => {
+  const ids = Array.from({ length: 30 }, (_, indice) => `MLB${5357067365 + indice}`)
+  const consultas = []
+  const app = express()
+  app.use(express.json())
+  app.use('/api/valio', criarRotaValioProdutos({ config: () => config, token: () => token,
+    consulta: () => ({ async consultarExistentes(recebidos) {
+      consultas.push(recebidos)
+      return [{ mercadoLivreId: ids[0] }, { mercadoLivreId: ids[29] }]
+    } }),
+  }))
+  const server = app.listen(0, '127.0.0.1')
+  try {
+    await new Promise((resolve) => server.once('listening', resolve))
+    const resposta = await fetch(`http://127.0.0.1:${server.address().port}/api/valio/produtos/verificar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ mercadoLivreIds: ids }),
+    })
+    assert.equal(resposta.status, 200)
+    assert.match(resposta.headers.get('content-type'), /application\/json/)
+    const dados = await resposta.json()
+    assert.deepEqual(consultas, [ids])
+    assert.deepEqual(dados.existentes.map((item) => item.mercadoLivreId), [ids[0], ids[29]])
+    assert.equal(ids.filter((id) => !dados.existentes.some((item) => item.mercadoLivreId === id)).length, 28)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
+test('falha interna da verificação retorna JSON sem expor token ou causa sensível', async () => {
+  const app = express()
+  app.use(express.json())
+  app.use('/api/valio', criarRotaValioProdutos({ config: () => config, token: () => token,
+    consulta: () => ({ async consultarExistentes() { throw new Error(`falha privada ${token}`) } }),
+  }))
+  const server = app.listen(0, '127.0.0.1')
+  try {
+    await new Promise((resolve) => server.once('listening', resolve))
+    const resposta = await fetch(`http://127.0.0.1:${server.address().port}/api/valio/produtos/verificar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ mercadoLivreIds: ['MLB5357067365'] }),
+    })
+    assert.equal(resposta.status, 502)
+    assert.match(resposta.headers.get('content-type'), /application\/json/)
+    const corpo = await resposta.text()
+    assert.deepEqual(JSON.parse(corpo), { ok: false, erro: 'Não foi possível verificar os produtos no Valiô.' })
+    assert.ok(!corpo.includes(token))
+    assert.ok(!corpo.includes('<html'))
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})

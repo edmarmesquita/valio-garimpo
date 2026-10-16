@@ -35,7 +35,16 @@ export function registrarPublicacao(router: Router, { deps, autorizar }: Context
     try {
       const existentes = await (deps.consulta ?? criarConsultaProdutosGateway)(config).consultarExistentes(ids)
       res.json({ ok: true, existentes })
-    } catch {
+    } catch (erro) {
+      const codigo = typeof erro === 'object' && erro !== null && 'code' in erro
+        && typeof erro.code === 'string' && /^[a-zA-Z0-9_-]{1,32}$/.test(erro.code)
+        ? erro.code : undefined
+      console.error('[valio] Falha na verificação de produtos:', {
+        status: 502,
+        message: 'Não foi possível verificar os produtos no Valiô.',
+        cause: codigo ?? (erro instanceof Error ? 'Error' : typeof erro),
+        quantidadeIds: ids.length,
+      })
       res.status(502).json({ ok: false, erro: 'Não foi possível verificar os produtos no Valiô.' })
     }
   })

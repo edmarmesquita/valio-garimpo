@@ -60,3 +60,28 @@ test('erro na consulta rejeita verificação sem transformar desconhecidos em no
     throw new TypeError('Failed to fetch')
   }), /Não foi possível conectar/)
 })
+
+test('frontend recebe erro JSON da API e mantém mensagem específica', async () => {
+  await assert.rejects(() => verificarProdutosValio([produto('MLB5357067365')], 'token', async () =>
+    new Response(JSON.stringify({ ok: false, erro: 'Não foi possível conectar à API local em localhost:3001. Verifique se o backend está ativo.' }),
+      { status: 502, headers: { 'Content-Type': 'application/json' } })), /API local em localhost:3001/)
+})
+
+test('proxy Vite responde JSON 502 quando o backend local está indisponível', async () => {
+  const { default: configuracao } = await vite.ssrLoadModule('/vite.config.ts')
+  const proxy = configuracao.server.proxy['/api']
+  const servidor = await createServer({ configFile: false, appType: 'custom', logLevel: 'silent',
+    server: { host: '127.0.0.1', port: 0, proxy: { '/api': { ...proxy, target: 'http://127.0.0.1:1' } } },
+  })
+  try {
+    await servidor.listen()
+    const porta = servidor.httpServer.address().port
+    const resposta = await fetch(`http://127.0.0.1:${porta}/api/valio/produtos/verificar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mercadoLivreIds: ['MLB5357067365'] }),
+    })
+    assert.equal(resposta.status, 502)
+    assert.match(resposta.headers.get('content-type'), /application\/json/)
+    assert.match((await resposta.json()).erro, /backend está ativo/)
+  } finally { await servidor.close() }
+})

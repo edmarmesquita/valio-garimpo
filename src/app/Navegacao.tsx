@@ -3,6 +3,7 @@ import './Navegacao.css'
 const destinos = [
   ['/', 'Início'],
   ['/extrair-afiliados', 'Importação/Publicação'],
+  ['/ofertas-relampago', '⚡ Ofertas Relâmpago'],
   ['/manutencao', 'Manutenção'],
   ['/links-afiliados', 'Links afiliados'],
   ['/precos', 'Preços'],

@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 import { ehLinkMonetizado, ehLinkOficialParaAtualizacao } from '../../src/lib/linksAfiliados.js'
 import type { ProdutoPublicacao } from '../valioProduto.js'
+import type { OfertaGateway, OfertaRow } from '../ofertasRelampagoLote.js'
 
 export type SupabaseConfig = { url: string; serviceRoleKey: string }
 export type AcaoPublicacao = 'criado' | 'atualizado'
@@ -16,6 +17,14 @@ export type ProdutoRow = {
   imagem: string
   ativo: true
   updated_at: string
+}
+export function mapearProdutoParaRow(produto: ProdutoPublicacao, agora = new Date()): ProdutoRow {
+  return {
+    mercado_livre_id: produto.mercadoLivreId, titulo: produto.titulo, descricao: produto.descricao,
+    preco: produto.preco, data_preco: produto.dataPreco, link_afiliado: produto.linkAfiliado,
+    categoria: produto.categoria, rating: produto.rating, imagem: produto.imagem,
+    ativo: true, updated_at: agora.toISOString(),
+  }
 }
 export type ProdutosGateway = {
   obterLinkAfiliado: (mercadoLivreId: string) => Promise<string | null>
@@ -133,6 +142,46 @@ export function criarConsultaProdutosGateway(config: SupabaseConfig): ConsultaPr
   }
 }
 
+const COLUNAS_OFERTA = 'mercado_livre_id,titulo,preco,categoria,imagem,link_afiliado,ativo,oferta_relampago,oferta_inicio,oferta_fim,preco_anterior,percentual_desconto,texto_oferta,prioridade_oferta'
+
+export function criarOfertasGateway(config: SupabaseConfig): OfertaGateway {
+  const supabase = createClient(config.url, config.serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  const produtos = criarProdutosGateway(config)
+  return {
+    async buscar(id) {
+      const { data, error } = await supabase.from('produtos').select(COLUNAS_OFERTA)
+        .eq('mercado_livre_id', id).limit(2)
+      if (error) throw error
+      return (data ?? []) as OfertaRow[]
+    },
+    async listarAtivas() {
+      const ofertas: OfertaRow[] = []
+      for (let inicio = 0; ; inicio += 500) {
+        const { data, error } = await supabase.from('produtos').select(COLUNAS_OFERTA)
+          .eq('oferta_relampago', true).order('id', { ascending: true }).range(inicio, inicio + 499)
+        if (error) throw error
+        ofertas.push(...(data ?? []) as OfertaRow[])
+        if (!data || data.length < 500) return ofertas
+      }
+    },
+    async atualizar(id, anterior, alteracao) {
+      let consulta = supabase.from('produtos').update(alteracao).eq('mercado_livre_id', id)
+      for (const [coluna, valor] of Object.entries(anterior)) {
+        if (coluna === 'mercado_livre_id') continue
+        consulta = valor === null ? consulta.is(coluna, null) : consulta.eq(coluna, valor)
+      }
+      const { data, error } = await consulta.select(COLUNAS_OFERTA)
+      if (error) throw error
+      return (data ?? []) as OfertaRow[]
+    },
+    async inserir(produto) {
+      await produtos.inserir!(produto)
+    },
+  }
+}
+
 export function criarCatalogoGateway(config: SupabaseConfig): CatalogoGateway {
   const supabase = createClient(config.url, config.serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -183,12 +232,7 @@ export async function publicarProduto(produto: ProdutoPublicacao, gateway: Produ
   if (somenteCriar) {
     if (!ehLinkOficialParaAtualizacao(produto.linkAfiliado)) throw new Error('Produto novo sem link afiliado oficial.')
     if (!gateway.inserir) throw new Error('Criação exclusiva indisponível.')
-    await gateway.inserir({
-      mercado_livre_id: produto.mercadoLivreId, titulo: produto.titulo, descricao: produto.descricao,
-      preco: produto.preco, data_preco: produto.dataPreco, link_afiliado: produto.linkAfiliado,
-      categoria: produto.categoria, rating: produto.rating, imagem: produto.imagem,
-      ativo: true, updated_at: new Date().toISOString(),
-    })
+    await gateway.inserir(mapearProdutoParaRow(produto))
     return 'criado'
   }
   const linkExistente = await gateway.obterLinkAfiliado(produto.mercadoLivreId)

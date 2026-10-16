@@ -1,0 +1,38 @@
+.garimpo-shell .flash-import, .garimpo-shell .flash-preview, .garimpo-shell .flash-generator, .garimpo-shell .flash-payload, .garimpo-shell .flash-confirmacao { margin: 0 0 20px; padding: 24px; }
+.garimpo-shell .flash-import label, .garimpo-shell .flash-generator label, .garimpo-shell .flash-category { display: block; margin: 12px 0 6px; font-weight: 700; }
+.garimpo-shell .flash-import textarea, .garimpo-shell .flash-import input, .garimpo-shell .flash-generator textarea, .garimpo-shell .flash-category select { display: block; width: 100%; margin-top: 6px; padding: 10px; }
+.garimpo-shell .flash-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.garimpo-shell .flash-selecionadas { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated); }
+.garimpo-shell .flash-selecionadas__cabecalho { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.garimpo-shell .flash-selecionadas h3 { margin: 0 0 5px; font-size: 15px; }
+.garimpo-shell .flash-selecionadas p { margin: 0; color: var(--text-secondary); font-size: 13px; }
+.garimpo-shell .flash-selecionadas ul { display: grid; gap: 6px; max-height: 210px; overflow-y: auto; margin: 12px 0 0; padding: 0; list-style: none; }
+.garimpo-shell .flash-selecionadas li { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; padding: 7px 0; border-top: 1px solid var(--border); font-size: 12px; }
+.garimpo-shell .flash-selecionadas li > span:not(.flash-status) { min-width: 160px; flex: 1; color: var(--text-secondary); }
+.garimpo-shell .flash-selecionadas > p { margin-top: 10px; }
+.garimpo-shell .flash-generator-feedback { margin: 14px 0; padding: 10px 12px; border: 1px solid var(--success); border-radius: var(--radius-sm); background: var(--success-soft); color: var(--text-primary); font-weight: 700; }
+.garimpo-shell .flash-generator-feedback--erro { border-color: var(--warning); background: var(--warning-soft); }
+.garimpo-shell .flash-generator-lista { display: grid; gap: 6px; max-height: 200px; overflow-y: auto; padding-left: 24px; }
+.garimpo-shell .flash-generator-lista li { padding: 5px 0; overflow-wrap: anywhere; }
+.garimpo-shell .flash-generator-lista strong { margin-right: 10px; }
+.garimpo-shell .flash-generator-lista span { color: var(--text-secondary); font-size: 12px; }
+.garimpo-shell .flash-filter { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin: 16px 0; }
+.garimpo-shell .flash-filter label { color: var(--text-secondary); font-size: 13px; font-weight: 700; }
+.garimpo-shell .flash-filter select { min-width: 170px; padding: 8px 10px; }
+.garimpo-shell .flash-filter small { color: var(--text-muted); }
+.garimpo-shell .flash-table { overflow-x: auto; margin: 18px 0; }
+.garimpo-shell .flash-table th, .garimpo-shell .flash-table td { padding: 10px; text-align: left; vertical-align: top; }
+.garimpo-shell .flash-table td:first-child { text-align: center; }
+.garimpo-shell .flash-table td:nth-child(2) { min-width: 230px; }
+.garimpo-shell .flash-table select { min-width: 130px; }
+.garimpo-shell .flash-table small { display: block; margin-top: 4px; color: var(--text-secondary); }
+.garimpo-shell .flash-table img { display: block; width: 64px; height: 64px; margin-top: 8px; object-fit: contain; }
+.garimpo-shell .flash-status { display: inline-flex; align-items: center; min-height: 25px; padding: 4px 9px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-secondary); background: var(--bg-elevated); font-size: 11px; font-weight: 750; white-space: nowrap; }
+.garimpo-shell .flash-status--existente { border-color: var(--success); color: var(--success); background: var(--success-soft); }
+.garimpo-shell .flash-status--novo { border-color: var(--yellow-border); color: var(--yellow-primary); background: var(--yellow-soft); }
+.garimpo-shell .flash-status--revisar { border-color: var(--warning); color: var(--warning); background: var(--warning-soft); }
+.garimpo-shell .flash-payload pre { max-height: 430px; overflow: auto; padding: 18px; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .garimpo-shell .flash-import, .garimpo-shell .flash-preview, .garimpo-shell .flash-generator, .garimpo-shell .flash-payload, .garimpo-shell .flash-confirmacao { padding: 16px; }
+  .garimpo-shell .flash-table { font-size: 13px; }
+}

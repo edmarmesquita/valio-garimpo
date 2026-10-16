@@ -17,12 +17,6 @@ app.use('/api/valio', criarRotaValioProdutos())
 app.use('/api/valio', (_req, res) => {
     res.status(404).json({ ok: false, erro: 'Rota do Valiô não encontrada.' })
 })
-const erroValio: ErrorRequestHandler = (erro: Error & { status?: number }, req, res, next) => {
-    if (!req.path.startsWith('/api/valio/')) { next(erro); return }
-    const status = erro.status && erro.status >= 400 && erro.status < 500 ? erro.status : 500
-    res.status(status).json({ ok: false, erro: status === 400 ? 'JSON inválido na requisição.' : 'Não foi possível processar a requisição.' })
-}
-app.use(erroValio)
 
 app.get('/api/health', (_req, res) => {
     res.json({
@@ -94,5 +88,23 @@ app.post('/api/garimpo/teste-ia', async (_req, res) => {
         })
     }
 })
+
+app.use('/api', (_req, res) => {
+    res.status(404).json({ ok: false, erro: 'Rota da API não encontrada.' })
+})
+
+const erroApi: ErrorRequestHandler = (erro: Error & { status?: number; code?: string }, req, res, next) => {
+    if (!req.path.startsWith('/api/')) { next(erro); return }
+    const status = erro.status && erro.status >= 400 && erro.status < 500 ? erro.status : 500
+    console.error('[api local] Falha na requisição:', {
+        status,
+        message: status === 400 ? 'JSON inválido na requisição.' : 'Não foi possível processar a requisição.',
+        cause: typeof erro.code === 'string' && /^[a-zA-Z0-9_-]{1,32}$/.test(erro.code)
+            ? erro.code : erro instanceof Error && /^[a-zA-Z0-9_-]{1,32}$/.test(erro.name)
+                ? erro.name : typeof erro,
+    })
+    if (!res.headersSent) res.status(status).json({ ok: false, erro: status === 400 ? 'JSON inválido na requisição.' : 'Não foi possível processar a requisição.' })
+}
+app.use(erroApi)
 
 export default app
