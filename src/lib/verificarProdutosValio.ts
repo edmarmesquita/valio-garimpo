@@ -17,7 +17,11 @@ export function idsParaVerificar(produtos: ProdutoAfiliado[]): string[] {
 }
 
 export async function verificarProdutosValio(produtos: ProdutoAfiliado[], token: string, enviar: typeof fetch = fetch): Promise<Map<string, ProdutoExistente>> {
-  const ids = idsParaVerificar(produtos)
+  return verificarIdsValio(idsParaVerificar(produtos), token, enviar)
+}
+
+export async function verificarIdsValio(entrada: string[], token: string, enviar: typeof fetch = fetch): Promise<Map<string, ProdutoExistente>> {
+  const ids = [...new Set(entrada.filter((id) => /^MLB\d+$/.test(id)))]
   if (!ids.length) return new Map()
   if (!token.trim()) throw new Error('Informe o token para verificar os produtos.')
   let resposta: Response

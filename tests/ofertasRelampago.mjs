@@ -37,6 +37,116 @@ const html = (items) => `<html><script id="__NORDIC_RENDERING_CTX__">_n.ctx.r = 
 
 const urlsReais = JSON.parse(readFileSync(new URL('./fixtures/ofertasRelampagoUrlsReais.json', import.meta.url), 'utf8'))
 
+async function fixturePreparado() {
+  const modulo = await vite.ssrLoadModule('/src/features/ofertas-relampago/lotePreparado.ts')
+  const ofertas = extrairOfertasRelampagoHtml(html([card('MLB8001', 1, { end: '2099-01-01T00:00:00Z' }), card('MLB8002', 2, { end: '2099-01-01T00:00:00Z' })]))
+  const produtos = ofertas.map((oferta, i) => ({ itemId: oferta.itemId, ordem: i + 1 }))
+  const retorno = processarRetornoGerador(produtos, 'https://meli.la/salvo1\nhttps://meli.la/salvo2')
+  const lote = modulo.criarLotePreparado(ofertas, new Set(['MLB8001', 'MLB8002']),
+    new Map([['MLB8001', 'Achados para Elas'], ['MLB8002', 'Achados para Casa']]), new Map([['MLB8001', 100], ['MLB8002', 50]]),
+    new Map(), new Set(['MLB8001', 'MLB8002']), retorno, new Set(), new Date('2026-10-16T12:00:00Z'))
+  return { ...modulo, lote, ofertas, retorno }
+}
+
+test('lote preparado persiste dados e meli.la sem token, preview, assinatura ou dados extras', async () => {
+  const { lote, ofertas, retorno, criarLotePreparado, salvarLotePreparado, lerLotePreparado, CHAVE_LOTE_PREPARADO } = await fixturePreparado()
+  ofertas[0].token = 'segredo-nao-salvar'
+  ofertas[0].dadosProduto.credencial = 'credencial-nao-salvar'
+  const seguro = criarLotePreparado(ofertas, new Set(['MLB8001']), new Map([['MLB8001', 'Achados para Elas']]),
+    new Map([['MLB8001', 100]]), new Map(), new Set(['MLB8001']), retorno, new Set())
+  const dados = new Map()
+  const storage = { setItem: (k, v) => dados.set(k, v), getItem: (k) => dados.get(k) ?? null }
+  salvarLotePreparado(storage, seguro)
+  const bruto = dados.get(CHAVE_LOTE_PREPARADO)
+  assert.doesNotMatch(bruto, /segredo-nao-salvar|credencial-nao-salvar|assinatura|preview|token/)
+  assert.equal(lerLotePreparado(storage).lote.itens[0].categoria, 'Achados para Elas')
+  assert.equal(lerLotePreparado(storage).lote.itens[0].prioridade, 100)
+  assert.equal(lerLotePreparado(storage).lote.itens[0].linkMeli, 'https://meli.la/salvo1')
+  const reiniciado = { getItem: (k) => JSON.parse(JSON.stringify(Object.fromEntries(dados)))[k] ?? null }
+  assert.deepEqual(lerLotePreparado(reiniciado).lote, JSON.parse(bruto))
+  assert.equal(lote.status, 'PREPARADO')
+  assert.equal(lote.salvoEm, '2026-10-16T12:00:00.000Z')
+  for (const alteracao of [{ schemaVersion: 2 }, { token: 'nao-permitido' }, { assinatura: 'nao-permitida' }, { status: 'INVENTADO' }]) {
+    assert.equal(lerLotePreparado({ getItem: () => JSON.stringify({ ...lote, ...alteracao }) }).invalido, true)
+  }
+  assert.equal(lerLotePreparado({ getItem: () => '{invalido' }).invalido, true)
+})
+
+test('revalidação preparada bloqueia expirados e conflitos por item e preserva os válidos', async () => {
+  const { lote, revalidarLotePreparado, payloadLotePreparado, concluirItensPreparados } = await fixturePreparado()
+  lote.itens[1].ofertaFim = '2026-10-16T11:59:00Z'
+  const validacao = revalidarLotePreparado(lote, new Map(), Date.parse('2026-10-16T12:00:00Z'))
+  assert.equal(validacao.lote.status, 'PARCIALMENTE BLOQUEADO')
+  assert.deepEqual(validacao.bloqueados, [{ itemId: 'MLB8002', motivo: 'Oferta expirada.' }])
+  assert.equal(validacao.lote.itens[0].linkMeli, lote.itens[0].linkMeli)
+  assert.equal(validacao.lote.itens[0].categoria, lote.itens[0].categoria)
+  assert.equal(validacao.lote.itens[0].prioridade, 100)
+  const payload = payloadLotePreparado([lote.itens[0]], new Map())
+  assert.equal(payload.prontos[0].dados.linkAfiliado, 'https://meli.la/salvo1')
+  assert.equal(payload.prontos[0].dados.categoria, 'Achados para Elas')
+  assert.equal(payload.prontos[0].dados.prioridadeOferta, 100)
+  const conflito = revalidarLotePreparado(lote, new Map([['MLB8001', { ativo: true }]]), Date.parse('2026-10-16T12:00:00Z'))
+  assert.match(conflito.bloqueados[0].motivo, /passou a existir/)
+  const parcial = concluirItensPreparados(lote, { erros: 1, conflitos: 0, itens: [
+    { itemId: 'MLB8001', resultado: 'CRIADA' }, { itemId: 'MLB8002', resultado: 'ERRO' },
+  ] })
+  assert.equal(parcial.status, 'REVALIDAÇÃO NECESSÁRIA')
+  assert.equal(parcial.itens[0].concluido, true)
+  assert.equal(parcial.itens[1].concluido, false)
+  const finalizado = concluirItensPreparados(parcial, { erros: 0, conflitos: 0, itens: [{ itemId: 'MLB8002', resultado: 'CRIADA' }] })
+  assert.equal(finalizado.status, 'FINALIZADO')
+})
+
+test('lote preparado detecta alteração do catálogo, perda de produto, categoria ou meli.la sem sobrescrever dados', async () => {
+  const { lote, ofertas, criarLotePreparado, revalidarLotePreparado } = await fixturePreparado()
+  const existente = { mercadoLivreId: 'MLB8001', titulo: 'Título salvo no Valiô', preco: 60, categoria: 'Achados para Casa',
+    imagem: 'https://img.test/salva.webp', ativo: true, linkAfiliado: 'https://meli.la/existente', dataPreco: '16/10/2026' }
+  const registro = criarLotePreparado(ofertas, new Set(['MLB8001']), new Map(), new Map(), new Map([['MLB8001', existente]]),
+    new Set(['MLB8001']), null, new Set())
+  assert.equal(registro.itens[0].situacaoValio, 'EXISTENTE')
+  assert.equal(revalidarLotePreparado(registro, new Map([['MLB8001', existente]])).lote.status, 'REVALIDADO')
+  assert.match(revalidarLotePreparado(registro, new Map()).bloqueados[0].motivo, /Estado.*mudou/)
+  for (const alteracao of [{ preco: 99 }, { ativo: false }, { linkAfiliado: 'https://meli.la/novo' }]) {
+    assert.match(revalidarLotePreparado(registro, new Map([['MLB8001', { ...existente, ...alteracao }]])).bloqueados[0].motivo, /Estado.*mudou/)
+  }
+  const semDados = structuredClone(lote)
+  semDados.itens[0].categoria = null
+  semDados.itens[1].linkMeli = null
+  const validacao = revalidarLotePreparado(semDados, new Map())
+  assert.match(validacao.bloqueados[0].motivo, /categoria/)
+  assert.match(validacao.bloqueados[1].motivo, /Gerador|meli.la/)
+  assert.equal(existente.linkAfiliado, 'https://meli.la/existente')
+  const revisar = structuredClone(lote)
+  revisar.itens[0].situacaoOferta = 'REVISAR'
+  revisar.itens[1].percentualDesconto = 150
+  const inconsistentes = revalidarLotePreparado(revisar, new Map())
+  assert.match(inconsistentes.bloqueados[0].motivo, /REVISAR/)
+  assert.match(inconsistentes.bloqueados[1].motivo, /desconto inconsistente/)
+})
+
+test('gerenciamento reproduz ordenação estável, janelas e limite de 12 da Home', async () => {
+  const { classificarOfertas } = await vite.ssrLoadModule('/src/features/ofertas-relampago/gerenciarOfertas.ts')
+  const agora = Date.parse('2026-10-16T12:00:00Z')
+  const base = (n, extras = {}) => ({ mercado_livre_id: `MLB${n}`, ativo: true, oferta_relampago: true,
+    oferta_inicio: null, oferta_fim: '2026-10-17T12:00:00Z', prioridade_oferta: 0, ...extras })
+  const produtos = Array.from({ length: 15 }, (_, i) => base(i + 1))
+  produtos.push(base(16, { prioridade_oferta: 100 }), base(17, { oferta_fim: '2026-10-16T12:00:00Z' }),
+    base(18, { oferta_inicio: '2026-10-17T00:00:00Z' }), base(19, { oferta_fim: null }),
+    base(20, { ativo: false }), base(21, { oferta_relampago: false }))
+  const resultado = classificarOfertas(produtos, agora)
+  assert.equal(resultado.filter((p) => p.naHome).length, 12)
+  assert.equal(resultado.filter((p) => p.naFila).length, 5)
+  assert.deepEqual(resultado.filter((p) => p.naHome).map((p) => p.mercado_livre_id), ['MLB16', ...Array.from({ length: 11 }, (_, i) => `MLB${i + 1}`)])
+  assert.equal(resultado.find((p) => p.mercado_livre_id === 'MLB17').situacao, 'EXPIRADA')
+  assert.equal(resultado.find((p) => p.mercado_livre_id === 'MLB18').situacao, 'AGENDADA')
+  assert.equal(resultado.find((p) => p.mercado_livre_id === 'MLB19').situacao, 'SEM PRAZO EXATO')
+  assert.equal(resultado.find((p) => p.mercado_livre_id === 'MLB20').ativa, false)
+  assert.equal(resultado.find((p) => p.mercado_livre_id === 'MLB21').situacao, 'DESATIVADA')
+  assert.equal(classificarOfertas([base(1, { oferta_fim: '2026-10-16' })], new Date(2026, 9, 16, 23, 59).getTime())[0].ativa, true)
+  assert.equal(classificarOfertas([base(1, { oferta_fim: '2026-10-16' })], new Date(2026, 9, 17).getTime())[0].situacao, 'EXPIRADA')
+  assert.equal(classificarOfertas([base(1, { oferta_inicio: '2026-10-16T12:00:00Z' })], agora)[0].situacao, 'ATIVA')
+})
+
 test('regressão real MLB4857636451: /up/MLBU e wid do mesmo anúncio, comparado ao MLB5226420562', async () => {
   const { resolverUrlGerador } = await vite.ssrLoadModule('/src/features/ofertas-relampago/urlGerador.ts')
   const origem = 'https://www.mercadolivre.com.br/ofertas?container_id=relampago'
@@ -787,6 +897,377 @@ test('fixture real finaliza, restaura e encerra somente o lote local sem tocar n
     assert.equal(produtoAntes.linkAfiliado, 'https://meli.la/14jMKEN')
     assert.match(dom.window.document.body.textContent, /Lote encerrado. As ofertas publicadas permanecem no Valiô./)
     assert.equal(query('#flash-retorno'), null)
+  } finally {
+    if (root) { const { act } = await import('react'); await act(async () => root.unmount()) }
+    dom.window.close()
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+      else delete globalThis[key]
+    }
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT
+  }
+})
+
+test('gerenciamento independente usa prévia/confirmação, mantém produto ativo e preserva lote e classificação', async () => {
+  const [{ criarPreviaOfertas, confirmarPreviaOfertas }, { criarRegistroSnapshot }] = await Promise.all([
+    vite.ssrLoadModule('/server/ofertasRelampagoLote.ts'),
+    vite.ssrLoadModule('/src/features/importar-lista-afiliados/snapshotLoteAfiliados.ts'),
+  ])
+  const agora = Date.now()
+  const rows = new Map(Array.from({ length: 17 }, (_, i) => {
+    const id = `MLB${9001 + i}`
+    return [id, { mercado_livre_id: id, titulo: `Oferta publicada ${i + 1}`, preco: 60, preco_anterior: 100,
+      percentual_desconto: 40, prioridade_oferta: 0, oferta_inicio: i === 16 ? new Date(agora + 86_400_000).toISOString() : null,
+      oferta_fim: new Date(agora + (i === 15 ? -1 : 2) * 86_400_000).toISOString(),
+      imagem: 'https://img.test/item.webp', categoria: 'Achados para Casa', ativo: true,
+      oferta_relampago: true, texto_oferta: null, link_afiliado: `https://meli.la/original${i}` }]
+  }))
+  const escritas = []
+  const gateway = {
+    async buscar(id) { return rows.has(id) ? [structuredClone(rows.get(id))] : [] },
+    async listarAtivas() { return [...rows.values()].filter((r) => r.oferta_relampago).map((r) => structuredClone(r)) },
+    async atualizar(id, anterior, alteracao) {
+      assert.deepEqual(rows.get(id), anterior)
+      escritas.push({ id, alteracao }); rows.set(id, { ...anterior, ...alteracao })
+      return [structuredClone(rows.get(id))]
+    },
+    async inserir() { assert.fail('Gerenciamento não pode criar produto') },
+  }
+  const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/ofertas-relampago' })
+  const globals = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLSelectElement', 'Node', 'Event', 'MouseEvent', 'Element', 'fetch']
+  const previous = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
+  const calls = []
+  for (const key of globals) Object.defineProperty(globalThis, key, { configurable: true, writable: true,
+    value: key === 'fetch' ? async (url, options) => {
+      calls.push(url)
+      const body = JSON.parse(options.body)
+      let resposta
+      if (url.endsWith('/verificar')) resposta = { ok: true, existentes: [] }
+      else if (url.endsWith('/listar')) resposta = { ok: true, produtos: body.itemId ? await gateway.buscar(body.itemId) : await gateway.listarAtivas() }
+      else if (url.endsWith('/prever')) resposta = { ok: true, previa: await criarPreviaOfertas(body, gateway), assinatura: 'assinada-no-teste' }
+      else if (url.endsWith('/confirmar')) resposta = { ok: true, ...await confirmarPreviaOfertas(body.previa, gateway) }
+      else assert.fail(`Rota inesperada: ${url}`)
+      return { ok: true, json: async () => resposta }
+    } : dom.window[key] })
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  let root
+  try {
+    const [{ createRoot }, { act, createElement }, { default: Page }, { ContextoSessao }] = await Promise.all([
+      import('react-dom/client'), import('react'), vite.ssrLoadModule('/src/pages/OfertasRelampagoPage.tsx'),
+      vite.ssrLoadModule('/src/app/sessaoOperacionalContext.ts'),
+    ])
+    const snapshot = criarRegistroSnapshot({ produtos: [{ ordem: 1, itemId: 'MLB777', titulo: 'Lote em andamento',
+      urlOriginal: 'https://produto.mercadolivre.com.br/MLB-777-produto', urlNormalizada: 'https://produto.mercadolivre.com.br/MLB-777-produto' }] })
+    const chave = 'valio-garimpa:flash-batch-snapshot:v1'
+    dom.window.localStorage.setItem(chave, JSON.stringify(snapshot))
+    dom.window.localStorage.setItem('valio-garimpa:affiliate-batch-snapshot:v1', 'preservar-afiliados')
+    const armazenamentoAntes = JSON.stringify(dom.window.localStorage)
+    root = createRoot(dom.window.document.getElementById('root'))
+    await act(async () => root.render(createElement(ContextoSessao.Provider, { value: { token: 'token-teste' } }, createElement(Page))))
+    const query = (s) => dom.window.document.querySelector(s)
+    const botao = (texto, area = dom.window.document) => [...area.querySelectorAll('button')].find((b) => b.textContent.trim() === texto)
+    const click = async (el) => { assert.ok(el); await act(async () => el.click()) }
+    const fill = async (el, value) => act(async () => {
+      Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set.call(el, value)
+      el.dispatchEvent(new dom.window.Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }))
+    })
+    const manager = query('.flash-manager')
+    assert.ok(manager)
+    assert.equal(query('.flash-preview'), null)
+    assert.equal(calls.length, 0)
+    await click(botao('Carregar ofertas do catálogo', manager))
+    const linhas = () => [...manager.querySelectorAll('tbody tr')]
+    const linha = (id) => linhas().find((r) => r.textContent.includes(id))
+    assert.equal(linhas().length, 17)
+    assert.match(manager.textContent, /17 ofertas marcadas · 15 ativas agora · 12 na Home · 3 na fila · 1 expiradas/)
+    assert.equal(manager.querySelectorAll('.flash-manager-home').length, 12)
+    assert.equal(manager.querySelectorAll('.flash-manager-queue').length, 3)
+    const filtro = [...manager.querySelectorAll('label')].find((l) => l.textContent.startsWith('Filtrar ofertas')).querySelector('select')
+    await fill(filtro, 'Expiradas'); assert.equal(linhas().length, 1)
+    await fill(filtro, 'Agendadas'); assert.equal(linhas().length, 1)
+    await fill(filtro, 'Na fila'); assert.equal(linhas().length, 3)
+    await fill(filtro, 'Todas')
+    // Preenche a área de extração para garantir que o gerenciamento não a modifica.
+    const htmlAtual = html([card('MLB777', 1)])
+    await fill(query('#flash-html'), htmlAtual)
+    await click(botao('Extrair ofertas'))
+    await click(botao('Selecionar todas válidas'))
+    await click(botao('Verificar selecionadas no Valiô'))
+    await fill(query('.flash-category select'), 'Achados para Elas')
+    await fill(query('[aria-label="Prioridade de MLB777"]'), '100')
+    await fill(linha('MLB9015').querySelector('select'), '100')
+    assert.equal(escritas.length, 0)
+    await click(botao('Prévia de prioridade', linha('MLB9015')))
+    assert.ok(manager.querySelector('[aria-label="Prévia do gerenciamento"]'))
+    assert.equal(escritas.length, 0)
+    await click(botao('Confirmar alterações das ofertas publicadas', manager))
+    assert.equal(rows.get('MLB9015').prioridade_oferta, 100)
+    assert.deepEqual(escritas.at(-1).alteracao, { prioridade_oferta: 100 })
+    assert.ok(linha('MLB9015').querySelector('.flash-manager-home'))
+    const original = structuredClone(rows.get('MLB9015'))
+    await click(botao('Desativar Oferta Relâmpago', linha('MLB9015')))
+    assert.equal(rows.get('MLB9015').oferta_relampago, true)
+    await click(botao('Confirmar alterações das ofertas publicadas', manager))
+    assert.deepEqual(rows.get('MLB9015'), { ...original, oferta_relampago: false })
+    assert.deepEqual(escritas.at(-1).alteracao, { oferta_relampago: false })
+    await click(botao('Reativar Oferta Relâmpago', linha('MLB9015')))
+    await click(botao('Confirmar alterações das ofertas publicadas', manager))
+    assert.deepEqual(rows.get('MLB9015'), original)
+    assert.deepEqual(escritas.at(-1).alteracao, { oferta_relampago: true })
+    for (const id of ['MLB9001', 'MLB9002']) await click(linha(id).querySelector('input[type="checkbox"]'))
+    const seletorLote = [...manager.querySelectorAll('label')].find((l) => l.textContent.startsWith('Prioridade em lote')).querySelector('select')
+    await fill(seletorLote, '50')
+    await click(botao('Prévia de prioridade em lote', manager))
+    await click(botao('Confirmar alterações das ofertas publicadas', manager))
+    for (const id of ['MLB9001', 'MLB9002']) {
+      assert.equal(rows.get(id).prioridade_oferta, 50)
+      await click(linha(id).querySelector('input[type="checkbox"]'))
+    }
+    await click(botao('Desativar Ofertas Relâmpago selecionadas', manager))
+    await click(botao('Confirmar alterações das ofertas publicadas', manager))
+    for (const id of ['MLB9001', 'MLB9002']) {
+      assert.equal(rows.get(id).oferta_relampago, false)
+      assert.equal(rows.get(id).ativo, true)
+      assert.ok(rows.get(id).link_afiliado.startsWith('https://meli.la/original'))
+    }
+    await fill(manager.querySelector('input:not([type="checkbox"])'), 'MLB9001')
+    await click(botao('Consultar ITEM_ID', manager))
+    assert.ok(botao('Reativar Oferta Relâmpago', linha('MLB9001')))
+    assert.equal(JSON.stringify(dom.window.localStorage), armazenamentoAntes)
+    assert.equal(query('#flash-html').value, htmlAtual)
+    assert.equal(query('.flash-category select').value, 'Achados para Elas')
+    assert.equal(query('[aria-label="Prioridade de MLB777"]').value, '100')
+    assert.equal(query('.flash-preview input[type="checkbox"]').checked, true)
+    assert.ok(calls.every((url) => !url.includes('/status')))
+  } finally {
+    if (root) { const { act } = await import('react'); await act(async () => root.unmount()) }
+    dom.window.close()
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+      else delete globalThis[key]
+    }
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT
+  }
+})
+
+test('salvar/carregar lote preparado exige revalidação e nova prévia sem alterar o lote atual ou o Gerador', async () => {
+  const { CHAVE_LOTE_PREPARADO } = await fixturePreparado()
+  const [{ criarPreviaOfertas, confirmarPreviaOfertas }, { criarRegistroSnapshot }, { registrarRetornoLote }] = await Promise.all([
+    vite.ssrLoadModule('/server/ofertasRelampagoLote.ts'),
+    vite.ssrLoadModule('/src/features/importar-lista-afiliados/snapshotLoteAfiliados.ts'),
+    vite.ssrLoadModule('/src/features/ofertas-relampago/cicloLote.ts'),
+  ])
+  const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/ofertas-relampago' })
+  const globals = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLSelectElement', 'Node', 'Event', 'MouseEvent', 'Element', 'fetch']
+  const previous = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
+  const rows = new Map()
+  const chamadas = []
+  let falharConsulta = false
+  const gateway = {
+    async buscar(id) { return rows.has(id) ? [structuredClone(rows.get(id))] : [] },
+    async listarAtivas() { return [] },
+    async inserir(produto) { assert.equal(rows.has(produto.mercado_livre_id), false); rows.set(produto.mercado_livre_id, structuredClone(produto)) },
+    async atualizar() { assert.fail('Os itens deste teste eram novos; nenhuma atualização é permitida') },
+  }
+  for (const key of globals) Object.defineProperty(globalThis, key, { configurable: true, writable: true,
+    value: key === 'fetch' ? async (url, options) => {
+      const body = JSON.parse(options.body)
+      chamadas.push({ url, body })
+      if (url.endsWith('/verificar')) {
+        if (falharConsulta) throw new Error('API indisponível')
+        return { ok: true, json: async () => ({ ok: true, existentes: [] }) }
+      }
+      if (url.endsWith('/prever')) {
+        assert.equal(body.exigirPrazoValido, true)
+        assert.deepEqual(body.itens.map((item) => item.dados.mercadoLivreId), ['MLB8001'])
+        assert.equal(body.itens[0].dados.linkAfiliado, 'https://meli.la/salvo1')
+        return { ok: true, json: async () => ({ ok: true, previa: await criarPreviaOfertas(body, gateway), assinatura: 'nova-assinatura-preparada' }) }
+      }
+      assert.ok(url.endsWith('/confirmar'))
+      assert.equal(body.assinatura, 'nova-assinatura-preparada')
+      assert.equal(body.previa.exigirPrazoValido, true)
+      return { ok: true, json: async () => ({ ok: true, ...await confirmarPreviaOfertas(body.previa, gateway) }) }
+    } : dom.window[key] })
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  let root
+  try {
+    const [{ createRoot }, { act, createElement }, { default: Page }, { ContextoSessao }] = await Promise.all([
+      import('react-dom/client'), import('react'), vite.ssrLoadModule('/src/pages/OfertasRelampagoPage.tsx'),
+      vite.ssrLoadModule('/src/app/sessaoOperacionalContext.ts'),
+    ])
+    const query = (s) => dom.window.document.querySelector(s)
+    const botao = (texto, area = dom.window.document) => [...area.querySelectorAll('button')].find((b) => b.textContent.trim() === texto)
+    const click = async (el) => { assert.ok(el); await act(async () => el.click()) }
+    const fill = async (el, value) => act(async () => {
+      Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set.call(el, value)
+      el.dispatchEvent(new dom.window.Event(el.tagName === 'SELECT' ? 'change' : 'input', { bubbles: true }))
+    })
+    const mount = async () => {
+      root = createRoot(query('#root'))
+      await act(async () => root.render(createElement(ContextoSessao.Provider, { value: { token: 'token-preparado-secreto' } }, createElement(Page))))
+    }
+    const snapshot = criarRegistroSnapshot({ produtos: [8001, 8002].map((id, i) => ({ ordem: i + 1, itemId: `MLB${id}`, titulo: `Produto ${i + 1}`,
+      urlOriginal: `https://produto.mercadolivre.com.br/MLB-${id}-produto`, urlNormalizada: `https://produto.mercadolivre.com.br/MLB-${id}-produto` })) })
+    const gerador = registrarRetornoLote(snapshot, 'https://meli.la/salvo1\nhttps://meli.la/salvo2')
+    const chaveGerador = 'valio-garimpa:flash-batch-snapshot:v1'
+    const brutoGerador = JSON.stringify(gerador)
+    dom.window.localStorage.setItem(chaveGerador, brutoGerador)
+    dom.window.localStorage.setItem('valio-garimpa:affiliate-batch-snapshot:v1', 'afiliados-intactos')
+    await mount()
+    const htmlSalvar = html([card('MLB8001', 1, { end: '2099-01-01T00:00:00Z' }), card('MLB8002', 2, { end: '2000-01-01T00:00:00Z' })])
+    await fill(query('#flash-html'), htmlSalvar)
+    await click(botao('Extrair ofertas')); await click(botao('Selecionar todas válidas')); await click(botao('Verificar selecionadas no Valiô'))
+    await fill(query('#flash-categoria-MLB8001'), 'Achados para Elas')
+    await fill(query('#flash-categoria-MLB8002'), 'Achados para Casa')
+    await fill(query('[aria-label="Prioridade de MLB8001"]'), '100')
+    await fill(query('[aria-label="Prioridade de MLB8002"]'), '50')
+    const chamadasAntes = chamadas.length
+    await click(botao('Salvar lote para depois'))
+    assert.equal(chamadas.length, chamadasAntes)
+    assert.equal(rows.size, 0)
+    assert.match(query('.flash-prepared').textContent, /Lote salvo para depois. Nenhuma oferta foi publicada./)
+    const salvo = () => JSON.parse(dom.window.localStorage.getItem(CHAVE_LOTE_PREPARADO))
+    assert.equal(salvo().status, 'PREPARADO')
+    assert.deepEqual(salvo().itens.map((item) => [item.itemId, item.categoria, item.prioridade, item.linkMeli]), [
+      ['MLB8001', 'Achados para Elas', 100, 'https://meli.la/salvo1'], ['MLB8002', 'Achados para Casa', 50, 'https://meli.la/salvo2'],
+    ])
+    assert.equal(query('.flash-preview input[type="checkbox"]').checked, true)
+    assert.equal(query('[aria-label="Prioridade de MLB8001"]').value, '100')
+    assert.equal(dom.window.localStorage.getItem(chaveGerador), brutoGerador)
+    const brutoSalvo = dom.window.localStorage.getItem(CHAVE_LOTE_PREPARADO)
+    await click(botao('Salvar lote para depois'))
+    assert.ok(query('[aria-label="Substituir lote preparado"]'))
+    assert.equal(dom.window.localStorage.getItem(CHAVE_LOTE_PREPARADO), brutoSalvo)
+    await click(botao('Cancelar substituição'))
+    await click(botao('Salvar lote para depois')); await click(botao('Substituir lote preparado'))
+    assert.equal(rows.size, 0)
+    await act(async () => root.unmount()); await mount()
+    assert.equal(query('.flash-preview'), null)
+    assert.match(query('.flash-prepared').textContent, /2 produtos/)
+    assert.equal(query('[aria-label="Prévia do lote preparado"]'), null)
+    // Outro lote corrente pode continuar sendo preparado independentemente.
+    const htmlCorrente = html([card('MLB777', 1)])
+    await fill(query('#flash-html'), htmlCorrente)
+    await click(botao('Extrair ofertas')); await click(botao('Selecionar todas válidas')); await click(botao('Verificar selecionadas no Valiô'))
+    await fill(query('#flash-categoria-MLB777'), 'Achados para Maridos')
+    await fill(query('[aria-label="Prioridade de MLB777"]'), '50')
+    const preparados = query('.flash-prepared')
+    await click(botao('Carregar lote preparado', preparados))
+    assert.equal(salvo().status, 'REVALIDAÇÃO NECESSÁRIA')
+    assert.match(preparados.textContent, /Lote carregado. Revalide antes de publicar./)
+    const antesSemValidar = chamadas.length
+    assert.equal(botao('Gerar nova prévia do lote preparado', preparados).disabled, true)
+    await click(botao('Gerar nova prévia do lote preparado', preparados))
+    assert.equal(chamadas.length, antesSemValidar)
+    falharConsulta = true
+    await click(botao('Revalidar agora', preparados))
+    assert.equal(salvo().status, 'REVALIDAÇÃO NECESSÁRIA')
+    assert.equal(botao('Gerar nova prévia do lote preparado', preparados).disabled, true)
+    falharConsulta = false
+    await click(botao('Revalidar agora', preparados))
+    assert.equal(salvo().status, 'PARCIALMENTE BLOQUEADO')
+    assert.match(preparados.textContent, /Oferta expirada/)
+    assert.match(preparados.textContent, /Revalidação parcial/)
+    assert.equal(query('[aria-label="Prévia do lote preparado"]'), null)
+    await click(botao('Gerar nova prévia do lote preparado', preparados))
+    assert.ok(query('[aria-label="Prévia do lote preparado"]'))
+    assert.equal(rows.size, 0)
+    assert.doesNotMatch(dom.window.localStorage.getItem(CHAVE_LOTE_PREPARADO), /token-preparado-secreto|nova-assinatura-preparada|assinatura|"previa"/)
+    await click(botao('Confirmar publicação do lote preparado', preparados))
+    assert.equal(rows.size, 1)
+    assert.equal(rows.get('MLB8001').link_afiliado, 'https://meli.la/salvo1')
+    assert.equal(rows.get('MLB8001').categoria, 'Achados para Elas')
+    assert.equal(rows.get('MLB8001').prioridade_oferta, 100)
+    assert.equal(salvo().itens[0].concluido, true)
+    assert.equal(salvo().itens[1].concluido, false)
+    assert.notEqual(salvo().status, 'FINALIZADO')
+    const antesExcluir = chamadas.length
+    await click(botao('Excluir lote preparado', preparados)); await click(botao('Confirmar exclusão do lote preparado', preparados))
+    assert.equal(chamadas.length, antesExcluir)
+    assert.equal(dom.window.localStorage.getItem(CHAVE_LOTE_PREPARADO), null)
+    assert.equal(dom.window.localStorage.getItem(chaveGerador), brutoGerador)
+    assert.equal(dom.window.localStorage.getItem('valio-garimpa:affiliate-batch-snapshot:v1'), 'afiliados-intactos')
+    assert.equal(query('#flash-html').value, htmlCorrente)
+    assert.equal(query('#flash-categoria-MLB777').value, 'Achados para Maridos')
+    assert.equal(query('[aria-label="Prioridade de MLB777"]').value, '50')
+    assert.equal(query('.flash-preview input[type="checkbox"]').checked, true)
+    assert.equal(rows.get('MLB8001').link_afiliado, 'https://meli.la/salvo1')
+  } finally {
+    if (root) { const { act } = await import('react'); await act(async () => root.unmount()) }
+    dom.window.close()
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor)
+      else delete globalThis[key]
+    }
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT
+  }
+})
+
+test('status revalidado salvo não autoriza após reload; edição exige nova consulta e conclusão persiste FINALIZADO', async () => {
+  const { lote, CHAVE_LOTE_PREPARADO } = await fixturePreparado()
+  lote.itens = [lote.itens[0]]
+  lote.status = 'REVALIDADO'
+  const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/ofertas-relampago' })
+  const globals = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLSelectElement', 'Node', 'Event', 'MouseEvent', 'Element', 'fetch']
+  const previous = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
+  const chamadas = []
+  for (const key of globals) Object.defineProperty(globalThis, key, { configurable: true, writable: true,
+    value: key === 'fetch' ? async (url, options) => {
+      const body = JSON.parse(options.body); chamadas.push({ url, body })
+      if (url.endsWith('/verificar')) return { ok: true, json: async () => ({ ok: true, existentes: [] }) }
+      if (url.endsWith('/prever')) return { ok: true, json: async () => ({ ok: true, assinatura: 'assinatura-somente-memoria',
+        previa: { modo: 'ENVIAR', operacoes: [{ itemId: 'MLB8001', produto: 'Produto 1', acao: 'CRIAR COMO OFERTA', prioridade: 50 }] } }) }
+      assert.ok(url.endsWith('/confirmar'))
+      return { ok: true, json: async () => ({ ok: true, criadas: 1, ativadas: 0, atualizadas: 0, desativadas: 0, semAlteracao: 0,
+        conflitos: 0, erros: 0, itens: [{ itemId: 'MLB8001', resultado: 'CRIADA' }] }) }
+    } : dom.window[key] })
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  let root
+  try {
+    const [{ createRoot }, { act, createElement }, { default: Panel }, { ContextoSessao }] = await Promise.all([
+      import('react-dom/client'), import('react'), vite.ssrLoadModule('/src/features/ofertas-relampago/LotePreparadoPanel.tsx'),
+      vite.ssrLoadModule('/src/app/sessaoOperacionalContext.ts'),
+    ])
+    dom.window.localStorage.setItem(CHAVE_LOTE_PREPARADO, JSON.stringify(lote))
+    const query = (s) => dom.window.document.querySelector(s)
+    const botao = (s) => [...dom.window.document.querySelectorAll('button')].find((b) => b.textContent.trim() === s)
+    const click = async (el) => { assert.ok(el); await act(async () => el.click()) }
+    const mount = async () => {
+      root = createRoot(query('#root'))
+      await act(async () => root.render(createElement(ContextoSessao.Provider, { value: { token: 'token-nunca-salvo' } },
+        createElement(Panel, { criarAtual: () => lote, podeSalvar: false }))))
+    }
+    await mount()
+    assert.equal(chamadas.length, 0)
+    assert.equal(botao('Confirmar publicação do lote preparado'), undefined)
+    await click(botao('Carregar lote preparado'))
+    assert.match(query('.flash-prepared').textContent, /REVALIDAÇÃO NECESSÁRIA/)
+    assert.equal(botao('Gerar nova prévia do lote preparado').disabled, true)
+    await click(botao('Revalidar agora'))
+    assert.equal(JSON.parse(dom.window.localStorage.getItem(CHAVE_LOTE_PREPARADO)).status, 'REVALIDADO')
+    assert.match(query('.flash-prepared').textContent, /Lote revalidado. Gere uma nova prévia antes da confirmação./)
+    const editar = async (indice, valor) => act(async () => {
+      const select = query('.flash-prepared-items li').querySelectorAll('select')[indice]
+      select.value = valor; select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
+    await editar(0, 'Achados para Presentear'); await editar(1, '50')
+    assert.equal(botao('Gerar nova prévia do lote preparado').disabled, true)
+    const atualizado = JSON.parse(dom.window.localStorage.getItem(CHAVE_LOTE_PREPARADO))
+    assert.equal(atualizado.itens[0].categoria, 'Achados para Presentear')
+    assert.equal(atualizado.itens[0].prioridade, 50)
+    assert.equal(atualizado.itens[0].linkMeli, 'https://meli.la/salvo1')
+    await click(botao('Revalidar agora')); await click(botao('Gerar nova prévia do lote preparado'))
+    const pedido = chamadas.find((c) => c.url.endsWith('/prever')).body
+    assert.equal(pedido.exigirPrazoValido, true)
+    assert.equal(pedido.itens[0].dados.categoria, 'Achados para Presentear')
+    assert.equal(pedido.itens[0].dados.prioridadeOferta, 50)
+    assert.doesNotMatch(dom.window.localStorage.getItem(CHAVE_LOTE_PREPARADO), /assinatura-somente-memoria|token-nunca-salvo/)
+    await click(botao('Confirmar publicação do lote preparado'))
+    assert.equal(JSON.parse(dom.window.localStorage.getItem(CHAVE_LOTE_PREPARADO)).status, 'FINALIZADO')
+    await act(async () => root.unmount()); await mount()
+    assert.match(query('.flash-prepared').textContent, /Status: FINALIZADO/)
+    assert.equal(botao('Carregar lote preparado').disabled, true)
+    assert.equal(botao('Confirmar publicação do lote preparado'), undefined)
   } finally {
     if (root) { const { act } = await import('react'); await act(async () => root.unmount()) }
     dom.window.close()

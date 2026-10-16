@@ -2,6 +2,20 @@
 .garimpo-shell .flash-import label, .garimpo-shell .flash-generator label, .garimpo-shell .flash-category label { display: block; margin: 12px 0 6px; font-weight: 700; }
 .garimpo-shell .flash-import textarea, .garimpo-shell .flash-import input, .garimpo-shell .flash-generator textarea, .garimpo-shell .flash-category select { display: block; width: 100%; margin-top: 6px; padding: 10px; }
 .garimpo-shell .flash-actions { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.garimpo-shell .flash-manager { margin: 24px 0; padding: 24px; border-top: 3px solid var(--yellow-primary); }
+.garimpo-shell .flash-manager label { display: inline-flex; flex-direction: column; gap: 6px; }
+.garimpo-shell .flash-manager input:not([type="checkbox"]), .garimpo-shell .flash-manager select { padding: 8px; }
+.garimpo-shell .flash-manager-item-actions { display: grid; gap: 8px; min-width: 180px; }
+.garimpo-shell .flash-manager-home, .garimpo-shell .flash-manager-queue { display: block; margin-top: 6px; }
+.garimpo-shell .flash-manager-home { color: var(--success); }
+.garimpo-shell .flash-manager-queue { color: var(--text-secondary); }
+.garimpo-shell .flash-manager-preview { padding: 16px; border: 1px solid var(--warning); border-radius: var(--radius-sm); }
+.garimpo-shell .flash-prepared { margin: 24px 0; padding: 24px; border-top: 3px solid var(--success); }
+.garimpo-shell .flash-prepared-items { display: grid; gap: 14px; padding: 0; list-style: none; }
+.garimpo-shell .flash-prepared-items li, .garimpo-shell .flash-prepared-preview { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.garimpo-shell .flash-prepared-items img { display: block; width: 64px; height: 64px; object-fit: contain; margin-top: 8px; }
+.garimpo-shell .flash-prepared-items label { display: block; margin: 8px 0; }
+.garimpo-shell .flash-prepared-items select { margin-left: 8px; padding: 8px; }
 .garimpo-shell .flash-selecionadas { margin: 18px 0; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated); }
 .garimpo-shell .flash-selecionadas__cabecalho { display: flex; align-items: start; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 .garimpo-shell .flash-selecionadas h3 { margin: 0 0 5px; font-size: 15px; }

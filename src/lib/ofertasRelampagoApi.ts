@@ -1,4 +1,5 @@
-export type ModoOferta = 'ATIVAR' | 'DESATIVAR' | 'PRIORIDADE' | 'ENVIAR' | 'SUBSTITUIR'
+import type { OfertaPublicada } from '../features/ofertas-relampago/gerenciarOfertas'
+export type ModoOferta = 'ATIVAR' | 'DESATIVAR' | 'PRIORIDADE' | 'ENVIAR' | 'SUBSTITUIR' | 'REATIVAR'
 export type ItemOferta = { tipo: 'ATUALIZAR_OFERTA' | 'NOVO_PRODUTO'; dados: Record<string, unknown> }
 export type LinhaPreviaOferta = { itemId: string; produto: string; situacaoAtual: string; acao: string
   prioridade: number; precoAnterior: number | null; precoAtual: number; percentualDesconto: number | null
@@ -28,6 +29,19 @@ export async function preverOfertas(modo: ModoOferta, itens: ItemOferta[], token
   const resposta = await requisitar('prever', { modo, itens }, token, enviar)
   const previa = resposta.previa as PreviaRemotaOfertas | undefined
   if (!previa || !Array.isArray(previa.operacoes) || typeof resposta.assinatura !== 'string') throw new Error('Prévia de ofertas inválida.')
+  return { previa, assinatura: resposta.assinatura }
+}
+
+export async function listarOfertasPublicadas(token: string, itemId?: string): Promise<OfertaPublicada[]> {
+  const resposta = await requisitar('listar', itemId ? { itemId } : {}, token)
+  if (!Array.isArray(resposta.produtos)) throw new Error('Listagem de ofertas inválida.')
+  return resposta.produtos as OfertaPublicada[]
+}
+
+export async function preverLotePreparado(itens: ItemOferta[], token: string): Promise<PreviaAssinadaOfertas> {
+  const resposta = await requisitar('prever', { modo: 'ENVIAR', itens, exigirPrazoValido: true }, token)
+  const previa = resposta.previa as PreviaRemotaOfertas | undefined
+  if (!previa || !Array.isArray(previa.operacoes) || typeof resposta.assinatura !== 'string') throw new Error('Prévia do lote preparado inválida.')
   return { previa, assinatura: resposta.assinatura }
 }
 

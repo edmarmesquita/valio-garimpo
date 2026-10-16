@@ -4,6 +4,34 @@ import { assinarPrevia, confirmarPreviaOfertas, criarPreviaOfertas, validarAssin
 import type { ContextoRotas } from './contexto.js'
 
 export function registrarOfertasRelampago(router: Router, { deps, autorizar }: ContextoRotas) {
+  router.post('/ofertas-relampago/listar', async (req, res) => {
+    res.set('Cache-Control', 'no-store')
+    const config = autorizar(req, res)
+    if (!config) return
+    const pedido = req.body
+    if (!pedido || typeof pedido !== 'object' || Array.isArray(pedido)
+      || Object.keys(pedido).some((chave) => chave !== 'itemId')
+      || pedido.itemId !== undefined && (typeof pedido.itemId !== 'string' || !/^MLB\d+$/.test(pedido.itemId))) {
+      res.status(400).json({ ok: false, erro: 'Consulta de ofertas inválida.' }); return
+    }
+    try {
+      const gateway = (deps.ofertas ?? criarOfertasGateway)(config)
+      const encontrados = pedido.itemId ? await gateway.buscar(pedido.itemId)
+        : await (gateway.listarGerenciamento ?? gateway.listarAtivas)()
+      if (pedido.itemId && encontrados.length !== 1) {
+        res.status(404).json({ ok: false, erro: 'ITEM_ID não encontrado ou ambíguo.' }); return
+      }
+      const produtos = encontrados.map((produto) => ({
+        mercado_livre_id: produto.mercado_livre_id, titulo: produto.titulo, imagem: produto.imagem,
+        categoria: produto.categoria, preco: produto.preco, ativo: produto.ativo,
+        oferta_relampago: produto.oferta_relampago, oferta_inicio: produto.oferta_inicio, oferta_fim: produto.oferta_fim,
+        preco_anterior: produto.preco_anterior, percentual_desconto: produto.percentual_desconto,
+        prioridade_oferta: produto.prioridade_oferta,
+      }))
+      res.json({ ok: true, produtos })
+    } catch { res.status(502).json({ ok: false, erro: 'Não foi possível carregar as ofertas do catálogo.' }) }
+  })
+
   router.post('/ofertas-relampago/prever', async (req, res) => {
     res.set('Cache-Control', 'no-store')
     const config = autorizar(req, res)

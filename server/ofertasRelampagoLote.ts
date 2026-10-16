@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { CATEGORIAS_VALIO, validarProdutoPublicacao } from './valioProduto.js'
 import { mapearProdutoParaRow } from './services/supabase.js'
 
-export type ModoOferta = 'ATIVAR' | 'DESATIVAR' | 'PRIORIDADE' | 'ENVIAR' | 'SUBSTITUIR'
+export type ModoOferta = 'ATIVAR' | 'DESATIVAR' | 'PRIORIDADE' | 'ENVIAR' | 'SUBSTITUIR' | 'REATIVAR'
 type Registro = Record<string, unknown>
 export type CamposOferta = {
   oferta_relampago: boolean; oferta_inicio: string | null; oferta_fim: string | null
@@ -20,6 +20,7 @@ export type NovoProdutoOferta = OfertaRow & {
 export type OfertaGateway = {
   buscar: (id: string) => Promise<OfertaRow[]>
   listarAtivas: () => Promise<OfertaRow[]>
+  listarGerenciamento?: () => Promise<OfertaRow[]>
   atualizar: (id: string, anterior: OfertaRow, alteracao: AlteracaoOferta) => Promise<OfertaRow[]>
   inserir: (produto: NovoProdutoOferta) => Promise<void>
 }
@@ -28,7 +29,7 @@ type PedidoItem = { tipo: 'ATUALIZAR_OFERTA' | 'NOVO_PRODUTO'; dados: Registro }
 type Operacao = { itemId: string; produto: string; situacaoAtual: string; acao: Acao; prioridade: number
   precoAnterior: number | null; precoAtual: number; percentualDesconto: number | null; ofertaFim: string | null
   resultadoEsperado: string; tipo: PedidoItem['tipo']; dados: Registro; anterior: OfertaRow | null }
-export type PreviaOfertas = { modo: ModoOferta; emitidaEm: number; operacoes: Operacao[]; desativarAtuais: number; ativarSelecionadas: number; ativasNaPrevia: string[] }
+export type PreviaOfertas = { modo: ModoOferta; emitidaEm: number; operacoes: Operacao[]; desativarAtuais: number; ativarSelecionadas: number; ativasNaPrevia: string[]; exigirPrazoValido?: true }
 export type ResultadoOfertas = { criadas: number; ativadas: number; atualizadas: number; desativadas: number
   semAlteracao: number; conflitos: number; erros: number
   itens: { itemId: string; resultado: string; motivo?: string }[] }
@@ -58,11 +59,14 @@ function validarItem(valor: unknown, modo: ModoOferta): PedidoItem {
   if (tipo === 'NOVO_PRODUTO' && !['ATIVAR', 'ENVIAR', 'SUBSTITUIR'].includes(modo)) throw new Error('Produto novo não é permitido nesta ação.')
   const desativar = modo === 'DESATIVAR' || modo === 'ENVIAR' && dados.ofertaRelampago === false
   if (desativar && tipo === 'NOVO_PRODUTO') throw new Error('Produto novo não pode ser desativado.')
-  const permitidas = modo === 'PRIORIDADE' ? ['mercadoLivreId', 'prioridadeOferta']
+  const permitidas = modo === 'REATIVAR' ? ['mercadoLivreId', 'ofertaRelampago']
+    : modo === 'PRIORIDADE' ? ['mercadoLivreId', 'prioridadeOferta']
     : desativar ? ['mercadoLivreId', 'ofertaRelampago']
       : ['mercadoLivreId', ...campos, ...(tipo === 'NOVO_PRODUTO' ? novos : [])]
   if (!chaves(dados, permitidas) || Object.keys(dados).length !== permitidas.length) throw new Error('O item contém campos não permitidos ou ausentes.')
-  if (modo === 'PRIORIDADE') {
+  if (modo === 'REATIVAR') {
+    if (tipo !== 'ATUALIZAR_OFERTA' || dados.ofertaRelampago !== true) throw new Error('Reativação inválida.')
+  } else if (modo === 'PRIORIDADE') {
     if (!prioridade(dados.prioridadeOferta)) throw new Error('Prioridade inválida.')
   } else if (desativar) {
     if (dados.ofertaRelampago !== false) throw new Error('Desativação inválida.')
@@ -79,22 +83,33 @@ function validarItem(valor: unknown, modo: ModoOferta): PedidoItem {
   return { tipo, dados }
 }
 
-export function validarPedidoOfertas(valor: unknown): { modo: ModoOferta; itens: PedidoItem[] } {
+export function validarPedidoOfertas(valor: unknown): { modo: ModoOferta; itens: PedidoItem[]; exigirPrazoValido?: true } {
   const pedido = objeto(valor)
-  if (!pedido || !chaves(pedido, ['modo', 'itens']) || Object.keys(pedido).length !== 2
-    || !['ATIVAR', 'DESATIVAR', 'PRIORIDADE', 'ENVIAR', 'SUBSTITUIR'].includes(String(pedido.modo))
+  if (!pedido || !chaves(pedido, ['modo', 'itens', 'exigirPrazoValido'])
+    || Object.keys(pedido).length !== (pedido.exigirPrazoValido === true ? 3 : 2)
+    || Object.hasOwn(pedido, 'exigirPrazoValido') && pedido.exigirPrazoValido !== true
+    || !['ATIVAR', 'DESATIVAR', 'PRIORIDADE', 'ENVIAR', 'SUBSTITUIR', 'REATIVAR'].includes(String(pedido.modo))
     || !Array.isArray(pedido.itens) || pedido.itens.length < 1 || pedido.itens.length > 500) throw new Error('Lote de ofertas inválido.')
   const modo = pedido.modo as ModoOferta
   const itens = pedido.itens.map((item) => validarItem(item, modo))
   const ids = itens.map((item) => item.dados.mercadoLivreId)
   if (new Set(ids).size !== ids.length) throw new Error('ITEM_ID duplicado no lote.')
-  return { modo, itens }
+  return { modo, itens, ...(pedido.exigirPrazoValido === true ? { exigirPrazoValido: true as const } : {}) }
+}
+
+function validarPrazoPreparado(dados: Registro, agora: number) {
+  if (dados.ofertaRelampago === false || dados.ofertaFim === null) return
+  if (typeof dados.ofertaFim !== 'string' || Date.parse(dados.ofertaFim) <= agora
+    || typeof dados.ofertaInicio === 'string' && Date.parse(dados.ofertaInicio) >= Date.parse(dados.ofertaFim)) {
+    throw new Error('Oferta expirada ou período inconsistente. Revalide o lote preparado e gere uma nova prévia.')
+  }
 }
 
 function alteracao(item: PedidoItem, modo: ModoOferta): AlteracaoOferta {
   const d = item.dados
   if (modo === 'DESATIVAR' || d.ofertaRelampago === false) return { oferta_relampago: false }
   if (modo === 'PRIORIDADE') return { prioridade_oferta: d.prioridadeOferta as number }
+  if (modo === 'REATIVAR') return { oferta_relampago: true }
   return { oferta_relampago: true, oferta_inicio: d.ofertaInicio as string | null,
     oferta_fim: d.ofertaFim as string | null, preco_anterior: d.precoAnterior as number | null,
     percentual_desconto: d.percentualDesconto as number | null, texto_oferta: d.textoOferta as string | null,
@@ -116,11 +131,11 @@ function operacao(item: PedidoItem, anterior: OfertaRow | null, modo: ModoOferta
   const desativar = d.ofertaRelampago === false
   return { itemId: d.mercadoLivreId as string, produto: anterior?.titulo ?? d.titulo as string ?? 'Produto',
     situacaoAtual: anterior ? anterior.oferta_relampago ? 'OFERTA ATIVA' : 'PRODUTO SEM OFERTA' : 'NOVO PRODUTO',
-    acao, prioridade: desativar ? anterior?.prioridade_oferta ?? 0 : d.prioridadeOferta as number,
-    precoAnterior: desativar || modo === 'PRIORIDADE' ? anterior?.preco_anterior ?? null : d.precoAnterior as number | null,
+    acao, prioridade: desativar || modo === 'REATIVAR' ? anterior?.prioridade_oferta ?? 0 : d.prioridadeOferta as number,
+    precoAnterior: desativar || modo === 'PRIORIDADE' || modo === 'REATIVAR' ? anterior?.preco_anterior ?? null : d.precoAnterior as number | null,
     precoAtual: anterior?.preco ?? d.preco as number,
-    percentualDesconto: desativar || modo === 'PRIORIDADE' ? anterior?.percentual_desconto ?? null : d.percentualDesconto as number | null,
-    ofertaFim: desativar || modo === 'PRIORIDADE' ? anterior?.oferta_fim ?? null : d.ofertaFim as string | null,
+    percentualDesconto: desativar || modo === 'PRIORIDADE' || modo === 'REATIVAR' ? anterior?.percentual_desconto ?? null : d.percentualDesconto as number | null,
+    ofertaFim: desativar || modo === 'PRIORIDADE' || modo === 'REATIVAR' ? anterior?.oferta_fim ?? null : d.ofertaFim as string | null,
     resultadoEsperado: acao === 'DESATIVAR' ? 'Sai da fila; produto permanece no catálogo.'
       : acao === 'SEM ALTERAÇÃO' ? 'Nenhuma gravação.'
         : acao === 'CRIAR COMO OFERTA' ? 'Produto novo criado como oferta.' : 'Campos de oferta atualizados.',
@@ -132,11 +147,13 @@ export async function criarPreviaOfertas(valor: unknown, gateway: OfertaGateway,
   const operacoes: Operacao[] = []
   let ativasNaPrevia: string[] = []
   for (const item of pedido.itens) {
+    if (pedido.exigirPrazoValido) validarPrazoPreparado(item.dados, agora)
     const encontrados = await gateway.buscar(item.dados.mercadoLivreId as string)
     if (encontrados.length > 1) throw new Error('Mais de um produto corresponde ao ITEM_ID.')
     const anterior = encontrados[0] ?? null
     if (item.tipo === 'NOVO_PRODUTO' && anterior) throw new Error(`Produto ${item.dados.mercadoLivreId} já existe; atualize a verificação.`)
     if (item.tipo === 'ATUALIZAR_OFERTA' && !anterior) throw new Error(`Produto ${item.dados.mercadoLivreId} não existe; atualize a verificação.`)
+    if (pedido.modo === 'REATIVAR' && anterior) validarReativacao(anterior, agora)
     operacoes.push(operacao(item, anterior, pedido.modo))
   }
   if (pedido.modo === 'SUBSTITUIR') {
@@ -149,6 +166,7 @@ export async function criarPreviaOfertas(valor: unknown, gateway: OfertaGateway,
     }
   }
   return { modo: pedido.modo, emitidaEm: agora, operacoes, ativasNaPrevia,
+    ...(pedido.exigirPrazoValido ? { exigirPrazoValido: true as const } : {}),
     desativarAtuais: operacoes.filter((item) => item.acao === 'DESATIVAR').length,
     ativarSelecionadas: operacoes.filter((item) => item.acao === 'ATIVAR' || item.acao === 'CRIAR COMO OFERTA').length }
 }
@@ -167,6 +185,19 @@ export function validarAssinatura(preview: unknown, assinatura: unknown, segredo
 
 const mesmoEstado = (a: OfertaRow, b: OfertaRow) => (Object.keys(b) as (keyof OfertaRow)[])
   .every((campo) => a[campo] === b[campo])
+
+function validarReativacao(produto: OfertaRow, agora: number) {
+  const inicio = produto.oferta_inicio === null ? null : Date.parse(produto.oferta_inicio)
+  const fim = produto.oferta_fim === null ? null : Date.parse(produto.oferta_fim)
+  if (!produto.ativo || !Number.isFinite(produto.preco) || produto.preco <= 0
+    || !instante(produto.oferta_inicio) || !instante(produto.oferta_fim)
+    || fim !== null && (fim <= agora || inicio !== null && fim <= inicio)
+    || !prioridade(produto.prioridade_oferta)
+    || produto.preco_anterior !== null && (!Number.isFinite(produto.preco_anterior) || produto.preco_anterior <= 0)
+    || produto.percentual_desconto !== null && (!Number.isFinite(produto.percentual_desconto) || produto.percentual_desconto < 0 || produto.percentual_desconto > 100)) {
+    throw new Error('Oferta não pode ser reativada: confira prazo, dados da oferta e se o produto está ativo no catálogo.')
+  }
+}
 function camposTecnicosSeguros(erro: unknown, segredos: readonly string[]) {
   const registro = objeto(erro)
   const limpar = (valor: unknown) => {
@@ -204,9 +235,11 @@ export async function confirmarPreviaOfertas(preview: PreviaOfertas, gateway: Of
         || op.anterior && !mesmoEstado(encontrados[0], op.anterior)) {
         resumo.conflitos++; resumo.itens.push({ itemId: op.itemId, resultado: 'CONFLITO', motivo: 'Produto mudou desde a prévia.' }); continue
       }
+      if (preview.exigirPrazoValido) validarPrazoPreparado(op.dados, agora.getTime())
       if (op.acao === 'SEM ALTERAÇÃO') {
         resumo.semAlteracao++; resumo.itens.push({ itemId: op.itemId, resultado: 'SEM ALTERAÇÃO' }); continue
       }
+      if (preview.modo === 'REATIVAR' && encontrados[0]) validarReativacao(encontrados[0], agora.getTime())
       if (!op.anterior) {
         const d = op.dados
         const dataPreco = new Intl.DateTimeFormat('pt-BR', { timeZone: 'America/Sao_Paulo',

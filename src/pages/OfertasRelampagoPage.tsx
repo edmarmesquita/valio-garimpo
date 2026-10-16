@@ -11,6 +11,9 @@ import { prepararOfertasSelecionadas, type ResultadoPreparo } from '../features/
 import { confirmarOfertas, preverOfertas, type ItemOferta, type ModoOferta, type PreviaAssinadaOfertas, type ResultadoConfirmacaoOfertas } from '../lib/ofertasRelampagoApi'
 import './OfertasRelampagoPage.css'
 import { resolverUrlGerador } from '../features/ofertas-relampago/urlGerador'
+import GerenciarOfertasPanel from '../features/ofertas-relampago/GerenciarOfertasPanel'
+import LotePreparadoPanel from '../features/ofertas-relampago/LotePreparadoPanel'
+import { criarLotePreparado } from '../features/ofertas-relampago/lotePreparado'
 
 import { CHAVE_SNAPSHOT_OFERTAS as CHAVE_SNAPSHOT, validarLoteOfertas, registrarRetornoLote, registrarConfirmacaoLote } from '../features/ofertas-relampago/cicloLote'
 const dinheiro = (valor: number | null) => valor === null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
@@ -365,5 +368,7 @@ export default function OfertasRelampagoPage() {
         {' '}· Conflitos: {resultadoConfirmacao.conflitos} · Erros: {resultadoConfirmacao.erros}</p>
       <ul>{resultadoConfirmacao.itens.map((item) => <li key={item.itemId}>{item.itemId}: {item.resultado}{item.motivo ? ` — ${item.motivo}` : ''}</li>)}</ul>
     </section>}
+    <LotePreparadoPanel podeSalvar={selecionadas.length > 0} criarAtual={() => criarLotePreparado(ofertas, selecionados, categorias, prioridades, existentes, verificados, retorno, desativadas)} />
+    <GerenciarOfertasPanel key={token} />
   </AreaOperacional>
 }

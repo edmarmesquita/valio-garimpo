@@ -9,7 +9,7 @@ const vite = await createServer({ server: { middlewareMode: true }, appType: 'cu
 const { criarPreviaOfertas, confirmarPreviaOfertas, validarPedidoOfertas, assinarPrevia, validarAssinatura } =
   await vite.ssrLoadModule('/server/ofertasRelampagoLote.ts')
 const { criarRotaValioProdutos } = await vite.ssrLoadModule('/server/valioProdutos.ts')
-const { mapearProdutoParaRow } = await vite.ssrLoadModule('/server/services/supabase.ts')
+const { mapearProdutoParaRow, criarOfertasGateway } = await vite.ssrLoadModule('/server/services/supabase.ts')
 test.after(async () => vite.close())
 
 const id = (n) => `MLB${1000 + n}`
@@ -272,6 +272,13 @@ test('rotas exigem token, prévia assinada e confirmação explícita para grava
       return { status: response.status, body: await response.json() }
     }
     const pedido = { modo: 'ATIVAR', itens: [ativar(1)] }
+    assert.equal((await enviar('/listar', {}, 'errado')).status, 401)
+    assert.equal((await enviar('/listar', { ativo: false })).status, 400)
+    assert.deepEqual((await enviar('/listar', {})).body.produtos, [])
+    const consulta = await enviar('/listar', { itemId: id(1) })
+    assert.equal(consulta.status, 200)
+    assert.equal(consulta.body.produtos[0].ativo, true)
+    assert.equal('link_afiliado' in consulta.body.produtos[0], false)
     assert.equal((await enviar('/prever', pedido, 'errado')).status, 401)
     const previa = await enviar('/prever', pedido)
     assert.equal(previa.status, 200)
@@ -282,5 +289,90 @@ test('rotas exigem token, prévia assinada e confirmação explícita para grava
     assert.equal(confirmado.status, 200)
     assert.equal(confirmado.body.ativadas, 1)
     assert.equal(escritas.length, 1)
+    const listadas = await enviar('/listar', {})
+    assert.equal(listadas.body.produtos.length, 1)
+    assert.equal(listadas.body.produtos[0].oferta_relampago, true)
   } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
+test('reativação gerenciada altera apenas oferta_relampago e revalida prazo e concorrência', async () => {
+  const agora = new Date('2026-10-16T12:00:00Z')
+  const { gateway, rows, escritas } = fake(3, {
+    1: { oferta_fim: '2026-10-17T12:00:00Z', prioridade_oferta: 50, preco_anterior: 80 },
+    2: { oferta_fim: '2026-10-15T12:00:00Z' },
+    3: { ativo: false },
+  })
+  const pedido = (n) => ({ modo: 'REATIVAR', itens: [{ tipo: 'ATUALIZAR_OFERTA', dados: { mercadoLivreId: id(n), ofertaRelampago: true } }] })
+  const anterior = clone(rows.get(id(1)))
+  const previa = await criarPreviaOfertas(pedido(1), gateway, agora.getTime())
+  assert.equal(escritas.length, 0)
+  assert.equal(previa.operacoes[0].prioridade, 50)
+  assert.equal(previa.operacoes[0].ofertaFim, anterior.oferta_fim)
+  const resultado = await confirmarPreviaOfertas(previa, gateway, agora)
+  assert.equal(resultado.ativadas, 1)
+  assert.deepEqual(escritas[0].alteracao, { oferta_relampago: true })
+  assert.deepEqual(rows.get(id(1)), { ...anterior, oferta_relampago: true })
+  await assert.rejects(() => criarPreviaOfertas(pedido(2), gateway, agora.getTime()), /não pode ser reativada/)
+  await assert.rejects(() => criarPreviaOfertas(pedido(3), gateway, agora.getTime()), /não pode ser reativada/)
+  const desativacao = await criarPreviaOfertas({ modo: 'DESATIVAR', itens: [desativar(1)] }, gateway)
+  await confirmarPreviaOfertas(desativacao, gateway, agora)
+  assert.equal(rows.get(id(1)).ativo, true)
+  const expiravel = await criarPreviaOfertas(pedido(1), gateway, agora.getTime())
+  const expirou = await confirmarPreviaOfertas(expiravel, gateway, new Date('2026-10-18T00:00:00Z'))
+  assert.equal(expirou.erros, 1)
+  assert.equal(rows.get(id(1)).oferta_relampago, false)
+  rows.set(id(1), { ...rows.get(id(1)), prioridade_oferta: 100 })
+  const conflito = await confirmarPreviaOfertas(expiravel, gateway, agora)
+  assert.equal(conflito.conflitos, 1)
+  assert.equal(rows.get(id(1)).oferta_relampago, false)
+  assert.throws(() => validarPedidoOfertas({ modo: 'REATIVAR', itens: [{ tipo: 'ATUALIZAR_OFERTA', dados: { mercadoLivreId: id(1), ofertaRelampago: true, ativo: true } }] }))
+})
+
+test('listagem paginada de gerenciamento usa created_at desc e inclui marcadas futuras e expiradas', async () => {
+  const originalFetch = globalThis.fetch
+  const consultas = []
+  const produtos = Array.from({ length: 501 }, (_, i) => row(i + 1, { oferta_relampago: true,
+    oferta_inicio: i === 0 ? '2099-01-01T00:00:00Z' : null,
+    oferta_fim: i === 1 ? '2000-01-01T00:00:00Z' : null }))
+  try {
+    globalThis.fetch = async (endereco, options) => {
+      const url = new URL(String(endereco))
+      consultas.push(url)
+      assert.equal(options.method ?? 'GET', 'GET')
+      assert.equal(url.searchParams.get('oferta_relampago'), 'eq.true')
+      assert.equal(url.searchParams.get('order'), 'created_at.desc')
+      assert.equal(url.searchParams.has('ativo'), false)
+      const inicio = Number(url.searchParams.get('offset') ?? 0)
+      return new Response(JSON.stringify(produtos.slice(inicio, inicio + 500)), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }
+    const gateway = criarOfertasGateway({ url: 'https://teste.supabase.co', serviceRoleKey: 'chave-falsa' })
+    const ofertas = await gateway.listarGerenciamento()
+    assert.equal(ofertas.length, 501)
+    assert.equal(consultas.length, 2)
+    assert.equal(ofertas[0].oferta_inicio, '2099-01-01T00:00:00Z')
+    assert.equal(ofertas[1].oferta_fim, '2000-01-01T00:00:00Z')
+  } finally { globalThis.fetch = originalFetch }
+})
+
+test('lote preparado exige prazo válido em nova prévia e na rechecagem antes de gravar cada item', async () => {
+  const { gateway, rows, escritas } = fake(2)
+  const agora = Date.parse('2026-10-16T12:00:00Z')
+  const expiravel = ativar(1)
+  expiravel.dados.ofertaFim = '2026-10-16T12:01:00Z'
+  const pedido = { modo: 'ENVIAR', exigirPrazoValido: true, itens: [expiravel, ativar(2)] }
+  const previa = await criarPreviaOfertas(pedido, gateway, agora)
+  assert.equal(previa.exigirPrazoValido, true)
+  assert.equal(escritas.length, 0)
+  const assinatura = assinarPrevia(previa, 'segredo-teste')
+  const semValidacao = { ...previa }; delete semValidacao.exigirPrazoValido
+  assert.equal(validarAssinatura(semValidacao, assinatura, 'segredo-teste', agora + 30_000), false)
+  await assert.rejects(() => criarPreviaOfertas(pedido, gateway, agora + 60_000), /expirada/)
+  const resultado = await confirmarPreviaOfertas(previa, gateway, new Date(agora + 120_000))
+  assert.equal(resultado.erros, 1)
+  assert.equal(resultado.ativadas, 1)
+  assert.equal(rows.get(id(1)).oferta_relampago, false)
+  assert.equal(rows.get(id(2)).oferta_relampago, true)
+  assert.equal(escritas.length, 1)
+  assert.equal(escritas[0].chave, id(2))
+  assert.throws(() => validarPedidoOfertas({ ...pedido, exigirPrazoValido: false }))
 })

@@ -149,6 +149,16 @@ export function criarOfertasGateway(config: SupabaseConfig): OfertaGateway {
     auth: { persistSession: false, autoRefreshToken: false },
   })
   const produtos = criarProdutosGateway(config)
+  async function listarOfertas(coluna: 'id' | 'created_at', ascending: boolean) {
+    const ofertas: OfertaRow[] = []
+    for (let inicio = 0; ; inicio += 500) {
+      const { data, error } = await supabase.from('produtos').select(COLUNAS_OFERTA)
+        .eq('oferta_relampago', true).order(coluna, { ascending }).range(inicio, inicio + 499)
+      if (error) throw error
+      ofertas.push(...(data ?? []) as OfertaRow[])
+      if (!data || data.length < 500) return ofertas
+    }
+  }
   return {
     async buscar(id) {
       const { data, error } = await supabase.from('produtos').select(COLUNAS_OFERTA)
@@ -157,14 +167,10 @@ export function criarOfertasGateway(config: SupabaseConfig): OfertaGateway {
       return (data ?? []) as OfertaRow[]
     },
     async listarAtivas() {
-      const ofertas: OfertaRow[] = []
-      for (let inicio = 0; ; inicio += 500) {
-        const { data, error } = await supabase.from('produtos').select(COLUNAS_OFERTA)
-          .eq('oferta_relampago', true).order('id', { ascending: true }).range(inicio, inicio + 499)
-        if (error) throw error
-        ofertas.push(...(data ?? []) as OfertaRow[])
-        if (!data || data.length < 500) return ofertas
-      }
+      return listarOfertas('id', true)
+    },
+    async listarGerenciamento() {
+      return listarOfertas('created_at', false)
     },
     async atualizar(id, anterior, alteracao) {
       let consulta = supabase.from('produtos').update(alteracao).eq('mercado_livre_id', id)
