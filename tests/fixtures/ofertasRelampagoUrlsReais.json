@@ -1,0 +1,281 @@
+{
+  "items": [
+    {
+      "position": 19,
+      "card": {
+        "metadata": {
+          "id": "MLB4857636451",
+          "user_product_id": "MLBU4248401786",
+          "pid": "MLBU4248401786",
+          "pid_extended": "MLBU4248401786_MLB4857636451",
+          "pid_version": "0.5.0",
+          "url": "www.mercadolivre.com.br/kit-4-blusas-feminina-suplex-estilosa-t-shirt-basica-casual/up/MLBU4248401786",
+          "url_fragments": "#polycard_client=offers&deal_print_id=5a1e6e3a-ffe0-4162-a93d-0e93b428e9ef&tracking_id=c8e221cd-7051-4413-a19a-767d5fb7d9bd&wid=MLB4857636451&sid=offers",
+          "url_params": "?pdp_filters=deal%3AMLB779362-1",
+          "card_type": "grid",
+          "vertical": ""
+        },
+        "pictures": {
+          "scale": "FILL",
+          "pictures": [
+            {
+              "id": "602394-MLB114220863147_072026"
+            }
+          ],
+          "square": "Q",
+          "alt_text": "Imagem",
+          "sanitized_title": "--kit-4-blusas-feminina-suplex-estilosa-t-shirt-basica-casual",
+          "overlay": true
+        },
+        "components": [
+          {
+            "type": "title",
+            "id": "title",
+            "title": {
+              "text": "Kit 4 Blusas Feminina Suplex Estilosa T Shirt Básica Casual Preto + Branco + Marrom + Nude Liso G/gg (40-42)",
+              "long_title": false,
+              "title_tag": "h3"
+            }
+          },
+          {
+            "type": "price",
+            "id": "price_v2",
+            "price": {
+              "price_labels": [
+                {
+                  "version": "1",
+                  "text": "{previous_price}",
+                  "values": [
+                    {
+                      "type": "price",
+                      "key": "previous_price",
+                      "styles": {
+                        "color": "#757575"
+                      },
+                      "price": {
+                        "value": 119.9,
+                        "currency": "BRL",
+                        "size": 12,
+                        "decimal_style": "normal",
+                        "previous": true,
+                        "show_decimals": true
+                      }
+                    }
+                  ]
+                }
+              ],
+              "discount_polylabel": {
+                "version": "1",
+                "text": "{previous_label}",
+                "values": [
+                  {
+                    "type": "pill",
+                    "key": "previous_label",
+                    "styles": {
+                      "color": "#000000",
+                      "background_color": "#FFE781"
+                    },
+                    "pill": {
+                      "text": "50% OFF"
+                    }
+                  }
+                ]
+              },
+              "current_price": {
+                "value": 59.95,
+                "currency": "BRL",
+                "weight": "regular",
+                "styles": {
+                  "justify_content": "start",
+                  "max_lines": 2
+                }
+              }
+            }
+          }
+        ],
+        "widget_components": [
+          {
+            "type": "poly_label_component",
+            "id": "highlight",
+            "poly_label_component": {
+              "countdown": {
+                "styles": {
+                  "background_color_hex": "#FFF1CB"
+                },
+                "animation": true,
+                "period_end": "2026-10-17T03:00:00Z"
+              },
+              "labels": [
+                {
+                  "version": "1",
+                  "text": "{icon_thunder}",
+                  "values": [
+                    {
+                      "type": "icon",
+                      "key": "icon_thunder",
+                      "icon": {
+                        "key": "icon_thunder"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "styles": {
+                "margin": "0 0 8 12",
+                "position": "bottom-left",
+                "styles_id": "poly_label_component-gradient-01"
+              }
+            }
+          }
+        ],
+        "unique_id": "7RFUCoJ1lYQJpfiESbr3PR5fO69A_T1gEuKFnjpiQZY"
+      }
+    },
+    {
+      "position": 21,
+      "card": {
+        "metadata": {
+          "id": "MLB5226420562",
+          "variation_id": "186478437371",
+          "pid": "MLBI5226420562",
+          "pid_extended": "MLBI5226420562",
+          "pid_version": "0.5.0",
+          "url": "produto.mercadolivre.com.br/MLB-5226420562-oculos-de-sol-uv400-original-acetato-unissex-premium-case-_JM",
+          "url_fragments": "#polycard_client=offers&deal_print_id=5a1e6e3a-ffe0-4162-a93d-0e93b428e9ef&tracking_id=c8e221cd-7051-4413-a19a-767d5fb7d9bd&sid=offers",
+          "url_params": "?searchVariation=186478437371",
+          "card_type": "grid",
+          "vertical": ""
+        },
+        "pictures": {
+          "scale": "FILL",
+          "pictures": [
+            {
+              "id": "952602-MLB117382478348_102026"
+            }
+          ],
+          "square": "Q",
+          "alt_text": "Imagem",
+          "sanitized_title": "-oculos-de-sol-uv400-original-acetato-unissex-premium-case",
+          "overlay": true,
+          "variation_id": "186478437371"
+        },
+        "components": [
+          {
+            "type": "title",
+            "id": "title",
+            "title": {
+              "text": "Óculos De Sol Uv400 Original Acetato Unissex Premium  + Case",
+              "long_title": false,
+              "title_tag": "h3"
+            }
+          },
+          {
+            "type": "price",
+            "id": "price_v2",
+            "price": {
+              "price_labels": [
+                {
+                  "version": "1",
+                  "text": "{previous_price}",
+                  "values": [
+                    {
+                      "type": "price",
+                      "key": "previous_price",
+                      "styles": {
+                        "color": "#757575"
+                      },
+                      "price": {
+                        "value": 160.19,
+                        "currency": "BRL",
+                        "size": 12,
+                        "decimal_style": "normal",
+                        "previous": true,
+                        "show_decimals": true
+                      }
+                    }
+                  ]
+                }
+              ],
+              "discount_polylabel": {
+                "version": "1",
+                "text": "{previous_label}",
+                "values": [
+                  {
+                    "type": "pill",
+                    "key": "previous_label",
+                    "styles": {
+                      "color": "#000000",
+                      "background_color": "#FFE781"
+                    },
+                    "pill": {
+                      "text": "58% OFF"
+                    }
+                  }
+                ]
+              },
+              "current_price": {
+                "value": 67,
+                "currency": "BRL",
+                "weight": "regular",
+                "styles": {
+                  "justify_content": "start",
+                  "max_lines": 2
+                }
+              },
+              "installments": {
+                "text": "3x {price} sem juros",
+                "no_interest": true,
+                "values": [
+                  {
+                    "key": "price",
+                    "type": "price",
+                    "price": {
+                      "value": 22.33,
+                      "currency": "BRL"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "widget_components": [
+          {
+            "type": "poly_label_component",
+            "id": "highlight",
+            "poly_label_component": {
+              "countdown": {
+                "styles": {
+                  "background_color_hex": "#FFF1CB"
+                },
+                "animation": true,
+                "period_end": "2026-10-17T03:00:00Z"
+              },
+              "labels": [
+                {
+                  "version": "1",
+                  "text": "{icon_thunder}",
+                  "values": [
+                    {
+                      "type": "icon",
+                      "key": "icon_thunder",
+                      "icon": {
+                        "key": "icon_thunder"
+                      }
+                    }
+                  ]
+                }
+              ],
+              "styles": {
+                "margin": "0 0 8 12",
+                "position": "bottom-left",
+                "styles_id": "poly_label_component-gradient-01"
+              }
+            }
+          }
+        ],
+        "unique_id": "Cbhnufcw58ODwdDCQjUJd3m1w_589QkP_xJ4wdbEZEs"
+      }
+    }
+  ]
+}

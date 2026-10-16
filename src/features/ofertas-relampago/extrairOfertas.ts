@@ -1,5 +1,5 @@
 import { extrairProdutosAfiliados, type ProdutoAfiliado } from '../../lib/extrairProdutosAfiliados.ts'
-import { normalizarUrlProdutoLista } from '../importar-lista-afiliados/extrairListaAfiliados.ts'
+import { normalizarUrlIndividual } from './urlGerador'
 
 type Registro = Record<string, unknown>
 export type OfertaExtraida = {
@@ -116,19 +116,37 @@ function idConflitante(metadata: Registro | null, id: string | null): boolean {
   return Boolean((filtro && `MLB${filtro[1]}` !== id) || (wid && `MLB${wid[1]}` !== id))
 }
 
-function urlOriginalDoCard(item: Registro, card: Registro, metadata: Registro | null): string | null {
-  const candidatas = [metadata?.url, metadata?.permalink, metadata?.canonical,
-    card.url, card.permalink, card.canonical, item.url, item.permalink, item.canonical]
+function urlOriginalDoCard(item: Registro, card: Registro, metadata: Registro | null, id: string | null, origem: string): string | null {
+  if (idConflitante(metadata, id)) return null
+  const candidatas = [metadata?.url, metadata?.permalink, card.permalink, item.permalink,
+    metadata?.canonical, card.canonical, item.canonical, item.url, item.href, card.url, card.href]
   for (const candidata of candidatas) {
-    const valor = texto(candidata)?.replace(/\s+/g, '')
+    const valor = texto(candidata)
     if (!valor) continue
-    const normalizada = normalizarUrlProdutoLista(valor.startsWith('//') ? `https:${valor}` : valor)
+    try {
+      const url = new URL(valor.startsWith('//') ? `https:${valor}` : valor.startsWith('/') ? new URL(valor, origem).href
+        : /^https?:\/\//i.test(valor) ? valor : `https://${valor}`)
+      const caminho = decodeURIComponent(url.pathname)
+      const produtoUsuario = /\/up\/(MLBU\d+)\/?$/i.exec(caminho)
+      if (produtoUsuario && texto(metadata?.user_product_id)
+        && produtoUsuario[1].toUpperCase() !== texto(metadata?.user_product_id)?.toUpperCase()) return null
+      const ids = [...caminho.matchAll(/\bMLB-?(\d+)\b/gi)].map((m) => `MLB${m[1]}`)
+      const seletores = [...decodeURIComponent(`${url.search}${url.hash}`).matchAll(/(?:item_id[:=]|wid=)(MLB\d+)/gi)]
+      if ((!/\/p\/MLB\d+\/?$/i.test(caminho) && ids.some((outro) => outro !== id))
+        || seletores.some((match) => match[1].toUpperCase() !== id)) return null
+    } catch { continue }
+    const normalizada = normalizarUrlIndividual(valor, id, origem)
     if (normalizada) return normalizada
+    // Usa somente seletores já fornecidos pelo HTML, sem criar parâmetros.
+    if (candidata === metadata?.url && /\/(?:p\/MLB\d+|up\/MLBU\d+)/i.test(valor)) {
+      const comSeletores = normalizarUrlIndividual(`${valor}${texto(metadata?.url_params) ?? ''}${texto(metadata?.url_fragments) ?? ''}`, id, origem)
+      if (comSeletores) return comSeletores
+    }
   }
   return null
 }
 
-export function extrairOfertasRelampagoHtml(html: string): OfertaExtraida[] {
+export function extrairOfertasRelampagoHtml(html: string, origem = ''): OfertaExtraida[] {
   const data = dadosNordic(html)
   const contexto = data.polycardContext
   const vistos = new Set<string>()
@@ -158,7 +176,7 @@ export function extrairOfertasRelampagoHtml(html: string): OfertaExtraida[] {
       posicao, itemId: id,
       userProductId: texto(metadata?.user_product_id), productId: texto(metadata?.product_id),
       titulo: extraido?.titulo ?? null, imagem: extraido?.imagemUrl ?? null,
-      urlOriginal: registro ? urlOriginalDoCard(registro, card, metadata) : null,
+      urlOriginal: registro ? urlOriginalDoCard(registro, card, metadata, id, origem) : null,
       precoAtual: atual, precoAnterior: anterior,
       percentualDesconto: informado ?? calculado,
       fonteDesconto: informado !== null ? 'MERCADO LIVRE' : calculado !== null ? 'CALCULADO' : null,

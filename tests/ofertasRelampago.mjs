@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { createServer } from 'vite'
 import { JSDOM } from 'jsdom'
 
@@ -33,6 +34,46 @@ const card = (id, position, { previous = 100, current = 60, discount = '40% OFF'
 const html = (items) => `<html><script id="__NORDIC_RENDERING_CTX__">_n.ctx.r = ${JSON.stringify({ appProps: { pageProps: { data: {
   items, polycardContext: { picture_template: 'https://http2.mlstatic.com/D_Q_NP_{id}-AB.webp' },
 } } } })};</script></html>`
+
+const urlsReais = JSON.parse(readFileSync(new URL('./fixtures/ofertasRelampagoUrlsReais.json', import.meta.url), 'utf8'))
+
+test('regressão real MLB4857636451: /up/MLBU e wid do mesmo anúncio, comparado ao MLB5226420562', async () => {
+  const { resolverUrlGerador } = await vite.ssrLoadModule('/src/features/ofertas-relampago/urlGerador.ts')
+  const origem = 'https://www.mercadolivre.com.br/ofertas?container_id=relampago'
+  const ofertas = extrairOfertasRelampagoHtml(html(urlsReais.items), origem)
+  const blusas = ofertas.find((oferta) => oferta.itemId === 'MLB4857636451')
+  const oculos = ofertas.find((oferta) => oferta.itemId === 'MLB5226420562')
+  const metadata = urlsReais.items[0].card.metadata
+  assert.equal(blusas.urlOriginal, `https://${metadata.url}${metadata.url_params}${metadata.url_fragments}`)
+  assert.equal(new URL(blusas.urlOriginal).hash.includes('wid=MLB4857636451'), true)
+  assert.equal(blusas.userProductId, 'MLBU4248401786')
+  assert.equal(blusas.situacao, 'PRONTO')
+  assert.equal(oculos.urlOriginal, `https://${urlsReais.items[1].card.metadata.url}`)
+  for (const oferta of ofertas) {
+    assert.equal(resolverUrlGerador(oferta).url, oferta.urlOriginal)
+    assert.ok(!oferta.urlOriginal.includes('meli.la'))
+    assert.ok(!new URL(oferta.urlOriginal).pathname.startsWith('/ofertas'))
+  }
+})
+
+test('user product real sem wid, com wid conflitante ou MLBU divergente permanece bloqueado', () => {
+  for (const alteracoes of [
+    { url_fragments: '#polycard_client=offers' },
+    { url_fragments: '#wid=MLB5226420562' },
+    { url_fragments: '#wid=MLB4857636451&wid=MLB5226420562' },
+    { user_product_id: 'MLBU999999' },
+    { url: 'www.mercadolivre.com.br/ofertas', url_fragments: '#wid=MLB4857636451' },
+  ]) {
+    const item = structuredClone(urlsReais.items[0])
+    Object.assign(item.card.metadata, alteracoes)
+    assert.equal(extrairOfertasRelampagoHtml(html([item]))[0].urlOriginal, null)
+  }
+  const relativo = structuredClone(urlsReais.items[0])
+  relativo.card.metadata.url = new URL(`https://${relativo.card.metadata.url}`).pathname
+  const oferta = extrairOfertasRelampagoHtml(html([relativo]), 'https://www.mercadolivre.com.br/ofertas')[0]
+  assert.ok(oferta.urlOriginal?.includes('/up/MLBU4248401786'))
+  assert.equal(new URL(oferta.urlOriginal).hash.includes('wid=MLB4857636451'), true)
+})
 
 test('extrai várias ofertas do JSON Nordic real, sem inventar ITEM_ID ou horário', () => {
   const offers = extrairOfertasRelampagoHtml(html([
@@ -94,6 +135,51 @@ test('URL ausente ou inválida permanece ausente, sem inventar anúncio pelo ITE
   assert.equal(segunda.urlOriginal, null)
   assert.equal(primeira.itemId, 'MLB7614206226')
   assert.equal(primeira.situacao, 'PRONTO')
+})
+
+test('extrai URL individual em ordem de metadata, permalink, canonical e url/href do item/card', () => {
+  const origem = 'https://www.mercadolivre.com.br/ofertas?container_id=relampago'
+  for (const [alvo, campo] of [['metadata', 'url'], ['metadata', 'permalink'], ['card', 'permalink'],
+    ['item', 'permalink'], ['metadata', 'canonical'], ['card', 'canonical'], ['item', 'canonical'],
+    ['item', 'url'], ['item', 'href'], ['card', 'url'], ['card', 'href']]) {
+    const oferta = card('MLB5357067365', 1)
+    delete oferta.card.metadata.url
+    const objeto = alvo === 'metadata' ? oferta.card.metadata : alvo === 'card' ? oferta.card : oferta
+    objeto[campo] = '/produto-real/p/MLB5357067365'
+    assert.equal(extrairOfertasRelampagoHtml(html([oferta]), origem)[0].urlOriginal,
+      'https://www.mercadolivre.com.br/produto-real/p/MLB5357067365', `${alvo}.${campo}`)
+  }
+  const oferta = card('MLB123', 1)
+  oferta.card.metadata.url = 'https://produto.mercadolivre.com.br/MLB-123-principal'
+  oferta.card.permalink = 'https://produto.mercadolivre.com.br/MLB-123-alternativo'
+  assert.equal(extrairOfertasRelampagoHtml(html([oferta]))[0].urlOriginal, oferta.card.metadata.url)
+})
+
+test('catálogo usa seletor real do HTML sem inventar parâmetros nem confundir product_id com ITEM_ID', () => {
+  const oferta = card('MLB5357067365', 1)
+  oferta.card.metadata.url = 'www.mercadolivre.com.br/produto/p/MLB987654'
+  oferta.card.metadata.url_params = '?pdp_filters=item_id%3AMLB5357067365'
+  const url = extrairOfertasRelampagoHtml(html([oferta]))[0].urlOriginal
+  assert.equal(url, 'https://www.mercadolivre.com.br/produto/p/MLB987654?pdp_filters=item_id%3AMLB5357067365')
+  delete oferta.card.metadata.url_params
+  assert.equal(extrairOfertasRelampagoHtml(html([oferta]))[0].urlOriginal, null)
+})
+
+test('URL genérica, HTTP, terceiros, afiliada e conflito ITEM_ID x URL não viram URL individual', () => {
+  for (const url of ['https://www.mercadolivre.com.br/ofertas?item_id=MLB123',
+    'https://www.mercadolivre.com.br/ofertas/MLB123', 'https://www.mercadolivre.com.br/%6ffertas/MLB123',
+    'http://produto.mercadolivre.com.br/MLB-123-produto', 'https://meli.la/14jMKEN',
+    'https://exemplo.com/MLB123', 'https://produto.mercadolivre.com.br/MLB-456-outro',
+    'https://www.mercadolivre.com.br/produto/p/MLB123?wid=MLB456']) {
+    const oferta = card('MLB123', 1)
+    oferta.card.metadata.url = url
+    delete oferta.card.metadata.url_params
+    assert.equal(extrairOfertasRelampagoHtml(html([oferta]))[0].urlOriginal, null, url)
+  }
+  const conflitante = card('MLB123', 1)
+  conflitante.card.metadata.url = 'https://produto.mercadolivre.com.br/MLB-456-outro'
+  conflitante.card.href = 'https://produto.mercadolivre.com.br/MLB-123-correto'
+  assert.equal(extrairOfertasRelampagoHtml(html([conflitante]))[0].urlOriginal, null)
 })
 
 test('calcula desconto apenas a partir de dois preços reais e ignora timestamp sem fuso', () => {
@@ -279,11 +365,27 @@ test('interface seleciona, verifica, prepara prévia e limpa somente ofertas atu
     assert.equal(dom.window.localStorage.getItem('valio-garimpa:affiliate-batch-snapshot:v1'), 'snapshot-existente')
     assert.equal(dom.window.localStorage.getItem('valio-garimpa:flash-batch-snapshot:v1'), null)
     await click(button('Selecionar todas válidas'))
+    const linhaNova = visibleRows().find((row) => row.cells[2].textContent === 'MLB456')
+    const linhaExistente = visibleRows().find((row) => row.cells[2].textContent === 'MLB123')
+    assert.equal(linhaExistente.querySelector('.flash-category'), null)
+    assert.equal(linhaNova.querySelectorAll('.flash-category select').length, 1)
+    assert.equal(linhaNova.querySelector('.flash-category').closest('td'), linhaNova.cells[1])
+    assert.equal(linhaNova.querySelector('.flash-category label').textContent, 'Categoria — Produto 2')
+    assert.equal(linhaNova.querySelector('.flash-category small').textContent, 'MLB456')
+    assert.ok(linhaNova.querySelector('[aria-label="Prioridade de MLB456"]'))
+    assert.equal(query('.flash-preview > .flash-category'), null)
+    assert.doesNotMatch(query('.flash-preview').textContent, /Categoria de MLB/)
+    assert.match(query('.flash-category-progress').textContent, /Categorias definidas: 0\/1/)
+    assert.ok(linhaNova.querySelector('.flash-category--pendente'))
+    assert.deepEqual([...linhaNova.querySelector('.flash-category select').options].map((option) => option.value),
+      ['', 'Achados para Casa', 'Achados para Maridos', 'Achados para Elas', 'Achados para Presentear'])
     await act(async () => {
       const select = query('.flash-category select')
       select.value = 'Achados para Casa'
       select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
     })
+    assert.match(query('.flash-category-progress--completo').textContent, /Categorias definidas: 1\/1.*Classificação concluída/)
+    assert.equal(linhaNova.querySelector('.flash-category--pendente'), null)
     await click(button('Preparar ofertas selecionadas'))
     assert.equal(scrolls.at(-1), query('.flash-payload'))
     assert.match(query('.flash-payload').textContent, /1 pronta\(s\) · 1 bloqueada\(s\)/)
@@ -293,6 +395,23 @@ test('interface seleciona, verifica, prepara prévia e limpa somente ofertas atu
     assert.ok(dom.window.localStorage.getItem(snapshotKey))
     assert.equal(dom.window.localStorage.getItem('valio-garimpa:affiliate-batch-snapshot:v1'), 'snapshot-existente')
     await fill(query('#flash-retorno'), 'https://meli.la/novo')
+    await act(async () => {
+      const select = query('.flash-category select'); select.value = ''
+      select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
+    await click(button('Preparar ofertas selecionadas'))
+    assert.match(query('.flash-payload').textContent, /Selecione a categoria do produto novo/)
+    assert.match(query('.flash-payload').textContent, /1 pronta\(s\) · 1 bloqueada\(s\)/)
+    await act(async () => {
+      const select = query('.flash-category select'); select.value = 'Achados para Maridos'
+      select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
+    await click(button('Preparar ofertas selecionadas'))
+    assert.match(query('.flash-payload').textContent, /"categoria": "Achados para Maridos"/)
+    await act(async () => {
+      const select = query('.flash-category select'); select.value = 'Achados para Casa'
+      select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+    })
     await click(button('Preparar ofertas selecionadas'))
     assert.match(query('.flash-payload').textContent, /2 pronta\(s\) · 0 bloqueada\(s\)/)
     assert.match(query('.flash-preview').textContent, /2 ofertas selecionadas/)
@@ -301,6 +420,16 @@ test('interface seleciona, verifica, prepara prévia e limpa somente ofertas atu
       prioridade.value = '100'
       prioridade.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
     })
+    const snapshotAntesReextracao = dom.window.localStorage.getItem(snapshotKey)
+    const chamadasAntesReextracao = calls.length
+    await click(button('Extrair ofertas'))
+    assert.equal(query('[aria-label="Prioridade de MLB123"]').value, '100')
+    assert.equal(query('.flash-category select').value, 'Achados para Casa')
+    assert.equal(dom.window.document.querySelectorAll('.flash-preview input:checked').length, 2)
+    assert.equal(query('#flash-retorno').value, 'https://meli.la/novo')
+    assert.equal(dom.window.localStorage.getItem(snapshotKey), snapshotAntesReextracao)
+    assert.equal(calls.length, chamadasAntesReextracao)
+    assert.match(query('.flash-selecionadas').textContent, /1 já existentes · 1 novos produtos/)
     await click(button('Preparar ofertas selecionadas'))
     assert.match(query('.flash-payload').textContent, /"prioridadeOferta": 100/)
     await act(async () => {
@@ -425,8 +554,8 @@ test('lote do Gerador informa motivo antes da verificação e prepara só MLB761
     await fillHtml(html([existente, novo]))
     await click(button('Extrair ofertas'))
     const linhas = [...dom.window.document.querySelectorAll('.flash-preview .flash-table tbody tr')]
-    assert.equal(linhas[0].cells[11].textContent, 'AUSENTE')
-    assert.equal(linhas[1].cells[11].textContent, 'DISPONÍVEL')
+    assert.equal(linhas[0].cells[11].textContent, 'SEM URL PARA GERADOR')
+    assert.equal(linhas[1].cells[11].textContent, 'URL PARA GERADOR DISPONÍVEL')
     await click(button('Selecionar todas válidas'))
     await click(button('Preparar lote para o Gerador'))
     assert.match(query('.flash-generator [role="alert"]').textContent, /selecione e verifique ao menos um produto novo/)
@@ -471,22 +600,46 @@ test('lote do Gerador informa motivo antes da verificação e prepara só MLB761
     await click(button('Preparar lote para o Gerador'))
     assert.match(query('.flash-generator [role="alert"]').textContent, /URL original válida/)
     assert.equal(dom.window.localStorage.getItem('valio-garimpa:flash-batch-snapshot:v1'), null)
-    const antesFallback = scrolls.length
+    const antesReextrair = scrolls.length
     await act(async () => {
       const input = query('#flash-origem')
       Object.getOwnPropertyDescriptor(input.constructor.prototype, 'value').set.call(input,
-        'https://produto.mercadolivre.com.br/MLB-7614206226-produto')
+        'https://www.mercadolivre.com.br/ofertas?container_id=relampago')
       input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
     })
-    assert.equal(scrolls.length, antesFallback)
-    assert.match(linhas[0].ownerDocument.body.textContent, /URL PARA GERADOR DISPONÍVEL/)
-    assert.match(query('.flash-preview').textContent, /URL da página de origem usada/)
+    const recuperado = card('MLB7614206226', 2)
+    delete recuperado.card.metadata.url
+    recuperado.card.href = '/anuncio-original/p/MLB7614206226'
+    const faltante = card('MLB999999', 3)
+    delete faltante.card.metadata.url
+    await fillHtml(html([existente, recuperado, faltante]))
+    await click(button('Extrair ofertas'))
+    assert.equal(scrolls.length, antesReextrair)
+    assert.equal(query('#flash-origem').value, 'https://www.mercadolivre.com.br/ofertas?container_id=relampago')
+    assert.equal(query('.flash-preview input:checked') !== null, true)
+    await click(button('Selecionar todas válidas'))
+    await click(button('Verificar selecionadas no Valiô'))
     await click(button('Preparar lote para o Gerador'))
-    assert.equal(scrolls.length, antesFallback + 1)
-    assert.equal(query('#flash-urls-gerador').value, 'https://produto.mercadolivre.com.br/MLB-7614206226-produto')
-    await click(button('Preparar ofertas selecionadas'))
-    assert.doesNotMatch(query('.flash-import').textContent, /snapshot do Gerador pertence a outro lote/)
-    assert.deepEqual(calls.map(([url]) => url), ['/api/valio/produtos/verificar', '/api/valio/produtos/verificar'])
+    assert.equal(query('#flash-urls-gerador').value, 'https://www.mercadolivre.com.br/anuncio-original/p/MLB7614206226')
+    assert.match(query('.flash-generator').textContent, /Fora do lote.*MLB999999/)
+    assert.equal(dom.window.document.querySelectorAll('.flash-preview input:checked').length, 3)
+    assert.deepEqual(calls.map(([url]) => url), ['/api/valio/produtos/verificar', '/api/valio/produtos/verificar', '/api/valio/produtos/verificar'])
+    await click(button('Descartar snapshot de ofertas'))
+    await fillHtml(html(urlsReais.items))
+    await click(button('Extrair ofertas'))
+    await click(button('Selecionar todas válidas'))
+    await click(button('Verificar selecionadas no Valiô'))
+    assert.equal(dom.window.document.querySelectorAll('.flash-preview .flash-table tbody tr').length, 2)
+    for (const linha of dom.window.document.querySelectorAll('.flash-preview .flash-table tbody tr')) {
+      assert.equal(linha.cells[11].textContent, 'URL PARA GERADOR DISPONÍVEL')
+    }
+    await click(button('Preparar lote para o Gerador'))
+    const loteReal = JSON.parse(dom.window.localStorage.getItem('valio-garimpa:flash-batch-snapshot:v1'))
+    assert.ok(loteReal, query('.flash-generator').textContent)
+    assert.deepEqual(loteReal.snapshot.produtos.map((produto) => produto.itemId), ['MLB4857636451', 'MLB5226420562'])
+    assert.equal(loteReal.snapshot.produtos[0].urlNormalizada,
+      `https://${urlsReais.items[0].card.metadata.url}${urlsReais.items[0].card.metadata.url_params}${urlsReais.items[0].card.metadata.url_fragments}`)
+    assert.equal(query('#flash-urls-gerador').value.split('\n').length, 2)
   } finally {
     if (root) {
       const { act } = await import('react')
@@ -501,16 +654,16 @@ test('lote do Gerador informa motivo antes da verificação e prepara só MLB761
   }
 })
 
-test('URL do Gerador preserva original e limita fallback à origem do mesmo item', async () => {
-  const { resolverUrlGerador } = await vite.ssrLoadModule('/src/features/ofertas-relampago/urlGerador.ts')
+test('URL do Gerador usa somente a URL individual armazenada no item', async () => {
+  const { resolverUrlGerador, normalizarUrlIndividual } = await vite.ssrLoadModule('/src/features/ofertas-relampago/urlGerador.ts')
   const original = 'https://www.mercadolivre.com.br/original/p/MLB123'
   const origem = 'https://produto.mercadolivre.com.br/MLB-123-produto'
-  assert.deepEqual(resolverUrlGerador({ itemId: 'MLB123', urlOriginal: original }, origem), { url: original, fallback: false })
-  assert.deepEqual(resolverUrlGerador({ itemId: 'MLB123', urlOriginal: null }, origem), { url: origem, fallback: true })
+  assert.deepEqual(resolverUrlGerador({ itemId: 'MLB123', urlOriginal: original }), { url: original, fallback: false })
+  assert.equal(normalizarUrlIndividual(null, 'MLB123', origem), null)
   for (const invalida of ['', 'https://www.mercadolivre.com.br/ofertas', 'https://www.mercadolivre.com.br/ofertas?foo=MLB123', 'https://exemplo.com/MLB123',
     'https://produto.mercadolivre.com.br/MLB-456-outro', 'https://www.mercadolivre.com.br/MLB123?wid=MLB456',
     'https://www.mercadolivre.com.br/%zz/MLB123']) {
-    assert.equal(resolverUrlGerador({ itemId: 'MLB123', urlOriginal: null }, invalida).url, null)
+    assert.equal(resolverUrlGerador({ itemId: 'MLB123', urlOriginal: invalida }).url, null)
   }
 })
 

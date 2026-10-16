@@ -78,13 +78,13 @@ export default function OfertasRelampagoPage() {
       'nao-verificados': 'NÃO VERIFICADO', revisar: 'REVISAR' } as const)[filtroValio])
   const selecionadasExistentes = selecionadas.filter((oferta) => situacaoNoValio(oferta) === 'JÁ EXISTE').length
   const selecionadasNovas = selecionadas.filter((oferta) => situacaoNoValio(oferta) === 'NOVO PRODUTO').length
+  const categoriasDefinidas = novas.filter((oferta) => categorias.has(oferta.itemId!)).length
 
   function extrair() {
     setErro(''); setMensagem(''); setFeedbackGerador(null); setPrevia(null); setPreviaRemota(null); setResultadoConfirmacao(null)
     try {
-      const resultado = extrairOfertasRelampagoHtml(html)
-      setOfertas(resultado); setSelecionados(new Set()); setExistentes(new Map()); setVerificados(new Set()); setCategorias(new Map())
-      setPrioridades(new Map()); setDesativadas(new Set()); setFiltroValio('todos')
+      const resultado = extrairOfertasRelampagoHtml(html, origem)
+      setOfertas(resultado)
       setMensagem(`${resultado.length} oferta(s) extraída(s) apenas do HTML fornecido.`)
     } catch (falha) { setErro(falha instanceof Error ? falha.message : 'Não foi possível analisar o HTML.') }
   }
@@ -125,20 +125,21 @@ export default function OfertasRelampagoPage() {
     if (snapshot) { falhar('já existe um snapshot de ofertas. Descarte-o antes de preparar outro lote.'); return }
     if (!novas.length) { falhar('selecione e verifique ao menos um produto novo no Valiô.'); return }
     const produtos: ProdutoListaAfiliados[] = novas.flatMap((oferta, indice) => {
-      const url = resolverUrlGerador(oferta, origem).url
+      const url = resolverUrlGerador(oferta).url
       if (!oferta.itemId || !url) return []
       return [{ ordem: indice + 1, itemId: oferta.itemId, titulo: oferta.titulo,
         userProductId: oferta.userProductId, productId: oferta.productId, pid: null, pidExtended: null,
         urlOriginal: url, urlParams: null, urlFragments: null,
         urlNormalizada: url, ...(oferta.dadosProduto ? { dadosPublicacao: oferta.dadosProduto } : {}) }]
     })
-    if (produtos.length !== novas.length) { falhar('todos os produtos novos precisam de URL original válida para o Gerador. Informe uma URL da página de origem que identifique o mesmo produto ou forneça HTML com URL individual.'); return }
+    if (!produtos.length) { falhar('os produtos novos selecionados precisam de URL original válida para o Gerador. O HTML não forneceu URL individual segura. Confira os itens com SEM URL PARA GERADOR.'); return }
     try {
       const registro = criarRegistroSnapshot({ encontrados: produtos.length, unicos: produtos.length,
         ignorados: 0, duplicados: 0, produtos, urlsParaGerador: produtos.map((item) => item.urlNormalizada).join('\n') }, origem)
       window.localStorage.setItem(CHAVE_SNAPSHOT, JSON.stringify(registro))
       setPedidoScroll({ destino: 'lote' }); setSnapshot(registro); setRetornoTexto(''); setPrevia(null); setPreviaRemota(null); setErro('')
-      setFeedbackGerador({ tipo: 'sucesso', texto: `Lote para o Gerador preparado com ${registro.snapshot.quantidade} produto(s).` })
+      const semUrl = novas.filter((oferta) => !produtos.some((produto) => produto.itemId === oferta.itemId))
+      setFeedbackGerador({ tipo: 'sucesso', texto: `Lote para o Gerador preparado com ${registro.snapshot.quantidade} produto(s).${semUrl.length ? ` Fora do lote por falta de URL individual válida: ${semUrl.map((oferta) => oferta.itemId).join(', ')}. A seleção foi preservada.` : ''}` })
     } catch (falha) { falhar(falha instanceof Error ? falha.message : 'não foi possível criar o snapshot.') }
   }
 
@@ -162,7 +163,7 @@ export default function OfertasRelampagoPage() {
   function preparar() {
     if (novas.length && snapshot && novas.some((oferta) => {
       const congelado = snapshot.snapshot.produtos.find((produto) => produto.itemId === oferta.itemId)
-      return !congelado || congelado.urlNormalizada !== resolverUrlGerador(oferta, origem).url
+      return !congelado || congelado.urlNormalizada !== resolverUrlGerador(oferta).url
     })) { setErro('O snapshot do Gerador pertence a outro lote. Descarte-o e prepare um novo.'); return }
     const resultado = prepararOfertasSelecionadas(ofertas, selecionados, existentes, verificados, categorias, retorno, prioridades, desativadas)
     setPrevia(resultado); setPreviaRemota(null); setErro(''); setPedidoScroll({ destino: 'payload' })
@@ -172,7 +173,7 @@ export default function OfertasRelampagoPage() {
     if (!selecionadas.length || enviando) return
     if (novas.length && snapshot && novas.some((oferta) => {
       const congelado = snapshot.snapshot.produtos.find((produto) => produto.itemId === oferta.itemId)
-      return !congelado || congelado.urlNormalizada !== resolverUrlGerador(oferta, origem).url
+      return !congelado || congelado.urlNormalizada !== resolverUrlGerador(oferta).url
     })) { setErro('O snapshot do Gerador pertence a outro lote.'); return }
     let itens: ItemOferta[]
     if (modo === 'DESATIVAR' || modo === 'PRIORIDADE') {
@@ -232,6 +233,10 @@ export default function OfertasRelampagoPage() {
 
     {ofertas.length > 0 && <section className="extrair-card flash-preview" aria-labelledby="flash-preview-title">
       <h2 id="flash-preview-title">Prévia das ofertas</h2>
+      {novas.length > 0 && <p className={categoriasDefinidas === novas.length ? 'flash-category-progress flash-category-progress--completo' : 'flash-category-progress'} role="status">
+        Categorias definidas: {categoriasDefinidas}/{novas.length} · novos selecionados
+        {categoriasDefinidas === novas.length && ' · Classificação concluída'}
+      </p>}
       <p>{ofertas.length} encontradas · {validas.length} válidas · {ofertas.length - validas.length} para revisar · {selecionados.size} ofertas selecionadas</p>
       <div className="flash-actions">
         <button type="button" className="extrair-secundario" onClick={() => { setSelecionados(new Set(validas.map((item) => item.chave))); setPrevia(null); setPreviaRemota(null) }}>Selecionar todas válidas</button>
@@ -261,7 +266,20 @@ export default function OfertasRelampagoPage() {
         <thead><tr><th>Selecionar</th><th>Produto</th><th>ITEM_ID</th><th>Antes</th><th>Agora</th><th>Desconto</th><th>Termina</th><th>Prioridade</th><th>Ação</th><th>Situação da oferta</th><th>Situação no Valiô</th><th>URL original</th></tr></thead>
         <tbody>{ofertasVisiveis.map((oferta) => <tr key={oferta.chave}>
           <td><input type="checkbox" aria-label={`Selecionar oferta ${oferta.posicao}`} checked={selecionados.has(oferta.chave)} disabled={oferta.situacao !== 'PRONTO'} onChange={(evento) => selecionar(oferta.chave, evento.target.checked)} /></td>
-          <td><strong>{oferta.titulo ?? 'Título ausente'}</strong><small>Posição {oferta.posicao}</small>{oferta.imagem && <img src={oferta.imagem} alt="" loading="lazy" />}</td>
+          <td><strong>{oferta.titulo ?? 'Título ausente'}</strong><small>Posição {oferta.posicao}</small>{oferta.imagem && <img src={oferta.imagem} alt="" loading="lazy" />}
+            {novas.some((nova) => nova.chave === oferta.chave) && <div className={categorias.has(oferta.itemId!) ? 'flash-category' : 'flash-category flash-category--pendente'}>
+              <label htmlFor={`flash-categoria-${oferta.chave}`}>Categoria — {oferta.titulo ?? 'Produto sem título'}</label>
+              <small id={`flash-categoria-item-${oferta.chave}`}>{oferta.itemId}</small>
+              <select id={`flash-categoria-${oferta.chave}`} aria-describedby={`flash-categoria-item-${oferta.chave}`}
+                value={categorias.get(oferta.itemId!) ?? ''} onChange={(evento) => {
+                  const atual = new Map(categorias)
+                  if (evento.target.value) atual.set(oferta.itemId!, evento.target.value as CategoriaValio)
+                  else atual.delete(oferta.itemId!)
+                  setCategorias(atual); setPrevia(null); setPreviaRemota(null)
+                }}><option value="">Selecione</option>{CATEGORIAS_VALIO.map((categoria) => <option key={categoria} value={categoria}>{categoria}</option>)}</select>
+              {!categorias.has(oferta.itemId!) && <small>Defina a categoria para publicar este produto novo.</small>}
+            </div>}
+          </td>
           <td>{oferta.itemId ?? 'Ausente'}</td><td>{dinheiro(oferta.precoAnterior)}</td><td>{dinheiro(oferta.precoAtual)}</td>
           <td>{oferta.percentualDesconto === null ? '—' : `${oferta.percentualDesconto}% · ${oferta.fonteDesconto === 'CALCULADO' ? 'calculado' : 'Mercado Livre'}`}</td>
           <td>{oferta.ofertaFim ? new Date(oferta.ofertaFim).toLocaleString('pt-BR') : 'Sem prazo exato'}</td>
@@ -277,22 +295,9 @@ export default function OfertasRelampagoPage() {
           </select></td>
           <td>{oferta.situacao}{oferta.situacao === 'PRONTO' && !oferta.ofertaFim ? ' · SEM PRAZO EXATO' : ''}</td>
           <td><BadgeSituacaoValio situacao={situacaoNoValio(oferta)} /></td>
-          <td>{situacaoNoValio(oferta) === 'NOVO PRODUTO'
-            ? <span title={resolverUrlGerador(oferta, origem).url ?? undefined}>
-              {resolverUrlGerador(oferta, origem).url ? 'URL PARA GERADOR DISPONÍVEL' : 'SEM URL PARA GERADOR'}
-              {resolverUrlGerador(oferta, origem).fallback && <small>URL da página de origem usada</small>}
-            </span>
-            : <span title={oferta.urlOriginal ?? undefined}>{oferta.urlOriginal ? 'DISPONÍVEL' : 'AUSENTE'}</span>}</td>
+          <td><span>{resolverUrlGerador(oferta).url ? 'URL PARA GERADOR DISPONÍVEL' : 'SEM URL PARA GERADOR'}</span></td>
         </tr>)}</tbody>
       </table></div>
-      {novas.map((oferta) => <label className="flash-category" key={oferta.chave}>Categoria de {oferta.itemId}
-        <select value={categorias.get(oferta.itemId!) ?? ''} onChange={(evento) => {
-          const atual = new Map(categorias)
-          if (evento.target.value) atual.set(oferta.itemId!, evento.target.value as CategoriaValio)
-          else atual.delete(oferta.itemId!)
-          setCategorias(atual); setPrevia(null); setPreviaRemota(null)
-        }}><option value="">Selecione</option>{CATEGORIAS_VALIO.map((categoria) => <option key={categoria} value={categoria}>{categoria}</option>)}</select>
-      </label>)}
       <button type="button" disabled={!selecionados.size} onClick={preparar}>Preparar ofertas selecionadas</button>
       <div className="flash-actions">
         {([['ATIVAR', 'Ativar selecionadas'], ['DESATIVAR', 'Desativar selecionadas'],
