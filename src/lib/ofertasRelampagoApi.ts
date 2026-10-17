@@ -1,11 +1,11 @@
 import type { OfertaPublicada } from '../features/ofertas-relampago/gerenciarOfertas'
-export type ModoOferta = 'ATIVAR' | 'DESATIVAR' | 'PRIORIDADE' | 'ENVIAR' | 'SUBSTITUIR' | 'REATIVAR'
+export type ModoOferta = 'ATIVAR' | 'DESATIVAR' | 'PRIORIDADE' | 'ENVIAR' | 'SUBSTITUIR' | 'REATIVAR' | 'HOME' | 'LIMPAR_EXPIRADAS'
 export type ItemOferta = { tipo: 'ATUALIZAR_OFERTA' | 'NOVO_PRODUTO'; dados: Record<string, unknown> }
 export type LinhaPreviaOferta = { itemId: string; produto: string; situacaoAtual: string; acao: string
   prioridade: number; precoAnterior: number | null; precoAtual: number; percentualDesconto: number | null
-  ofertaFim: string | null; resultadoEsperado: string }
+  ofertaFim: string | null; resultadoEsperado: string; homeOfertaMode?: 'auto' | 'fixada' | 'fila' }
 export type PreviaRemotaOfertas = { modo: ModoOferta; emitidaEm: number; operacoes: LinhaPreviaOferta[]
-  desativarAtuais: number; ativarSelecionadas: number; ativasNaPrevia: string[] }
+  desativarAtuais: number; ativarSelecionadas: number; ativasNaPrevia: string[]; avisos?: string[] }
 export type PreviaAssinadaOfertas = { previa: PreviaRemotaOfertas; assinatura: string }
 export type ResultadoConfirmacaoOfertas = { criadas: number; ativadas: number; atualizadas: number; desativadas: number
   semAlteracao: number; conflitos: number; erros: number; itens: { itemId: string; resultado: string; motivo?: string }[] }
@@ -42,6 +42,13 @@ export async function preverLotePreparado(itens: ItemOferta[], token: string): P
   const resposta = await requisitar('prever', { modo: 'ENVIAR', itens, exigirPrazoValido: true }, token)
   const previa = resposta.previa as PreviaRemotaOfertas | undefined
   if (!previa || !Array.isArray(previa.operacoes) || typeof resposta.assinatura !== 'string') throw new Error('Prévia do lote preparado inválida.')
+  return { previa, assinatura: resposta.assinatura }
+}
+
+export async function preverLimpezaExpiradas(token: string): Promise<PreviaAssinadaOfertas> {
+  const resposta = await requisitar('expiradas/prever', {}, token)
+  const previa = resposta.previa as PreviaRemotaOfertas | undefined
+  if (!previa || !Array.isArray(previa.operacoes) || typeof resposta.assinatura !== 'string') throw new Error('Prévia de limpeza inválida.')
   return { previa, assinatura: resposta.assinatura }
 }
 

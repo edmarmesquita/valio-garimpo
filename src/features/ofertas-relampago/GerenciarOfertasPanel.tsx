@@ -1,18 +1,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSessaoOperacional } from '../../app/sessaoOperacionalContext'
-import { confirmarOfertas, listarOfertasPublicadas, preverOfertas, type ModoOferta, type PreviaAssinadaOfertas, type ResultadoConfirmacaoOfertas } from '../../lib/ofertasRelampagoApi'
+import { confirmarOfertas, listarOfertasPublicadas, preverOfertas, preverLimpezaExpiradas, type ModoOferta, type PreviaAssinadaOfertas, type ResultadoConfirmacaoOfertas } from '../../lib/ofertasRelampagoApi'
 import { classificarOfertas, type OfertaPublicada } from './gerenciarOfertas'
 
 const dinheiro = (valor: number | null) => valor === null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
 const data = (valor: string | null) => !valor ? 'Não informado' : /^\d{4}-\d{2}-\d{2}$/.test(valor)
   ? valor.split('-').reverse().join('/') : new Date(valor).toLocaleString('pt-BR')
-const filtros = ['Todas', 'Ativas agora', 'Na Home', 'Na fila', 'Expiradas', 'Agendadas'] as const
+const filtros = ['Todas', 'Ativas agora', 'Na Home', 'Na fila', 'Expiradas / Histórico', 'Agendadas', 'Desativadas'] as const
+const modosHome = { auto: 'Automática', fixada: 'Fixar na Home', fila: 'Enviar para fila' } as const
 
 export default function GerenciarOfertasPanel() {
   const { token } = useSessaoOperacional()
   const [consulta, setConsulta] = useState<{ token: string; produtos: OfertaPublicada[] } | null>(null)
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [prioridades, setPrioridades] = useState<Record<string, number>>({})
+  const [homeModes, setHomeModes] = useState<Record<string, 'auto' | 'fixada' | 'fila'>>({})
   const [prioridadeLote, setPrioridadeLote] = useState(0)
   const [filtro, setFiltro] = useState<typeof filtros[number]>('Todas')
   const [busca, setBusca] = useState('')
@@ -22,6 +24,13 @@ export default function GerenciarOfertasPanel() {
   const [resultado, setResultado] = useState<ResultadoConfirmacaoOfertas | null>(null)
   const [agora, setAgora] = useState(() => Date.now())
   const requisicao = useRef(0)
+  const previaHome = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (previa?.token === token && previa.previa.modo === 'HOME') {
+      previaHome.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      previaHome.current?.focus({ preventScroll: true })
+    }
+  }, [previa, token])
   useEffect(() => {
     const timer = window.setInterval(() => setAgora(Date.now()), 30_000)
     return () => window.clearInterval(timer)
@@ -29,10 +38,12 @@ export default function GerenciarOfertasPanel() {
   const produtos = consulta?.token === token ? consulta.produtos : []
   const classificados = classificarOfertas(produtos, agora)
   const marcadas = classificados.filter((item) => item.oferta_relampago)
-  const visiveis = classificados.filter((item) => filtro === 'Todas'
+  const visiveis = classificados.filter((item) => filtro === 'Todas' && item.oferta_relampago && (item.ativa || item.situacao === 'AGENDADA')
     || filtro === 'Ativas agora' && item.ativa || filtro === 'Na Home' && item.naHome
-    || filtro === 'Na fila' && item.naFila || filtro === 'Expiradas' && item.situacao === 'EXPIRADA'
-    || filtro === 'Agendadas' && item.situacao === 'AGENDADA')
+    || filtro === 'Na fila' && item.naFila || filtro === 'Expiradas / Histórico' && item.oferta_relampago && item.situacao === 'EXPIRADA'
+    || filtro === 'Agendadas' && item.situacao === 'AGENDADA' || filtro === 'Desativadas' && !item.oferta_relampago)
+  const expiradas = marcadas.filter((item) => item.situacao === 'EXPIRADA')
+  const fixadas = classificados.filter((item) => item.ativa && item.home_oferta_mode === 'fixada').length
   const idsSelecionados = produtos.filter((item) => selecionados.has(item.mercado_livre_id)).map((item) => item.mercado_livre_id)
   function invalidarPrevia() { setPrevia(null) }
 
@@ -46,7 +57,9 @@ export default function GerenciarOfertasPanel() {
       const recebidos = [...marcadasAgora, ...encontradas.filter((item) => !marcadasAgora.some((marcada) => marcada.mercado_livre_id === item.mercado_livre_id))]
       if (pedido !== requisicao.current) return
       setConsulta({ token, produtos: recebidos })
-      setSelecionados(new Set()); setPrioridades({}); setAgora(Date.now())
+      setAgora(Date.now())
+      if (itemId && encontradas[0]) setFiltro(!encontradas[0].oferta_relampago ? 'Desativadas'
+        : classificarOfertas(encontradas, Date.now())[0].situacao === 'EXPIRADA' ? 'Expiradas / Histórico' : 'Todas')
     } catch (falha) { setErro(falha instanceof Error ? falha.message : 'Falha na consulta.') }
     finally { if (pedido === requisicao.current) setOcupado(false) }
   }
@@ -55,12 +68,22 @@ export default function GerenciarOfertasPanel() {
     if (!ids.length || ocupado) return
     setOcupado(true); setErro(''); setPrevia(null); setResultado(null)
     try {
-      const itens = ids.map((id) => ({ tipo: 'ATUALIZAR_OFERTA' as const, dados: modo === 'PRIORIDADE'
+      const itens = ids.map((id) => ({ tipo: 'ATUALIZAR_OFERTA' as const, dados: modo === 'HOME'
+        ? { mercadoLivreId: id, homeOfertaMode: homeModes[id] ?? produtos.find((item) => item.mercado_livre_id === id)!.home_oferta_mode ?? 'auto' }
+        : modo === 'PRIORIDADE'
         ? { mercadoLivreId: id, prioridadeOferta: emLote ? prioridadeLote : prioridades[id] ?? produtos.find((item) => item.mercado_livre_id === id)!.prioridade_oferta }
         : { mercadoLivreId: id, ofertaRelampago: modo === 'REATIVAR' } }))
       const resposta = await preverOfertas(modo, itens, token)
       setPrevia({ ...resposta, token })
     } catch (falha) { setErro(falha instanceof Error ? falha.message : 'Falha na prévia.') }
+    finally { setOcupado(false) }
+  }
+
+  async function prepararLimpeza() {
+    if (ocupado) return
+    setOcupado(true); setErro(''); setPrevia(null); setResultado(null)
+    try { setPrevia({ ...await preverLimpezaExpiradas(token), token }) }
+    catch (falha) { setErro(falha instanceof Error ? falha.message : 'Não foi possível preparar a limpeza.') }
     finally { setOcupado(false) }
   }
 
@@ -74,11 +97,22 @@ export default function GerenciarOfertasPanel() {
       // para permitir reativação sem perder o recibo da confirmação.
       const [marcadasAgora, atualizadas] = await Promise.all([
         listarOfertasPublicadas(token),
-        Promise.all(previa.previa.operacoes.map((item) => listarOfertasPublicadas(token, item.itemId))),
+        previa.previa.modo === 'LIMPAR_EXPIRADAS' ? Promise.resolve([])
+          : Promise.all(previa.previa.operacoes.map((item) => listarOfertasPublicadas(token, item.itemId))),
       ])
       const ids = new Set(marcadasAgora.map((item) => item.mercado_livre_id))
       setConsulta({ token, produtos: [...marcadasAgora, ...atualizadas.flat().filter((item) => !ids.has(item.mercado_livre_id))] })
-      setSelecionados(new Set()); setPrioridades({}); setAgora(Date.now())
+      // Preserva seleção e rascunhos de outras linhas. Atualiza somente os
+      // controles efetivamente confirmados, para não exibir um valor antigo.
+      if (previa.previa.modo === 'PRIORIDADE') setPrioridades((atual) => {
+        const proximo = { ...atual }; for (const item of resposta.itens) if (item.resultado !== 'ERRO' && item.resultado !== 'CONFLITO') delete proximo[item.itemId]
+        return proximo
+      })
+      if (previa.previa.modo === 'HOME') setHomeModes((atual) => {
+        const proximo = { ...atual }; for (const item of resposta.itens) if (item.resultado !== 'ERRO' && item.resultado !== 'CONFLITO') delete proximo[item.itemId]
+        return proximo
+      })
+      setAgora(Date.now())
     } catch (falha) {
       setPrevia(null)
       setErro(falha instanceof Error ? falha.message : 'Não foi possível confirmar ou atualizar a lista. Consulte o resultado antes de repetir.')
@@ -97,7 +131,11 @@ export default function GerenciarOfertasPanel() {
     {ocupado && <p role="status">Consultando catálogo ou processando ação…</p>}
     {erro && <p className="extrair-erro" role="alert">{erro}</p>}
     {consulta?.token === token && <>
-      <p role="status">{marcadas.length} ofertas marcadas · {classificados.filter((item) => item.ativa).length} ativas agora · {classificados.filter((item) => item.naHome).length} na Home · {classificados.filter((item) => item.naFila).length} na fila · {marcadas.filter((item) => item.situacao === 'EXPIRADA').length} expiradas</p>
+      <p role="status">{marcadas.length} ofertas marcadas · {classificados.filter((item) => item.ativa).length} ativas agora · {classificados.filter((item) => item.naHome).length} na Home · {classificados.filter((item) => item.naFila).length} na fila · {expiradas.length} expiradas aguardando limpeza</p>
+      <p>A listagem principal mostra ativas e agendadas. Consulte as vencidas em Expiradas / Histórico.</p>
+      {fixadas > 12 && <p role="alert">{fixadas} ofertas fixadas para 12 vagas. Entram as 12 primeiras por prioridade e ordem estável do catálogo; as demais ficam na fila.</p>}
+      {produtos.some((item) => item.controle_home_disponivel === false) && <p role="alert">Controle de Home indisponível: aplique a migração 004 no Supabase. As demais ações continuam disponíveis.</p>}
+      <button type="button" disabled={ocupado || !expiradas.length} onClick={() => void prepararLimpeza()}>Limpar ofertas expiradas</button>
       <label>Filtrar ofertas publicadas <select value={filtro} onChange={(evento) => setFiltro(evento.target.value as typeof filtro)}>{filtros.map((valor) => <option key={valor}>{valor}</option>)}</select></label>
       <div className="flash-actions">
         <button type="button" disabled={ocupado} onClick={() => { setSelecionados(new Set(visiveis.map((item) => item.mercado_livre_id))); invalidarPrevia() }}>Selecionar exibidas</button>
@@ -110,7 +148,7 @@ export default function GerenciarOfertasPanel() {
       </div>
       {!visiveis.length && <p>Nenhuma oferta neste filtro.</p>}
       <div className="flash-table"><table>
-        <thead><tr><th>Selecionar</th><th>Produto</th><th>Categoria</th><th>Agora</th><th>Antes</th><th>Desconto</th><th>Prioridade</th><th>Início</th><th>Fim</th><th>Situação</th><th>Ações</th></tr></thead>
+        <thead><tr><th>Selecionar</th><th>Produto</th><th>Categoria</th><th>Agora</th><th>Antes</th><th>Desconto</th><th>Prioridade</th><th>Início</th><th>Fim</th><th>Situação</th><th>Posição na Home</th><th>Ações</th></tr></thead>
         <tbody>{visiveis.map((item) => <tr key={item.mercado_livre_id}>
           <td><input type="checkbox" disabled={ocupado} aria-label={`Gerenciar ${item.mercado_livre_id}`} checked={selecionados.has(item.mercado_livre_id)} onChange={(evento) => {
             const proximo = new Set(selecionados); if (evento.target.checked) proximo.add(item.mercado_livre_id); else proximo.delete(item.mercado_livre_id)
@@ -122,7 +160,12 @@ export default function GerenciarOfertasPanel() {
             setPrioridades({ ...prioridades, [item.mercado_livre_id]: Number(evento.target.value) }); invalidarPrevia()
           }}><option value={0}>Normal</option><option value={50}>Média</option><option value={100}>Alta</option></select></td>
           <td>{data(item.oferta_inicio)}</td><td>{data(item.oferta_fim)}</td>
-          <td>{item.situacao}{item.naHome && <strong className="flash-manager-home">NA HOME</strong>}{item.naFila && <strong className="flash-manager-queue">FILA</strong>}{!item.ativo && <small>Produto inativo no catálogo</small>}</td>
+          <td>{item.situacao}{item.naHome && <strong className="flash-manager-home">{item.home_oferta_mode === 'fixada' ? 'FIXADA NA HOME' : 'NA HOME'}</strong>}{item.naFila && <strong className="flash-manager-queue">FILA{item.home_oferta_mode === 'fixada' ? ' · fixada aguardando vaga' : ''}</strong>}{!item.ativo && <small>Produto inativo no catálogo</small>}</td>
+          <td><small>Atual: {modosHome[item.home_oferta_mode ?? 'auto']}</small><select aria-label={`Posição na Home de ${item.mercado_livre_id}`} disabled={ocupado || !item.oferta_relampago || item.controle_home_disponivel === false} value={homeModes[item.mercado_livre_id] ?? item.home_oferta_mode ?? 'auto'} onChange={(evento) => {
+            setHomeModes({ ...homeModes, [item.mercado_livre_id]: evento.target.value as keyof typeof modosHome }); invalidarPrevia()
+          }}>{Object.entries(modosHome).map(([valor, titulo]) => <option key={valor} value={valor}>{titulo}</option>)}</select>
+            <button type="button" disabled={ocupado || !item.oferta_relampago || item.controle_home_disponivel === false} onClick={() => void preparar('HOME', [item.mercado_livre_id])}>Prévia da posição na Home</button>
+          </td>
           <td><div className="flash-manager-item-actions">
             <button type="button" disabled={ocupado} onClick={() => void preparar('PRIORIDADE', [item.mercado_livre_id])}>Prévia de prioridade</button>
             {item.oferta_relampago
@@ -132,9 +175,11 @@ export default function GerenciarOfertasPanel() {
         </tr>)}</tbody>
       </table></div>
     </>}
-    {previa?.token === token && <section aria-label="Prévia do gerenciamento" className="flash-manager-preview">
-      <h3>Prévia do gerenciamento — nenhuma alteração feita</h3>
-      <p>Somente os campos da oferta serão atualizados. O status do produto e seu link afiliado permanecem iguais.</p>
+    {previa?.token === token && <section ref={previaHome} tabIndex={-1} aria-label="Prévia do gerenciamento" className="flash-manager-preview">
+      <h3>{previa.previa.modo === 'HOME' ? 'Prévia da posição na Home' : 'Prévia do gerenciamento'} — nenhuma alteração feita</h3>
+      <p>{previa.previa.modo === 'HOME' ? 'Somente a posição na Home será atualizada. Nenhuma prioridade ou outro campo será alterado.' : 'Somente os campos da oferta serão atualizados. O status do produto e seu link afiliado permanecem iguais.'}</p>
+      {previa.previa.modo === 'LIMPAR_EXPIRADAS' && <><p>{previa.previa.operacoes.length} ofertas expiradas serão limpas.</p><p>Esses produtos sairão da área de Ofertas Relâmpago, mas permanecerão ativos no catálogo.</p></>}
+      {previa.previa.avisos?.map((aviso) => <p role="alert" key={aviso}>{aviso}</p>)}
       <ul>{previa.previa.operacoes.map((item) => <li key={item.itemId}>{item.produto} · {item.itemId} · {item.acao} · Prioridade: {item.prioridade} · {item.resultadoEsperado}</li>)}</ul>
       <button type="button" disabled={ocupado} onClick={() => void confirmar()}>Confirmar alterações das ofertas publicadas</button>
       <button type="button" disabled={ocupado} onClick={() => setPrevia(null)}>Cancelar prévia do gerenciamento</button>

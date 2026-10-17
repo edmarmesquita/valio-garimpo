@@ -143,17 +143,25 @@ export function criarConsultaProdutosGateway(config: SupabaseConfig): ConsultaPr
 }
 
 const COLUNAS_OFERTA = 'mercado_livre_id,titulo,preco,categoria,imagem,link_afiliado,ativo,oferta_relampago,oferta_inicio,oferta_fim,preco_anterior,percentual_desconto,texto_oferta,prioridade_oferta'
+const COLUNAS_OFERTA_HOME = `${COLUNAS_OFERTA},home_oferta_mode` as const
 
 export function criarOfertasGateway(config: SupabaseConfig): OfertaGateway {
   const supabase = createClient(config.url, config.serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   })
   const produtos = criarProdutosGateway(config)
+  let colunas: typeof COLUNAS_OFERTA | typeof COLUNAS_OFERTA_HOME = COLUNAS_OFERTA_HOME
+  const semColunaHome = (erro: { code: string; message: string }) => ['42703', 'PGRST204'].includes(erro.code) && erro.message.includes('home_oferta_mode')
   async function listarOfertas(coluna: 'id' | 'created_at', ascending: boolean) {
     const ofertas: OfertaRow[] = []
     for (let inicio = 0; ; inicio += 500) {
-      const { data, error } = await supabase.from('produtos').select(COLUNAS_OFERTA)
-        .eq('oferta_relampago', true).order(coluna, { ascending }).range(inicio, inicio + 499)
+      let { data, error } = await supabase.from('produtos').select(colunas)
+        .eq('oferta_relampago', true).order(coluna, { ascending }).range(inicio, inicio + 499).overrideTypes<OfertaRow[], { merge: false }>()
+      if (error && semColunaHome(error) && colunas !== COLUNAS_OFERTA) {
+        colunas = COLUNAS_OFERTA
+        ;({ data, error } = await supabase.from('produtos').select(colunas)
+          .eq('oferta_relampago', true).order(coluna, { ascending }).range(inicio, inicio + 499).overrideTypes<OfertaRow[], { merge: false }>())
+      }
       if (error) throw error
       ofertas.push(...(data ?? []) as OfertaRow[])
       if (!data || data.length < 500) return ofertas
@@ -161,8 +169,12 @@ export function criarOfertasGateway(config: SupabaseConfig): OfertaGateway {
   }
   return {
     async buscar(id) {
-      const { data, error } = await supabase.from('produtos').select(COLUNAS_OFERTA)
-        .eq('mercado_livre_id', id).limit(2)
+      let { data, error } = await supabase.from('produtos').select(colunas)
+        .eq('mercado_livre_id', id).limit(2).overrideTypes<OfertaRow[], { merge: false }>()
+      if (error && semColunaHome(error) && colunas !== COLUNAS_OFERTA) {
+        colunas = COLUNAS_OFERTA
+        ;({ data, error } = await supabase.from('produtos').select(colunas).eq('mercado_livre_id', id).limit(2).overrideTypes<OfertaRow[], { merge: false }>())
+      }
       if (error) throw error
       return (data ?? []) as OfertaRow[]
     },
@@ -178,7 +190,7 @@ export function criarOfertasGateway(config: SupabaseConfig): OfertaGateway {
         if (coluna === 'mercado_livre_id') continue
         consulta = valor === null ? consulta.is(coluna, null) : consulta.eq(coluna, valor)
       }
-      const { data, error } = await consulta.select(COLUNAS_OFERTA)
+      const { data, error } = await consulta.select(colunas).overrideTypes<OfertaRow[], { merge: false }>()
       if (error) throw error
       return (data ?? []) as OfertaRow[]
     },

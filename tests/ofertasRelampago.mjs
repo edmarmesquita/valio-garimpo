@@ -147,6 +147,26 @@ test('gerenciamento reproduz ordenação estável, janelas e limite de 12 da Hom
   assert.equal(classificarOfertas([base(1, { oferta_inicio: '2026-10-16T12:00:00Z' })], agora)[0].situacao, 'ATIVA')
 })
 
+test('controle Home/Fila troca produtos específicos e resolve mais de 12 fixadas sem afetar prioridade automática', async () => {
+  const { classificarOfertas } = await vite.ssrLoadModule('/src/features/ofertas-relampago/gerenciarOfertas.ts')
+  const produtos = Array.from({ length: 15 }, (_, i) => ({ mercado_livre_id: `MLB${i}`, titulo: i === 0 ? 'Gemini' : i === 14 ? 'Colchão' : `Produto ${i}`,
+    ativo: true, oferta_relampago: true, oferta_inicio: null, oferta_fim: null, prioridade_oferta: 0, home_oferta_mode: 'auto' }))
+  const antes = classificarOfertas(produtos, Date.now())
+  assert.deepEqual(antes.filter((p) => p.naHome).map((p) => p.mercado_livre_id), Array.from({ length: 12 }, (_, i) => `MLB${i}`))
+  produtos[0].home_oferta_mode = 'fila'
+  produtos[14].home_oferta_mode = 'fixada'
+  produtos[13].prioridade_oferta = 100
+  const depois = classificarOfertas(produtos, Date.now())
+  assert.equal(depois.find((p) => p.titulo === 'Colchão').naHome, true)
+  assert.equal(depois.find((p) => p.titulo === 'Gemini').naFila, true)
+  assert.equal(depois.find((p) => p.mercado_livre_id === 'MLB13').naHome, true)
+  assert.equal(depois.filter((p) => p.ativa).length, 15)
+  assert.ok(depois.every((p) => p.ativo && p.oferta_relampago))
+  const fixadas = classificarOfertas(produtos.map((p) => ({ ...p, home_oferta_mode: 'fixada' })), Date.now())
+  assert.equal(fixadas.filter((p) => p.naHome).length, 12)
+  assert.deepEqual(fixadas.filter((p) => p.naHome).map((p) => p.mercado_livre_id), ['MLB13', ...Array.from({ length: 11 }, (_, i) => `MLB${i}`)])
+})
+
 test('regressão real MLB4857636451: /up/MLBU e wid do mesmo anúncio, comparado ao MLB5226420562', async () => {
   const { resolverUrlGerador } = await vite.ssrLoadModule('/src/features/ofertas-relampago/urlGerador.ts')
   const origem = 'https://www.mercadolivre.com.br/ofertas?container_id=relampago'
@@ -909,7 +929,7 @@ test('fixture real finaliza, restaura e encerra somente o lote local sem tocar n
 })
 
 test('gerenciamento independente usa prévia/confirmação, mantém produto ativo e preserva lote e classificação', async () => {
-  const [{ criarPreviaOfertas, confirmarPreviaOfertas }, { criarRegistroSnapshot }] = await Promise.all([
+  const [{ criarPreviaOfertas, criarPreviaLimpezaExpiradas, confirmarPreviaOfertas }, { criarRegistroSnapshot }] = await Promise.all([
     vite.ssrLoadModule('/server/ofertasRelampagoLote.ts'),
     vite.ssrLoadModule('/src/features/importar-lista-afiliados/snapshotLoteAfiliados.ts'),
   ])
@@ -920,9 +940,10 @@ test('gerenciamento independente usa prévia/confirmação, mantém produto ativ
       percentual_desconto: 40, prioridade_oferta: 0, oferta_inicio: i === 16 ? new Date(agora + 86_400_000).toISOString() : null,
       oferta_fim: new Date(agora + (i === 15 ? -1 : 2) * 86_400_000).toISOString(),
       imagem: 'https://img.test/item.webp', categoria: 'Achados para Casa', ativo: true,
-      oferta_relampago: true, texto_oferta: null, link_afiliado: `https://meli.la/original${i}` }]
+      oferta_relampago: true, texto_oferta: null, home_oferta_mode: 'auto', link_afiliado: `https://meli.la/original${i}` }]
   }))
   const escritas = []
+  const homeScrolls = []
   const gateway = {
     async buscar(id) { return rows.has(id) ? [structuredClone(rows.get(id))] : [] },
     async listarAtivas() { return [...rows.values()].filter((r) => r.oferta_relampago).map((r) => structuredClone(r)) },
@@ -934,6 +955,14 @@ test('gerenciamento independente usa prévia/confirmação, mantém produto ativ
     async inserir() { assert.fail('Gerenciamento não pode criar produto') },
   }
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/ofertas-relampago' })
+  dom.window.HTMLElement.prototype.scrollIntoView = function (options) {
+    if (this.getAttribute('aria-label') === 'Prévia do gerenciamento') {
+      assert.equal(this.isConnected, true)
+      assert.match(this.textContent, /Prévia da posição na Home/)
+      assert.deepEqual(options, { behavior: 'smooth', block: 'start' })
+      homeScrolls.push(this.textContent)
+    }
+  }
   const globals = ['window', 'document', 'navigator', 'HTMLElement', 'HTMLInputElement', 'HTMLTextAreaElement', 'HTMLSelectElement', 'Node', 'Event', 'MouseEvent', 'Element', 'fetch']
   const previous = new Map(globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]))
   const calls = []
@@ -944,7 +973,13 @@ test('gerenciamento independente usa prévia/confirmação, mantém produto ativ
       let resposta
       if (url.endsWith('/verificar')) resposta = { ok: true, existentes: [] }
       else if (url.endsWith('/listar')) resposta = { ok: true, produtos: body.itemId ? await gateway.buscar(body.itemId) : await gateway.listarAtivas() }
-      else if (url.endsWith('/prever')) resposta = { ok: true, previa: await criarPreviaOfertas(body, gateway), assinatura: 'assinada-no-teste' }
+      else if (url.endsWith('/expiradas/prever')) resposta = { ok: true, previa: await criarPreviaLimpezaExpiradas(gateway), assinatura: 'assinada-no-teste' }
+      else if (url.endsWith('/prever')) {
+        if (body.modo === 'HOME') {
+          assert.deepEqual(Object.keys(body.itens[0].dados).sort(), ['homeOfertaMode', 'mercadoLivreId'])
+        }
+        resposta = { ok: true, previa: await criarPreviaOfertas(body, gateway), assinatura: 'assinada-no-teste' }
+      }
       else if (url.endsWith('/confirmar')) resposta = { ok: true, ...await confirmarPreviaOfertas(body.previa, gateway) }
       else assert.fail(`Rota inesperada: ${url}`)
       return { ok: true, json: async () => resposta }
@@ -961,6 +996,8 @@ test('gerenciamento independente usa prévia/confirmação, mantém produto ativ
     const chave = 'valio-garimpa:flash-batch-snapshot:v1'
     dom.window.localStorage.setItem(chave, JSON.stringify(snapshot))
     dom.window.localStorage.setItem('valio-garimpa:affiliate-batch-snapshot:v1', 'preservar-afiliados')
+    const preparadoAntes = await fixturePreparado()
+    dom.window.localStorage.setItem(preparadoAntes.CHAVE_LOTE_PREPARADO, JSON.stringify(preparadoAntes.lote))
     const armazenamentoAntes = JSON.stringify(dom.window.localStorage)
     root = createRoot(dom.window.document.getElementById('root'))
     await act(async () => root.render(createElement(ContextoSessao.Provider, { value: { token: 'token-teste' } }, createElement(Page))))
@@ -978,12 +1015,13 @@ test('gerenciamento independente usa prévia/confirmação, mantém produto ativ
     await click(botao('Carregar ofertas do catálogo', manager))
     const linhas = () => [...manager.querySelectorAll('tbody tr')]
     const linha = (id) => linhas().find((r) => r.textContent.includes(id))
-    assert.equal(linhas().length, 17)
+    assert.equal(linhas().length, 16)
+    assert.equal(linha('MLB9016'), undefined)
     assert.match(manager.textContent, /17 ofertas marcadas · 15 ativas agora · 12 na Home · 3 na fila · 1 expiradas/)
     assert.equal(manager.querySelectorAll('.flash-manager-home').length, 12)
     assert.equal(manager.querySelectorAll('.flash-manager-queue').length, 3)
     const filtro = [...manager.querySelectorAll('label')].find((l) => l.textContent.startsWith('Filtrar ofertas')).querySelector('select')
-    await fill(filtro, 'Expiradas'); assert.equal(linhas().length, 1)
+    await fill(filtro, 'Expiradas / Histórico'); assert.equal(linhas().length, 1)
     await fill(filtro, 'Agendadas'); assert.equal(linhas().length, 1)
     await fill(filtro, 'Na fila'); assert.equal(linhas().length, 3)
     await fill(filtro, 'Todas')
@@ -1010,10 +1048,12 @@ test('gerenciamento independente usa prévia/confirmação, mantém produto ativ
     await click(botao('Confirmar alterações das ofertas publicadas', manager))
     assert.deepEqual(rows.get('MLB9015'), { ...original, oferta_relampago: false })
     assert.deepEqual(escritas.at(-1).alteracao, { oferta_relampago: false })
+    await fill(filtro, 'Desativadas')
     await click(botao('Reativar Oferta Relâmpago', linha('MLB9015')))
     await click(botao('Confirmar alterações das ofertas publicadas', manager))
     assert.deepEqual(rows.get('MLB9015'), original)
     assert.deepEqual(escritas.at(-1).alteracao, { oferta_relampago: true })
+    await fill(filtro, 'Todas')
     for (const id of ['MLB9001', 'MLB9002']) await click(linha(id).querySelector('input[type="checkbox"]'))
     const seletorLote = [...manager.querySelectorAll('label')].find((l) => l.textContent.startsWith('Prioridade em lote')).querySelector('select')
     await fill(seletorLote, '50')
@@ -1021,7 +1061,7 @@ test('gerenciamento independente usa prévia/confirmação, mantém produto ativ
     await click(botao('Confirmar alterações das ofertas publicadas', manager))
     for (const id of ['MLB9001', 'MLB9002']) {
       assert.equal(rows.get(id).prioridade_oferta, 50)
-      await click(linha(id).querySelector('input[type="checkbox"]'))
+      assert.equal(linha(id).querySelector('input[type="checkbox"]').checked, true)
     }
     await click(botao('Desativar Ofertas Relâmpago selecionadas', manager))
     await click(botao('Confirmar alterações das ofertas publicadas', manager))
@@ -1033,6 +1073,43 @@ test('gerenciamento independente usa prévia/confirmação, mantém produto ativ
     await fill(manager.querySelector('input:not([type="checkbox"])'), 'MLB9001')
     await click(botao('Consultar ITEM_ID', manager))
     assert.ok(botao('Reativar Oferta Relâmpago', linha('MLB9001')))
+    await fill(filtro, 'Todas')
+    const geminiAntes = structuredClone(rows.get('MLB9003'))
+    const colchaoAntes = structuredClone(rows.get('MLB9014'))
+    await fill(linha('MLB9003').querySelector('[aria-label="Posição na Home de MLB9003"]'), 'fila')
+    const escritasAntesHome = escritas.length
+    assert.equal(homeScrolls.length, 0)
+    await click(botao('Prévia da posição na Home', linha('MLB9003')))
+    assert.equal(homeScrolls.length, 1)
+    assert.equal(dom.window.document.activeElement, manager.querySelector('[aria-label="Prévia do gerenciamento"]'))
+    assert.equal(escritas.length, escritasAntesHome)
+    assert.match(manager.querySelector('[aria-label="Prévia do gerenciamento"]').textContent, /Automática → Enviar para fila/)
+    await click(botao('Confirmar alterações das ofertas publicadas', manager))
+    assert.deepEqual(escritas.at(-1).alteracao, { home_oferta_mode: 'fila' })
+    await fill(linha('MLB9014').querySelector('[aria-label="Posição na Home de MLB9014"]'), 'fixada')
+    await click(botao('Prévia da posição na Home', linha('MLB9014')))
+    assert.equal(homeScrolls.length, 2)
+    await click(botao('Confirmar alterações das ofertas publicadas', manager))
+    assert.match(linha('MLB9014').textContent, /FIXADA NA HOME/)
+    assert.ok(linha('MLB9003').querySelector('.flash-manager-queue'))
+    assert.equal(linha('MLB9003').querySelector('.flash-manager-home'), null)
+    assert.deepEqual(rows.get('MLB9003'), { ...geminiAntes, home_oferta_mode: 'fila' })
+    assert.deepEqual(rows.get('MLB9014'), { ...colchaoAntes, home_oferta_mode: 'fixada' })
+    const expiradoAntes = structuredClone(rows.get('MLB9016'))
+    const escritasAntesLimpeza = escritas.length
+    await click(botao('Limpar ofertas expiradas', manager))
+    assert.equal(escritas.length, escritasAntesLimpeza)
+    assert.match(manager.querySelector('[aria-label="Prévia do gerenciamento"]').textContent, /1 ofertas expiradas serão limpas/)
+    assert.match(manager.querySelector('[aria-label="Prévia do gerenciamento"]').textContent, /Esses produtos sairão.*permanecerão ativos no catálogo/)
+    assert.match(manager.querySelector('[aria-label="Prévia do gerenciamento"]').textContent, /Oferta publicada 16.*MLB9016/)
+    await click(botao('Confirmar alterações das ofertas publicadas', manager))
+    assert.deepEqual(escritas.at(-1).alteracao, { oferta_relampago: false })
+    assert.deepEqual(rows.get('MLB9016'), { ...expiradoAntes, oferta_relampago: false })
+    assert.match(manager.textContent, /0 expiradas aguardando limpeza/)
+    await fill(filtro, 'Expiradas / Histórico'); assert.equal(linhas().length, 0)
+    assert.equal(manager.querySelectorAll('input[type="checkbox"]:checked').length, 0)
+    await fill(filtro, 'Todas')
+    assert.equal(rows.size, 17)
     assert.equal(JSON.stringify(dom.window.localStorage), armazenamentoAntes)
     assert.equal(query('#flash-html').value, htmlAtual)
     assert.equal(query('.flash-category select').value, 'Achados para Elas')

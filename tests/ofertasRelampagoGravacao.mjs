@@ -6,7 +6,7 @@ import { createServer } from 'vite'
 import { PGlite } from '@electric-sql/pglite'
 
 const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
-const { criarPreviaOfertas, confirmarPreviaOfertas, validarPedidoOfertas, assinarPrevia, validarAssinatura } =
+const { criarPreviaOfertas, criarPreviaLimpezaExpiradas, confirmarPreviaOfertas, validarPedidoOfertas, assinarPrevia, validarAssinatura } =
   await vite.ssrLoadModule('/server/ofertasRelampagoLote.ts')
 const { criarRotaValioProdutos } = await vite.ssrLoadModule('/server/valioProdutos.ts')
 const { mapearProdutoParaRow, criarOfertasGateway } = await vite.ssrLoadModule('/server/services/supabase.ts')
@@ -17,7 +17,7 @@ const clone = (valor) => JSON.parse(JSON.stringify(valor))
 const row = (n, extras = {}) => ({ mercado_livre_id: id(n), titulo: `Produto ${n}`, preco: 49.9,
   categoria: 'Achados para Casa', imagem: 'https://img.test/item.webp', link_afiliado: `https://meli.la/atual${n}`,
   ativo: true, oferta_relampago: false, oferta_inicio: null, oferta_fim: null, preco_anterior: null,
-  percentual_desconto: null, texto_oferta: null, prioridade_oferta: 0, ...extras })
+  percentual_desconto: null, texto_oferta: null, prioridade_oferta: 0, home_oferta_mode: 'auto', ...extras })
 const ativar = (n, priority = 0) => ({ tipo: 'ATUALIZAR_OFERTA', dados: { mercadoLivreId: id(n), ofertaRelampago: true,
   ofertaInicio: null, ofertaFim: '2026-10-17T12:00:00Z', precoAnterior: 80,
   percentualDesconto: 38, textoOferta: 'Oferta verificada', prioridadeOferta: priority } })
@@ -254,7 +254,7 @@ test('assinatura vincula prévia e expira; alteração do payload impede confirm
 })
 
 test('rotas exigem token, prévia assinada e confirmação explícita para gravar', async () => {
-  const { escritas, gateway } = fake(1)
+  const { rows, escritas, gateway } = fake(1)
   const token = 'token-local-de-teste-com-mais-de-32-caracteres'
   const app = express(); app.use(express.json())
   app.use('/api/valio', criarRotaValioProdutos({
@@ -292,6 +292,70 @@ test('rotas exigem token, prévia assinada e confirmação explícita para grava
     const listadas = await enviar('/listar', {})
     assert.equal(listadas.body.produtos.length, 1)
     assert.equal(listadas.body.produtos[0].oferta_relampago, true)
+    assert.equal((await enviar('/expiradas/prever', {}, 'errado')).status, 401)
+    assert.equal((await enviar('/expiradas/prever', { ativo: false })).status, 400)
+    rows.set(id(1), { ...rows.get(id(1)), oferta_fim: new Date(Date.now() - 60_000).toISOString() })
+    const antesLimpar = clone(rows.get(id(1)))
+    const limpeza = await enviar('/expiradas/prever', {})
+    assert.equal(limpeza.status, 200)
+    assert.equal(limpeza.body.previa.modo, 'LIMPAR_EXPIRADAS')
+    assert.equal(escritas.length, 1)
+    const limpo = await enviar('/confirmar', { previa: limpeza.body.previa, assinatura: limpeza.body.assinatura })
+    assert.equal(limpo.body.desativadas, 1)
+    assert.deepEqual(rows.get(id(1)), { ...antesLimpar, oferta_relampago: false })
+    assert.equal((await enviar('/expiradas/prever', {})).status, 409)
+    assert.equal(rows.size, 1)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
+test('HTTP HOME aceita payload mínimo do cliente sem erro de lote, assina e confirma somente home_oferta_mode', async () => {
+  const { preverOfertas, confirmarOfertas } = await vite.ssrLoadModule('/src/lib/ofertasRelampagoApi.ts')
+  const { rows, escritas, gateway } = fake()
+  const itemId = 'MLB5552965854'
+  rows.set(itemId, row(1, { mercado_livre_id: itemId, oferta_relampago: true }))
+  const token = 'token-local-de-teste-com-mais-de-32-caracteres'
+  const app = express(); app.use(express.json())
+  app.use('/api/valio', criarRotaValioProdutos({
+    config: () => ({ url: 'https://teste.supabase.co', serviceRoleKey: 'segredo-falso-de-teste-com-mais-de-32-caracteres' }),
+    token: () => token, ofertas: () => gateway,
+  }))
+  const server = app.listen(0, '127.0.0.1')
+  try {
+    await new Promise((resolve) => server.once('listening', resolve))
+    const base = `http://127.0.0.1:${server.address().port}`
+    const enviar = async (url, options) => {
+      const body = JSON.parse(options.body)
+      if (url.endsWith('/prever')) {
+        assert.equal(body.modo, 'HOME')
+        assert.deepEqual(Object.keys(body).sort(), ['itens', 'modo'])
+        assert.deepEqual(Object.keys(body.itens[0].dados).sort(), ['homeOfertaMode', 'mercadoLivreId'])
+      }
+      const resposta = await fetch(base + url, options)
+      assert.equal(resposta.status, 200, JSON.stringify(await resposta.clone().json()))
+      return resposta
+    }
+    for (const [origem, destino, texto] of [
+      ['auto', 'fila', 'Automática → Enviar para fila'],
+      ['auto', 'fixada', 'Automática → Fixar na Home'],
+      ['fila', 'auto', 'Enviar para fila → Automática'],
+      ['fixada', 'fila', 'Fixar na Home → Enviar para fila'],
+    ]) {
+      rows.set(itemId, { ...rows.get(itemId), home_oferta_mode: origem })
+      const antes = clone(rows.get(itemId))
+      const total = escritas.length
+      const previa = await preverOfertas('HOME', [{ tipo: 'ATUALIZAR_OFERTA',
+        dados: { mercadoLivreId: itemId, homeOfertaMode: destino } }], token, enviar)
+      assert.equal(previa.previa.modo, 'HOME')
+      assert.equal(previa.previa.operacoes[0].acao, 'ATUALIZAR')
+      assert.ok(previa.previa.operacoes[0].resultadoEsperado.includes(texto))
+      assert.equal(escritas.length, total)
+      assert.deepEqual(rows.get(itemId), antes)
+      const confirmado = await confirmarOfertas(previa, token, enviar)
+      assert.equal(confirmado.atualizadas, 1)
+      assert.equal(escritas.length, total + 1)
+      assert.deepEqual(escritas.at(-1).alteracao, { home_oferta_mode: destino })
+      assert.deepEqual(rows.get(itemId), { ...antes, home_oferta_mode: destino })
+    }
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
@@ -375,4 +439,113 @@ test('lote preparado exige prazo válido em nova prévia e na rechecagem antes d
   assert.equal(escritas.length, 1)
   assert.equal(escritas[0].chave, id(2))
   assert.throws(() => validarPedidoOfertas({ ...pedido, exigirPrazoValido: false }))
+})
+
+for (const [origem, destino, descricao] of [
+  ['auto', 'fila', 'Automática → Enviar para fila'],
+  ['auto', 'fixada', 'Automática → Fixar na Home'],
+  ['fila', 'auto', 'Enviar para fila → Automática'],
+  ['fixada', 'fila', 'Fixar na Home → Enviar para fila'],
+]) test(`MLB5552965854: Home ${origem} → ${destino} independe da prioridade 0`, async () => {
+  const { gateway, rows, escritas } = fake()
+  const itemId = 'MLB5552965854'
+  const antes = row(1, { mercado_livre_id: itemId, titulo: 'Coenzima Q10 200mg Pura Alta Concentração 60 Cápsulas',
+    oferta_relampago: true, home_oferta_mode: origem, prioridade_oferta: 0 })
+  rows.set(itemId, antes)
+  const previa = await criarPreviaOfertas({ modo: 'HOME', itens: [{ tipo: 'ATUALIZAR_OFERTA',
+    dados: { mercadoLivreId: itemId, homeOfertaMode: destino } }] }, gateway)
+  assert.equal(previa.modo, 'HOME')
+  assert.equal(previa.operacoes[0].acao, 'ATUALIZAR')
+  assert.equal(previa.operacoes[0].prioridade, 0)
+  assert.ok(previa.operacoes[0].resultadoEsperado.includes(descricao))
+  assert.equal(escritas.length, 0)
+  assert.deepEqual(rows.get(itemId), antes)
+  const resultado = await confirmarPreviaOfertas(previa, gateway)
+  assert.equal(resultado.erros, 0)
+  assert.equal(escritas.length, 1)
+  assert.deepEqual(escritas[0].alteracao, { home_oferta_mode: destino })
+  assert.deepEqual(rows.get(itemId), { ...antes, home_oferta_mode: destino })
+})
+
+test('controle explícito de Home grava somente o modo e rechecagem detecta mudança concorrente', async () => {
+  const { gateway, rows, escritas } = fake(15, Object.fromEntries(Array.from({ length: 15 }, (_, i) => [i + 1, { oferta_relampago: true }])))
+  const pedido = (n, modo) => ({ modo: 'HOME', itens: [{ tipo: 'ATUALIZAR_OFERTA', dados: { mercadoLivreId: id(n), homeOfertaMode: modo } }] })
+  for (const [n, modo] of [[1, 'fila'], [15, 'fixada'], [1, 'auto']]) {
+    const antes = clone(rows.get(id(n)))
+    const previa = await criarPreviaOfertas(pedido(n, modo), gateway)
+    const totalAntes = escritas.length
+    assert.equal(previa.operacoes[0].homeOfertaMode, modo)
+    assert.equal(escritas.length, totalAntes)
+    await confirmarPreviaOfertas(previa, gateway)
+    assert.deepEqual(escritas.at(-1).alteracao, { home_oferta_mode: modo })
+    assert.deepEqual(rows.get(id(n)), { ...antes, home_oferta_mode: modo })
+  }
+  const concorrente = await criarPreviaOfertas(pedido(2, 'fila'), gateway)
+  rows.set(id(2), { ...rows.get(id(2)), home_oferta_mode: 'fixada' })
+  assert.equal((await confirmarPreviaOfertas(concorrente, gateway)).conflitos, 1)
+  assert.equal(rows.get(id(2)).home_oferta_mode, 'fixada')
+  for (let n = 1; n <= 15; n++) rows.set(id(n), { ...rows.get(id(n)), home_oferta_mode: 'fixada' })
+  const limite = await criarPreviaOfertas(pedido(1, 'fixada'), gateway)
+  assert.match(limite.avisos[0], /15 ofertas fixadas.*12 vagas/)
+  assert.equal(rows.size, 15)
+  assert.throws(() => validarPedidoOfertas({ modo: 'HOME', itens: [{ tipo: 'ATUALIZAR_OFERTA', dados: { mercadoLivreId: id(1), homeOfertaMode: 'fila', ativo: false } }] }))
+  const semSchema = rows.get(id(1)); delete semSchema.home_oferta_mode
+  await assert.rejects(() => criarPreviaOfertas(pedido(1, 'fixada'), gateway), /migração 004/)
+})
+
+test('limpeza descobre apenas expiradas e desmarca oferta sem alterar produto; extensão concorrente impede escrita', async () => {
+  const agora = Date.parse('2026-10-16T12:00:00Z')
+  const { gateway, rows, escritas } = fake(6, {
+    1: { oferta_relampago: true, oferta_fim: '2026-10-16T11:00:00Z' },
+    2: { oferta_relampago: true, oferta_fim: '2026-10-15T12:00:00Z', home_oferta_mode: 'fixada' },
+    3: { oferta_relampago: true, oferta_fim: '2026-10-17T12:00:00Z' },
+    4: { oferta_relampago: true, oferta_fim: null },
+    5: { oferta_relampago: false, oferta_fim: '2000-01-01T00:00:00Z' },
+    6: { oferta_relampago: true, oferta_fim: '2026-10-16T12:00:00Z' },
+  })
+  const antes = clone(rows.get(id(1)))
+  const previa = await criarPreviaLimpezaExpiradas(gateway, agora)
+  assert.equal(previa.modo, 'LIMPAR_EXPIRADAS')
+  assert.deepEqual(previa.operacoes.map((p) => p.itemId), [id(1), id(2)])
+  assert.equal(escritas.length, 0)
+  rows.set(id(2), { ...rows.get(id(2)), oferta_fim: '2099-01-01T00:00:00Z' })
+  const resultado = await confirmarPreviaOfertas(previa, gateway, new Date(agora))
+  assert.equal(resultado.desativadas, 1)
+  assert.equal(resultado.conflitos, 1)
+  assert.deepEqual(escritas[0].alteracao, { oferta_relampago: false })
+  assert.deepEqual(rows.get(id(1)), { ...antes, oferta_relampago: false })
+  assert.equal(rows.get(id(2)).oferta_relampago, true)
+  assert.equal(rows.size, 6)
+  await assert.rejects(() => criarPreviaLimpezaExpiradas(gateway, agora), /Nenhuma oferta expirada/)
+})
+
+test('schema home_oferta_mode tem default auto, enum restrito e migração idempotente sem mexer nos produtos', async () => {
+  const db = new PGlite()
+  try {
+    await db.exec("CREATE TABLE public.produtos (id integer primary key, ativo boolean, categoria text, titulo text, link_afiliado text, preco numeric, oferta_relampago boolean); INSERT INTO public.produtos VALUES (1,true,'Casa','Gemini','https://meli.la/preservar',50,true);")
+    const sql = await readFile(new URL('../migrations/004_valio_home_oferta_mode.sql', import.meta.url), 'utf8')
+    await db.exec(sql); await db.exec(sql)
+    const { rows: produtos } = await db.query('SELECT * FROM public.produtos')
+    assert.deepEqual(produtos[0], { id: 1, ativo: true, categoria: 'Casa', titulo: 'Gemini', link_afiliado: 'https://meli.la/preservar', preco: '50', oferta_relampago: true, home_oferta_mode: 'auto' })
+    await assert.rejects(() => db.exec("UPDATE public.produtos SET home_oferta_mode='negativa' WHERE id=1"))
+    await assert.rejects(() => db.exec('UPDATE public.produtos SET home_oferta_mode=NULL WHERE id=1'))
+  } finally { await db.close() }
+})
+
+test('banco sem a migração mantém leitura legada, informa controle indisponível e não inventa suporte ao modo Home', async () => {
+  const fetchAnterior = globalThis.fetch
+  const consultas = []
+  try {
+    globalThis.fetch = async (endereco) => {
+      const url = new URL(String(endereco)); consultas.push(url)
+      const home = url.searchParams.get('select').includes('home_oferta_mode')
+      const produto = row(1, { oferta_relampago: true }); delete produto.home_oferta_mode
+      return new Response(JSON.stringify(home ? { code: '42703', message: 'column produtos.home_oferta_mode does not exist' } : [produto]),
+        { status: home ? 400 : 200, headers: { 'Content-Type': 'application/json' } })
+    }
+    const gateway = criarOfertasGateway({ url: 'https://teste.supabase.co', serviceRoleKey: 'falsa' })
+    assert.equal((await gateway.listarAtivas()).length, 1)
+    assert.equal(consultas.length, 2)
+    await assert.rejects(() => criarPreviaOfertas({ modo: 'HOME', itens: [{ tipo: 'ATUALIZAR_OFERTA', dados: { mercadoLivreId: id(1), homeOfertaMode: 'fila' } }] }, gateway), /migração 004/)
+  } finally { globalThis.fetch = fetchAnterior }
 })

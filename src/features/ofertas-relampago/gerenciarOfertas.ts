@@ -2,6 +2,7 @@ export type OfertaPublicada = {
   mercado_livre_id: string; titulo: string; imagem: string; categoria: string; preco: number
   ativo: boolean; oferta_relampago: boolean; oferta_inicio: string | null; oferta_fim: string | null
   preco_anterior: number | null; percentual_desconto: number | null; prioridade_oferta: number
+  home_oferta_mode?: 'auto' | 'fixada' | 'fila'; controle_home_disponivel?: boolean
 }
 
 // Mesma semântica de valio/src/lib/ofertasRelampago.ts: datas sem horário
@@ -34,7 +35,9 @@ export function classificarOfertas(produtos: OfertaPublicada[], agora: number) {
         : prazoExato ? 'ATIVA' : 'SEM PRAZO EXATO'
       return { ...produto, ativa, situacao, naHome: false, naFila: false }
     })
-  let posicao = 0
+  const naHome = new Set(ordenadas.filter((produto) => produto.ativa && produto.home_oferta_mode !== 'fila')
+    .sort((a, b) => Number(b.home_oferta_mode === 'fixada') - Number(a.home_oferta_mode === 'fixada'))
+    .slice(0, 12).map((produto) => produto.mercado_livre_id))
   return ordenadas.map((produto) => produto.ativa
-    ? { ...produto, naHome: ++posicao <= 12, naFila: posicao > 12 } : produto)
+    ? { ...produto, naHome: naHome.has(produto.mercado_livre_id), naFila: !naHome.has(produto.mercado_livre_id) } : produto)
 }
