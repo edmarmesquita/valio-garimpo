@@ -6,7 +6,9 @@ export const CHAVE_SNAPSHOT_OFERTAS = 'valio-garimpa:flash-batch-snapshot:v1'
 
 function retornoValido(registro: RegistroSnapshot) {
   const retorno = processarRetornoGerador(registro.snapshot.produtos, registro.retornoTexto ?? '')
-  return retorno.consistente && retorno.pareamentos.every((item) => item.retorno?.tipo === 'LINK')
+  // RECUSADO/PAUSADO são resultados válidos do Gerador, não links publicáveis.
+  // Não apagar os outros pareamentos quando uma dessas linhas estiver presente.
+  return retorno.consistente
 }
 
 export function validarLoteOfertas(valor: unknown): valor is RegistroSnapshot {

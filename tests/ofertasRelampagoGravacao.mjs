@@ -14,6 +14,61 @@ test.after(async () => vite.close())
 
 const id = (n) => `MLB${1000 + n}`
 const clone = (valor) => JSON.parse(JSON.stringify(valor))
+
+test('relógio ativa agendadas, mantém limite e modos da Home, e expira no limite', async () => {
+  const { classificarOfertas } = await vite.ssrLoadModule('/src/features/ofertas-relampago/gerenciarOfertas.ts')
+  const { agendaIso, agendaInput } = await vite.ssrLoadModule('/src/features/ofertas-relampago/agendaOferta.ts')
+  const inicio = '2026-10-17T11:00:00Z', fim = '2026-10-17T15:00:00Z'
+  const produtos = Array.from({ length: 15 }, (_, i) => row(i + 1, { oferta_relampago: true,
+    oferta_inicio: inicio, oferta_fim: fim, home_oferta_mode: i === 14 ? 'fixada' : i === 0 ? 'fila' : 'auto' }))
+  const antes = classificarOfertas(produtos, Date.parse(inicio) - 1)
+  assert.equal(antes.filter((p) => p.ativa || p.naHome || p.naFila).length, 0)
+  assert.equal(antes.filter((p) => p.situacao === 'AGENDADA').length, 15)
+  const durante = classificarOfertas(produtos, Date.parse(inicio))
+  assert.equal(durante.filter((p) => p.ativa).length, 15)
+  assert.equal(durante.filter((p) => p.naHome).length, 12)
+  assert.equal(durante.find((p) => p.mercado_livre_id === id(15)).naHome, true)
+  assert.equal(durante.find((p) => p.mercado_livre_id === id(1)).naFila, true)
+  assert.equal(classificarOfertas(produtos, Date.parse(fim)).filter((p) => p.ativa).length, 0)
+  assert.equal(produtos.every((p) => p.ativo), true)
+  assert.equal(agendaIso('2026-10-17T08:00'), inicio.replace('Z', '.000Z'))
+  assert.equal(agendaInput(inicio), '2026-10-17T08:00')
+})
+
+test('agenda: prévia, edição, cancelamento e recheck preservam o catálogo', async () => {
+  const agora = Date.parse('2026-10-16T12:00:00Z')
+  const { rows, escritas, gateway } = fake(1)
+  const original = clone(rows.get(id(1)))
+  const pedido = (inicio, fim = null, modo = 'AGENDAR') => ({ modo, itens: [{ tipo: 'ATUALIZAR_OFERTA',
+    dados: { mercadoLivreId: id(1), ofertaInicio: inicio, ofertaFim: fim } }] })
+  const inicio = '2026-10-17T11:00:00Z', fim = '2026-10-17T15:00:00Z'
+  let previa = await criarPreviaOfertas(pedido(inicio, fim), gateway, agora)
+  assert.equal(escritas.length, 0)
+  assert.match(previa.operacoes[0].resultadoEsperado, /Início:.*→.*Fim:/)
+  await confirmarPreviaOfertas(previa, gateway, new Date(agora))
+  assert.deepEqual(escritas[0].alteracao, { oferta_relampago: true, oferta_inicio: inicio, oferta_fim: fim })
+  assert.deepEqual(rows.get(id(1)), { ...original, ...escritas[0].alteracao })
+  const editado = '2026-10-17T12:00:00Z'
+  previa = await criarPreviaOfertas(pedido(editado, fim), gateway, agora)
+  await confirmarPreviaOfertas(previa, gateway, new Date(agora))
+  assert.equal(rows.get(id(1)).oferta_inicio, editado)
+  previa = await criarPreviaOfertas(pedido(null, fim, 'ATIVAR_AGORA'), gateway, agora)
+  await confirmarPreviaOfertas(previa, gateway, new Date(agora))
+  assert.equal(rows.get(id(1)).oferta_inicio, null)
+  previa = await criarPreviaOfertas(pedido(inicio, fim), gateway, agora)
+  rows.get(id(1)).prioridade_oferta = 100
+  assert.equal((await confirmarPreviaOfertas(previa, gateway, new Date(agora))).conflitos, 1)
+  previa = await criarPreviaOfertas(pedido(inicio, fim), gateway, agora)
+  assert.equal((await confirmarPreviaOfertas(previa, gateway, new Date(fim))).erros, 1)
+  await assert.rejects(() => criarPreviaOfertas(pedido(inicio, inicio), gateway, agora))
+  await assert.rejects(() => criarPreviaOfertas(pedido(inicio, '2026-10-15T12:00:00Z'), gateway, agora))
+  await assert.rejects(() => criarPreviaOfertas(pedido('2026-10-15T12:00:00Z'), gateway, agora))
+  previa = await criarPreviaOfertas({ modo: 'DESATIVAR', itens: [desativar(1)] }, gateway, agora)
+  await confirmarPreviaOfertas(previa, gateway, new Date(agora))
+  assert.equal(rows.get(id(1)).ativo, true)
+  assert.equal(rows.get(id(1)).oferta_relampago, false)
+  assert.equal(rows.get(id(1)).link_afiliado, original.link_afiliado)
+})
 const row = (n, extras = {}) => ({ mercado_livre_id: id(n), titulo: `Produto ${n}`, preco: 49.9,
   categoria: 'Achados para Casa', imagem: 'https://img.test/item.webp', link_afiliado: `https://meli.la/atual${n}`,
   ativo: true, oferta_relampago: false, oferta_inicio: null, oferta_fim: null, preco_anterior: null,
@@ -506,11 +561,11 @@ test('limpeza descobre apenas expiradas e desmarca oferta sem alterar produto; e
   const antes = clone(rows.get(id(1)))
   const previa = await criarPreviaLimpezaExpiradas(gateway, agora)
   assert.equal(previa.modo, 'LIMPAR_EXPIRADAS')
-  assert.deepEqual(previa.operacoes.map((p) => p.itemId), [id(1), id(2)])
+  assert.deepEqual(previa.operacoes.map((p) => p.itemId), [id(1), id(2), id(6)])
   assert.equal(escritas.length, 0)
   rows.set(id(2), { ...rows.get(id(2)), oferta_fim: '2099-01-01T00:00:00Z' })
   const resultado = await confirmarPreviaOfertas(previa, gateway, new Date(agora))
-  assert.equal(resultado.desativadas, 1)
+  assert.equal(resultado.desativadas, 2)
   assert.equal(resultado.conflitos, 1)
   assert.deepEqual(escritas[0].alteracao, { oferta_relampago: false })
   assert.deepEqual(rows.get(id(1)), { ...antes, oferta_relampago: false })

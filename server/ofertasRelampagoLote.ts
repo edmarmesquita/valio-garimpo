@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import { CATEGORIAS_VALIO, validarProdutoPublicacao } from './valioProduto.js'
 import { mapearProdutoParaRow } from './services/supabase.js'
 
-export type ModoOferta = 'ATIVAR' | 'DESATIVAR' | 'PRIORIDADE' | 'ENVIAR' | 'SUBSTITUIR' | 'REATIVAR' | 'HOME' | 'LIMPAR_EXPIRADAS'
+export type ModoOferta = 'AGENDAR' | 'ATIVAR_AGORA' | 'ATIVAR' | 'DESATIVAR' | 'PRIORIDADE' | 'ENVIAR' | 'SUBSTITUIR' | 'REATIVAR' | 'HOME' | 'LIMPAR_EXPIRADAS'
 type Registro = Record<string, unknown>
 export type CamposOferta = {
   oferta_relampago: boolean; oferta_inicio: string | null; oferta_fim: string | null
@@ -60,13 +60,17 @@ function validarItem(valor: unknown, modo: ModoOferta): PedidoItem {
   if (tipo === 'NOVO_PRODUTO' && !['ATIVAR', 'ENVIAR', 'SUBSTITUIR'].includes(modo)) throw new Error('Produto novo não é permitido nesta ação.')
   const desativar = modo === 'DESATIVAR' || modo === 'LIMPAR_EXPIRADAS' || modo === 'ENVIAR' && dados.ofertaRelampago === false
   if (desativar && tipo === 'NOVO_PRODUTO') throw new Error('Produto novo não pode ser desativado.')
-  const permitidas = modo === 'HOME' ? ['mercadoLivreId', 'homeOfertaMode']
+  const agenda = modo === 'AGENDAR' || modo === 'ATIVAR_AGORA'
+  const permitidas = agenda ? ['mercadoLivreId', 'ofertaInicio', 'ofertaFim'] : modo === 'HOME' ? ['mercadoLivreId', 'homeOfertaMode']
     : modo === 'REATIVAR' ? ['mercadoLivreId', 'ofertaRelampago']
     : modo === 'PRIORIDADE' ? ['mercadoLivreId', 'prioridadeOferta']
     : desativar ? ['mercadoLivreId', 'ofertaRelampago']
       : ['mercadoLivreId', ...campos, ...(tipo === 'NOVO_PRODUTO' ? novos : [])]
   if (!chaves(dados, permitidas) || Object.keys(dados).length !== permitidas.length) throw new Error('O item contém campos não permitidos ou ausentes.')
-  if (modo === 'HOME') {
+  if (agenda) {
+    if (tipo !== 'ATUALIZAR_OFERTA' || !instante(dados.ofertaInicio) || !instante(dados.ofertaFim)
+      || (modo === 'AGENDAR' ? dados.ofertaInicio === null : dados.ofertaInicio !== null)) throw new Error('Agenda inválida.')
+  } else if (modo === 'HOME') {
     if (tipo !== 'ATUALIZAR_OFERTA' || !['auto', 'fixada', 'fila'].includes(String(dados.homeOfertaMode))) throw new Error('Posição na Home inválida.')
   } else if (modo === 'REATIVAR') {
     if (tipo !== 'ATUALIZAR_OFERTA' || dados.ofertaRelampago !== true) throw new Error('Reativação inválida.')
@@ -92,13 +96,25 @@ export function validarPedidoOfertas(valor: unknown): { modo: ModoOferta; itens:
   if (!pedido || !chaves(pedido, ['modo', 'itens', 'exigirPrazoValido'])
     || Object.keys(pedido).length !== (pedido.exigirPrazoValido === true ? 3 : 2)
     || Object.hasOwn(pedido, 'exigirPrazoValido') && pedido.exigirPrazoValido !== true
-    || !['ATIVAR', 'DESATIVAR', 'PRIORIDADE', 'ENVIAR', 'SUBSTITUIR', 'REATIVAR', 'HOME', 'LIMPAR_EXPIRADAS'].includes(String(pedido.modo))
+    || !['AGENDAR', 'ATIVAR_AGORA', 'ATIVAR', 'DESATIVAR', 'PRIORIDADE', 'ENVIAR', 'SUBSTITUIR', 'REATIVAR', 'HOME', 'LIMPAR_EXPIRADAS'].includes(String(pedido.modo))
     || !Array.isArray(pedido.itens) || pedido.itens.length < 1 || pedido.itens.length > 500) throw new Error('Lote de ofertas inválido.')
   const modo = pedido.modo as ModoOferta
   const itens = pedido.itens.map((item) => validarItem(item, modo))
   const ids = itens.map((item) => item.dados.mercadoLivreId)
   if (new Set(ids).size !== ids.length) throw new Error('ITEM_ID duplicado no lote.')
   return { modo, itens, ...(pedido.exigirPrazoValido === true ? { exigirPrazoValido: true as const } : {}) }
+}
+
+const formatarAgenda = (valor?: string | null) => valor ? new Date(valor).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : 'Sem data'
+function validarAgenda(dados: Registro, modo: ModoOferta, agora: number, confirmacao = false) {
+  if (dados.ofertaRelampago === false) return
+  if (typeof dados.ofertaInicio === 'string' && typeof dados.ofertaFim === 'string'
+    && Date.parse(dados.ofertaFim) <= Date.parse(dados.ofertaInicio)) throw new Error('O fim deve ser posterior ao início.')
+  const agenda = modo === 'AGENDAR' || modo === 'ATIVAR_AGORA'
+  if (!agenda && !(typeof dados.ofertaInicio === 'string' && Date.parse(dados.ofertaInicio) > agora)) return
+  if (modo === 'AGENDAR' && !confirmacao && Date.parse(dados.ofertaInicio as string) <= agora) throw new Error('Escolha um início futuro.')
+  if (dados.ofertaFim !== null && (Date.parse(dados.ofertaFim as string) <= agora
+    || typeof dados.ofertaInicio === 'string' && Date.parse(dados.ofertaFim as string) <= Date.parse(dados.ofertaInicio))) throw new Error('Oferta expirada ou fim menor ou igual ao início.')
 }
 
 function validarPrazoPreparado(dados: Registro, agora: number) {
@@ -111,6 +127,7 @@ function validarPrazoPreparado(dados: Registro, agora: number) {
 
 function alteracao(item: PedidoItem, modo: ModoOferta): AlteracaoOferta {
   const d = item.dados
+  if (modo === 'AGENDAR' || modo === 'ATIVAR_AGORA') return { oferta_relampago: true, oferta_inicio: d.ofertaInicio as string | null, oferta_fim: d.ofertaFim as string | null }
   if (modo === 'HOME') return { home_oferta_mode: d.homeOfertaMode as CamposOferta['home_oferta_mode'] }
   if (modo === 'DESATIVAR' || modo === 'LIMPAR_EXPIRADAS' || d.ofertaRelampago === false) return { oferta_relampago: false }
   if (modo === 'PRIORIDADE') return { prioridade_oferta: d.prioridadeOferta as number }
@@ -134,16 +151,18 @@ function operacao(item: PedidoItem, anterior: OfertaRow | null, modo: ModoOferta
   const d = item.dados
   const acao = acaoPara(anterior, item, modo)
   const desativar = d.ofertaRelampago === false
-  const usarAnterior = desativar || modo === 'PRIORIDADE' || modo === 'REATIVAR' || modo === 'HOME'
+  const usarAnterior = modo === 'AGENDAR' || modo === 'ATIVAR_AGORA' || desativar || modo === 'PRIORIDADE' || modo === 'REATIVAR' || modo === 'HOME'
   return { itemId: d.mercadoLivreId as string, produto: anterior?.titulo ?? d.titulo as string ?? 'Produto',
     situacaoAtual: anterior ? anterior.oferta_relampago ? 'OFERTA ATIVA' : 'PRODUTO SEM OFERTA' : 'NOVO PRODUTO',
-    acao, prioridade: desativar || modo === 'REATIVAR' || modo === 'HOME' ? anterior?.prioridade_oferta ?? 0 : d.prioridadeOferta as number,
+    acao, prioridade: desativar || modo === 'AGENDAR' || modo === 'ATIVAR_AGORA' || modo === 'REATIVAR' || modo === 'HOME' ? anterior?.prioridade_oferta ?? 0 : d.prioridadeOferta as number,
     precoAnterior: usarAnterior ? anterior?.preco_anterior ?? null : d.precoAnterior as number | null,
     precoAtual: anterior?.preco ?? d.preco as number,
     percentualDesconto: usarAnterior ? anterior?.percentual_desconto ?? null : d.percentualDesconto as number | null,
     ofertaFim: usarAnterior ? anterior?.oferta_fim ?? null : d.ofertaFim as string | null,
     ...(modo === 'HOME' ? { homeOfertaMode: d.homeOfertaMode as CamposOferta['home_oferta_mode'] } : {}),
-    resultadoEsperado: modo === 'HOME' ? `Posição na Home: ${{ auto: 'Automática', fixada: 'Fixar na Home', fila: 'Enviar para fila' }[anterior!.home_oferta_mode!]} → ${{ auto: 'Automática', fixada: 'Fixar na Home', fila: 'Enviar para fila' }[d.homeOfertaMode as 'auto' | 'fixada' | 'fila']}. Somente home_oferta_mode será alterado.`
+    resultadoEsperado: modo === 'AGENDAR' || modo === 'ATIVAR_AGORA' ? `Início: ${formatarAgenda(anterior?.oferta_inicio)} → ${formatarAgenda(d.ofertaInicio as string | null)}. Fim: ${formatarAgenda(anterior?.oferta_fim)} → ${formatarAgenda(d.ofertaFim as string | null)}. Somente agenda e marcação de oferta serão alteradas.`
+      : typeof d.ofertaInicio === 'string' ? `Início: ${formatarAgenda(anterior?.oferta_inicio)} → ${formatarAgenda(d.ofertaInicio)}. Fim: ${formatarAgenda(anterior?.oferta_fim)} → ${formatarAgenda(d.ofertaFim as string | null)}. Dados de oferta do lote serão aplicados.`
+      : modo === 'HOME' ? `Posição na Home: ${{ auto: 'Automática', fixada: 'Fixar na Home', fila: 'Enviar para fila' }[anterior!.home_oferta_mode!]} → ${{ auto: 'Automática', fixada: 'Fixar na Home', fila: 'Enviar para fila' }[d.homeOfertaMode as 'auto' | 'fixada' | 'fila']}. Somente home_oferta_mode será alterado.`
       : acao === 'DESATIVAR' ? 'Sai da fila; produto permanece no catálogo.'
       : acao === 'SEM ALTERAÇÃO' ? 'Nenhuma gravação.'
         : acao === 'CRIAR COMO OFERTA' ? 'Produto novo criado como oferta.' : 'Campos de oferta atualizados.',
@@ -155,10 +174,12 @@ export async function criarPreviaOfertas(valor: unknown, gateway: OfertaGateway,
   const operacoes: Operacao[] = []
   let ativasNaPrevia: string[] = []
   for (const item of pedido.itens) {
+    validarAgenda(item.dados, pedido.modo, agora)
     if (pedido.exigirPrazoValido) validarPrazoPreparado(item.dados, agora)
     const encontrados = await gateway.buscar(item.dados.mercadoLivreId as string)
     if (encontrados.length > 1) throw new Error('Mais de um produto corresponde ao ITEM_ID.')
     const anterior = encontrados[0] ?? null
+    if ((pedido.modo === 'AGENDAR' || pedido.modo === 'ATIVAR_AGORA') && !anterior?.ativo) throw new Error('Produto precisa estar ativo no catálogo.')
     if (item.tipo === 'NOVO_PRODUTO' && anterior) throw new Error(`Produto ${item.dados.mercadoLivreId} já existe; atualize a verificação.`)
     if (item.tipo === 'ATUALIZAR_OFERTA' && !anterior) throw new Error(`Produto ${item.dados.mercadoLivreId} não existe; atualize a verificação.`)
     if (pedido.modo === 'REATIVAR' && anterior) validarReativacao(anterior, agora)
@@ -191,14 +212,14 @@ export async function criarPreviaOfertas(valor: unknown, gateway: OfertaGateway,
   }
   return { modo: pedido.modo, emitidaEm: agora, operacoes, ativasNaPrevia,
     ...(avisos.length ? { avisos } : {}),
-    ...(pedido.exigirPrazoValido ? { exigirPrazoValido: true as const } : {}),
+    ...(pedido.exigirPrazoValido || pedido.itens.some((item) => typeof item.dados.ofertaInicio === 'string' && Date.parse(item.dados.ofertaInicio) > agora) ? { exigirPrazoValido: true as const } : {}),
     desativarAtuais: operacoes.filter((item) => item.acao === 'DESATIVAR').length,
     ativarSelecionadas: operacoes.filter((item) => item.acao === 'ATIVAR' || item.acao === 'CRIAR COMO OFERTA').length }
 }
 
 export function ofertaExpiradaParaLimpeza(oferta: OfertaRow, agora: number) {
   return oferta.oferta_relampago && typeof oferta.oferta_fim === 'string' && instante(oferta.oferta_fim)
-    && Date.parse(oferta.oferta_fim) < agora
+    && Date.parse(oferta.oferta_fim) <= agora
 }
 
 export async function criarPreviaLimpezaExpiradas(gateway: OfertaGateway, agora = Date.now()) {
@@ -275,6 +296,7 @@ export async function confirmarPreviaOfertas(preview: PreviaOfertas, gateway: Of
         || op.anterior && !mesmoEstado(encontrados[0], op.anterior)) {
         resumo.conflitos++; resumo.itens.push({ itemId: op.itemId, resultado: 'CONFLITO', motivo: 'Produto mudou desde a prévia.' }); continue
       }
+      validarAgenda(op.dados, preview.modo, agora.getTime(), true)
       if (preview.exigirPrazoValido) validarPrazoPreparado(op.dados, agora.getTime())
       if (preview.modo === 'LIMPAR_EXPIRADAS' && encontrados[0] && !ofertaExpiradaParaLimpeza(encontrados[0], agora.getTime())) {
         resumo.conflitos++; resumo.itens.push({ itemId: op.itemId, resultado: 'CONFLITO', motivo: 'A oferta não está mais expirada ou já foi limpa.' }); continue
@@ -294,8 +316,12 @@ export async function confirmarPreviaOfertas(preview: PreviaOfertas, gateway: Of
           ...alteracao({ tipo: op.tipo, dados: d }, preview.modo) } as NovoProdutoOferta)
         resumo.criadas++; resumo.itens.push({ itemId: op.itemId, resultado: 'CRIADA' }); continue
       }
-      const atualizado = await gateway.atualizar(op.itemId, op.anterior,
-        alteracao({ tipo: op.tipo, dados: op.dados }, op.acao === 'DESATIVAR' ? 'DESATIVAR' : preview.modo))
+      let camposAlterados = alteracao({ tipo: op.tipo, dados: op.dados }, op.acao === 'DESATIVAR' ? 'DESATIVAR' : preview.modo)
+      if (preview.modo === 'AGENDAR' || preview.modo === 'ATIVAR_AGORA') {
+        camposAlterados = Object.fromEntries(Object.entries(camposAlterados)
+          .filter(([campo, valor]) => op.anterior![campo as keyof OfertaRow] !== valor))
+      }
+      const atualizado = await gateway.atualizar(op.itemId, op.anterior, camposAlterados)
       if (atualizado.length !== 1 || atualizado[0].mercado_livre_id !== op.itemId) {
         resumo.conflitos++; resumo.itens.push({ itemId: op.itemId, resultado: 'CONFLITO', motivo: 'Atualização concorrente.' }); continue
       }

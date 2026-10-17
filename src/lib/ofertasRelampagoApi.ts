@@ -1,5 +1,5 @@
 import type { OfertaPublicada } from '../features/ofertas-relampago/gerenciarOfertas'
-export type ModoOferta = 'ATIVAR' | 'DESATIVAR' | 'PRIORIDADE' | 'ENVIAR' | 'SUBSTITUIR' | 'REATIVAR' | 'HOME' | 'LIMPAR_EXPIRADAS'
+export type ModoOferta = 'AGENDAR' | 'ATIVAR_AGORA' | 'ATIVAR' | 'DESATIVAR' | 'PRIORIDADE' | 'ENVIAR' | 'SUBSTITUIR' | 'REATIVAR' | 'HOME' | 'LIMPAR_EXPIRADAS'
 export type ItemOferta = { tipo: 'ATUALIZAR_OFERTA' | 'NOVO_PRODUTO'; dados: Record<string, unknown> }
 export type LinhaPreviaOferta = { itemId: string; produto: string; situacaoAtual: string; acao: string
   prioridade: number; precoAnterior: number | null; precoAtual: number; percentualDesconto: number | null

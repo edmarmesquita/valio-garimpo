@@ -11,12 +11,19 @@ import { prepararOfertasSelecionadas, type ResultadoPreparo } from '../features/
 import { confirmarOfertas, preverOfertas, type ItemOferta, type ModoOferta, type PreviaAssinadaOfertas, type ResultadoConfirmacaoOfertas } from '../lib/ofertasRelampagoApi'
 import './OfertasRelampagoPage.css'
 import { resolverUrlGerador } from '../features/ofertas-relampago/urlGerador'
+import { vincularSnapshot } from '../features/ofertas-relampago/vinculoSnapshot'
 import GerenciarOfertasPanel from '../features/ofertas-relampago/GerenciarOfertasPanel'
+import { agendaIso, inicioFuturo } from '../features/ofertas-relampago/agendaOferta'
 import LotePreparadoPanel from '../features/ofertas-relampago/LotePreparadoPanel'
 import { criarLotePreparado } from '../features/ofertas-relampago/lotePreparado'
 
 import { CHAVE_SNAPSHOT_OFERTAS as CHAVE_SNAPSHOT, validarLoteOfertas, registrarRetornoLote, registrarConfirmacaoLote } from '../features/ofertas-relampago/cicloLote'
 const dinheiro = (valor: number | null) => valor === null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
+const SELECAO_ALTERADA = 'A seleção mudou após a geração da prévia. Gere uma nova prévia antes de confirmar.'
+function identificarSelecao(ofertas: OfertaExtraida[], selecao: ReadonlySet<string>) {
+  const ids = new Map(ofertas.map((oferta) => [oferta.chave, oferta.itemId]))
+  return JSON.stringify([...selecao].sort().map((chave) => [chave, ids.get(chave) ?? null]))
+}
 type SituacaoValio = 'JÁ EXISTE' | 'NOVO PRODUTO' | 'NÃO VERIFICADO' | 'REVISAR'
 
 function BadgeSituacaoValio({ situacao }: { situacao: SituacaoValio }) {
@@ -51,6 +58,9 @@ export default function OfertasRelampagoPage() {
   const [html, setHtml] = useState('')
   const [origem, setOrigem] = useState('')
   const [ofertas, setOfertas] = useState<OfertaExtraida[]>([])
+  const [agendarLote, setAgendarLote] = useState(false)
+  const [inicioLote, setInicioLote] = useState('')
+  const [fimLote, setFimLote] = useState('')
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [existentes, setExistentes] = useState<Map<string, ProdutoExistente>>(new Map())
   const [verificados, setVerificados] = useState<Set<string>>(new Set())
@@ -61,7 +71,9 @@ export default function OfertasRelampagoPage() {
   const [feedbackGerador, setFeedbackGerador] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
   const [retornoTexto, setRetornoTexto] = useState(() => snapshot?.retornoTexto ?? '')
   const [previa, setPrevia] = useState<ResultadoPreparo | null>(null)
-  const [previaRemota, setPreviaRemota] = useState<(PreviaAssinadaOfertas & { token: string }) | null>(null)
+  const [previaRemota, setPreviaRemota] = useState<(PreviaAssinadaOfertas & { token: string; selecao: string; versaoSelecao: number }) | null>(null)
+  const versaoSelecao = useRef(0)
+  const envioEmCurso = useRef(false)
   const [resultadoConfirmacao, setResultadoConfirmacao] = useState<ResultadoConfirmacaoOfertas | null>(null)
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState('')
@@ -71,8 +83,23 @@ export default function OfertasRelampagoPage() {
 
   const validas = ofertas.filter((oferta) => oferta.situacao === 'PRONTO')
   const selecionadas = ofertas.filter((oferta) => selecionados.has(oferta.chave))
+  const selecionadasParaVerificar = selecionadas.filter((oferta) => oferta.situacao === 'PRONTO' && oferta.itemId && oferta.dadosProduto)
   const novas = selecionadas.filter((oferta) => oferta.itemId && verificados.has(oferta.itemId) && !existentes.has(oferta.itemId))
   const retorno = snapshot && retornoTexto.trim() ? processarRetornoGerador(snapshot.snapshot.produtos, retornoTexto) : null
+  const vinculo = snapshot ? vincularSnapshot(snapshot, ofertas, retorno) : null
+  const retornoSeguro = vinculo?.retornoSeguro ?? null
+  const novasIncompativeis = novas.filter((oferta) => !vinculo?.compativeis.includes(oferta.itemId!)
+    || retornoSeguro?.pareamentos.some((p) => p.produto.itemId === oferta.itemId && p.situacao === 'NÃO PUBLICAR'))
+
+  function prepararComVinculo(selecao: ReadonlySet<string>, desativar: ReadonlySet<string>) {
+    const resultado = prepararOfertasSelecionadas(ofertas, selecao, existentes, verificados, categorias, retornoSeguro, prioridades, desativar)
+    // Explica exatamente a divergência, sem impedir o preview dos compatíveis.
+    for (const bloqueado of resultado.bloqueados) {
+      const problema = vinculo?.problemas.find((p) => p.itemId === bloqueado.itemId)
+      if (problema && bloqueado.itemId && !existentes.has(bloqueado.itemId)) bloqueado.motivo = problema.motivo
+    }
+    return resultado
+  }
   const situacaoNoValio = (oferta: OfertaExtraida): SituacaoValio => oferta.situacao !== 'PRONTO' || !oferta.itemId ? 'REVISAR'
     : !verificados.has(oferta.itemId) ? 'NÃO VERIFICADO'
       : existentes.has(oferta.itemId) ? 'JÁ EXISTE' : 'NOVO PRODUTO'
@@ -84,6 +111,7 @@ export default function OfertasRelampagoPage() {
   const categoriasDefinidas = novas.filter((oferta) => categorias.has(oferta.itemId!)).length
 
   function extrair() {
+    if (envioEmCurso.current) return
     setErro(''); setMensagem(''); setFeedbackGerador(null); setPrevia(null); setPreviaRemota(null); setResultadoConfirmacao(null)
     try {
       const resultado = extrairOfertasRelampagoHtml(html, origem)
@@ -93,6 +121,8 @@ export default function OfertasRelampagoPage() {
   }
 
   function limpar() {
+    if (envioEmCurso.current) return
+    versaoSelecao.current++
     setHtml(''); setOrigem(''); setOfertas([]); setSelecionados(new Set()); setExistentes(new Map())
     setVerificados(new Set()); setCategorias(new Map()); setPrioridades(new Map()); setDesativadas(new Set()); setFiltroValio('todos'); setPrevia(null); setPreviaRemota(null); setResultadoConfirmacao(null); setErro('')
     setFeedbackGerador(null)
@@ -100,16 +130,22 @@ export default function OfertasRelampagoPage() {
   }
 
   function selecionar(chave: string, checked: boolean) {
-    setSelecionados((atual) => {
-      const novo = new Set(atual)
-      if (checked) novo.add(chave); else novo.delete(chave)
-      return novo
-    })
+    const novo = new Set(selecionados)
+    if (checked) novo.add(chave); else novo.delete(chave)
+    alterarSelecao(novo)
+  }
+
+  function alterarSelecao(novo: Set<string>) {
+    if (envioEmCurso.current) return
+    if (previaRemota && previaRemota.selecao !== identificarSelecao(ofertas, novo)) setErro(SELECAO_ALTERADA)
+    versaoSelecao.current++
+    setSelecionados(novo)
     setPrevia(null); setPreviaRemota(null)
   }
 
   async function verificar() {
-    const dados = selecionadas.filter((oferta) => oferta.itemId && oferta.dadosProduto)
+    if (!token.trim() || consultando) return
+    const dados = selecionadasParaVerificar
       .map((oferta) => ({ ...oferta.dadosProduto!, itemId: oferta.itemId }))
     if (!dados.length) { setErro('Selecione ao menos uma oferta com ITEM_ID.'); return }
     setConsultando(true); setErro(''); setPrevia(null); setPreviaRemota(null)
@@ -125,7 +161,7 @@ export default function OfertasRelampagoPage() {
   function prepararLoteGerador() {
     const falhar = (motivo: string) => setFeedbackGerador({ tipo: 'erro', texto: `Não foi possível preparar o lote: ${motivo}` })
     setFeedbackGerador(null)
-    if (snapshot) { falhar('já existe um snapshot de ofertas. Descarte-o antes de preparar outro lote.'); return }
+    if (snapshot) { falhar('já existe um snapshot de ofertas. Preserve o retorno e consulte o diagnóstico do vínculo por ITEM_ID para aproveitar os links compatíveis.'); return }
     if (!novas.length) { falhar('selecione e verifique ao menos um produto novo no Valiô.'); return }
     const produtos: ProdutoListaAfiliados[] = novas.flatMap((oferta, indice) => {
       const url = resolverUrlGerador(oferta).url
@@ -164,20 +200,19 @@ export default function OfertasRelampagoPage() {
   }
 
   function preparar() {
-    if (novas.length && snapshot && novas.some((oferta) => {
-      const congelado = snapshot.snapshot.produtos.find((produto) => produto.itemId === oferta.itemId)
-      return !congelado || congelado.urlNormalizada !== resolverUrlGerador(oferta).url
-    })) { setErro('O snapshot do Gerador pertence a outro lote. Descarte-o e prepare um novo.'); return }
-    const resultado = prepararOfertasSelecionadas(ofertas, selecionados, existentes, verificados, categorias, retorno, prioridades, desativadas)
+    const resultado = prepararComVinculo(selecionados, desativadas)
     setPrevia(resultado); setPreviaRemota(null); setErro(''); setPedidoScroll({ destino: 'payload' })
   }
 
-  async function preverAcao(modo: ModoOferta) {
-    if (!selecionadas.length || enviando) return
-    if (novas.length && snapshot && novas.some((oferta) => {
-      const congelado = snapshot.snapshot.produtos.find((produto) => produto.itemId === oferta.itemId)
-      return !congelado || congelado.urlNormalizada !== resolverUrlGerador(oferta).url
-    })) { setErro('O snapshot do Gerador pertence a outro lote.'); return }
+  async function preverAcao(modo: ModoOferta, somenteCompativeis = false) {
+    if (!selecionadas.length || envioEmCurso.current) return
+    // Registra a seleção manual inteira, incluindo excluídos da prévia parcial.
+    const selecaoDaPrevia = identificarSelecao(ofertas, selecionados)
+    const versaoDaPrevia = versaoSelecao.current
+    const excluidas = new Set(somenteCompativeis ? novasIncompativeis.map((o) => o.chave) : [])
+    const selecaoAlvo = new Set([...selecionados].filter((chave) => !excluidas.has(chave)))
+    const selecionadasAlvo = selecionadas.filter((o) => selecaoAlvo.has(o.chave))
+    if (!selecionadasAlvo.length) { setErro('Nenhum ITEM_ID compatível selecionado. O snapshot e os links foram preservados.'); return }
     let itens: ItemOferta[]
     if (modo === 'DESATIVAR' || modo === 'PRIORIDADE') {
       if (selecionadas.some((oferta) => !oferta.itemId || !verificados.has(oferta.itemId) || !existentes.has(oferta.itemId))) {
@@ -187,24 +222,39 @@ export default function OfertasRelampagoPage() {
         ? { mercadoLivreId: oferta.itemId, ofertaRelampago: false }
         : { mercadoLivreId: oferta.itemId, prioridadeOferta: prioridades.get(oferta.chave) ?? 0 } }))
     } else {
-      const local = prepararOfertasSelecionadas(ofertas, selecionados, existentes, verificados, categorias, retorno,
-        prioridades, modo === 'ENVIAR' ? desativadas : new Set())
+      const local = prepararComVinculo(selecaoAlvo, modo === 'ENVIAR' ? desativadas : new Set())
       setPrevia(local)
-      if (local.bloqueados.length || local.prontos.length !== selecionadas.length) {
-        setErro('Revise todas as ofertas bloqueadas antes de consultar a prévia de gravação.'); return
+      if (local.bloqueados.length || local.prontos.length !== selecionadasAlvo.length) {
+        setErro(`Ofertas bloqueadas: ${local.bloqueados.map((p) => `${p.itemId ?? 'SEM ITEM_ID'}: ${p.motivo}`).join(' · ')} O snapshot e os links foram preservados.`); return
       }
       itens = local.prontos.map((item) => ({ tipo: item.tipo, dados: item.dados }))
     }
+    envioEmCurso.current = true
     setEnviando(true); setErro(''); setPreviaRemota(null); setResultadoConfirmacao(null)
     try {
+      if (agendarLote && !['DESATIVAR', 'PRIORIDADE'].includes(modo)) {
+        const inicio = inicioFuturo(inicioLote)
+        const fim = agendaIso(fimLote)
+        if (fim && Date.parse(fim) <= Date.parse(inicio)) throw new Error('O fim deve ser posterior ao início.')
+        itens = itens.map((item) => item.dados.ofertaRelampago === false ? item : { ...item,
+          dados: { ...item.dados, ofertaInicio: inicio, ofertaFim: fim } })
+      }
       const resposta = await preverOfertas(modo, itens, token)
-      setPreviaRemota({ ...resposta, token }); setPedidoScroll({ destino: 'gravacao' })
+      if (versaoDaPrevia !== versaoSelecao.current) {
+        setPreviaRemota(null); setErro(SELECAO_ALTERADA); return
+      }
+      if (excluidas.size) setMensagem(`Fora desta prévia: ${novasIncompativeis.map((o) => o.itemId).join(', ')}. A seleção original foi preservada.`)
+      setPreviaRemota({ ...resposta, token, selecao: selecaoDaPrevia, versaoSelecao: versaoDaPrevia }); setPedidoScroll({ destino: 'gravacao' })
     } catch (falha) { setErro(falha instanceof Error ? falha.message : 'Não foi possível consultar a prévia.') }
-    finally { setEnviando(false) }
+    finally { envioEmCurso.current = false; setEnviando(false) }
   }
 
   async function confirmarAcao() {
-    if (!previaRemota || previaRemota.token !== token || enviando) return
+    if (!previaRemota || previaRemota.token !== token || envioEmCurso.current) return
+    if (previaRemota.versaoSelecao !== versaoSelecao.current || previaRemota.selecao !== identificarSelecao(ofertas, selecionados)) {
+      setPreviaRemota(null); setErro(SELECAO_ALTERADA); return
+    }
+    envioEmCurso.current = true
     setEnviando(true); setErro('')
     try {
       const resultado = await confirmarOfertas({ previa: previaRemota.previa, assinatura: previaRemota.assinatura }, token)
@@ -216,7 +266,7 @@ export default function OfertasRelampagoPage() {
         catch { setErro('A confirmação terminou, mas não foi possível salvar o status do lote local. Não repita a publicação; confira o resultado.') }
       }
     } catch (falha) { setErro(falha instanceof Error ? falha.message : 'Não foi possível confirmar as ofertas.') }
-    finally { setEnviando(false) }
+    finally { envioEmCurso.current = false; setEnviando(false) }
   }
 
   return <AreaOperacional titulo="⚡ Ofertas Relâmpago" descricao="Extraia ofertas do HTML salvo do Mercado Livre, consulte a prévia e confirme as alterações desejadas.">
@@ -227,8 +277,8 @@ export default function OfertasRelampagoPage() {
       <input id="flash-origem" aria-describedby="flash-origem-ajuda" type="url" value={origem} onChange={(evento) => setOrigem(evento.target.value)} />
       <p id="flash-origem-ajuda">Recomendada. Pode ser necessária para preparar produtos novos para o Gerador de links.</p>
       <div className="flash-actions">
-        <button type="button" onClick={extrair} disabled={!html.trim()}>Extrair ofertas</button>
-        <button type="button" className="extrair-secundario" onClick={limpar}>Limpar ofertas atuais</button>
+        <button type="button" onClick={extrair} disabled={enviando || !html.trim()}>Extrair ofertas</button>
+        <button type="button" className="extrair-secundario" disabled={enviando} onClick={limpar}>Limpar ofertas atuais</button>
       </div>
       {erro && <p className="extrair-erro" role="alert">{erro}</p>}
       {mensagem && <p role="status">{mensagem}</p>}
@@ -242,15 +292,15 @@ export default function OfertasRelampagoPage() {
       </p>}
       <p>{ofertas.length} encontradas · {validas.length} válidas · {ofertas.length - validas.length} para revisar · {selecionados.size} ofertas selecionadas</p>
       <div className="flash-actions">
-        <button type="button" className="extrair-secundario" onClick={() => { setSelecionados(new Set(validas.map((item) => item.chave))); setPrevia(null); setPreviaRemota(null) }}>Selecionar todas válidas</button>
-        <button type="button" disabled={!token.trim() || !selecionados.size || consultando} onClick={() => void verificar()}>{consultando ? 'Consultando...' : 'Verificar selecionadas no Valiô'}</button>
+        <button type="button" className="extrair-secundario" disabled={enviando} onClick={() => alterarSelecao(new Set(validas.map((item) => item.chave)))}>Selecionar todas válidas</button>
+        <button type="button" disabled={!token.trim() || selecionadasParaVerificar.length === 0 || consultando} onClick={() => void verificar()}>{consultando ? 'Consultando...' : 'Verificar selecionadas no Valiô'}</button>
       </div>
       {!token.trim() && <p>Informe o token de publicação acima para consultar se os ITEM_IDs já existem. O token permanece na sessão.</p>}
       <section className="flash-selecionadas" aria-label="Selecionadas">
         <div className="flash-selecionadas__cabecalho">
           <div><h3>Selecionadas</h3><p>{selecionadas.length} ofertas selecionadas · {selecionadasExistentes} já existentes · {selecionadasNovas} novos produtos</p></div>
-          <button type="button" className="extrair-secundario" disabled={!selecionadas.length}
-            onClick={() => { setSelecionados(new Set()); setPrevia(null); setPreviaRemota(null) }}>Limpar seleção</button>
+          <button type="button" className="extrair-secundario" disabled={enviando || !selecionadas.length}
+            onClick={() => alterarSelecao(new Set())}>Limpar seleção</button>
         </div>
         {selecionadas.length ? <ul>{selecionadas.map((oferta) => <li key={oferta.chave}>
           <strong>{oferta.itemId ?? 'ITEM_ID ausente'}</strong><span>{oferta.titulo ?? 'Título ausente'}</span>
@@ -268,7 +318,7 @@ export default function OfertasRelampagoPage() {
       <div className="flash-table"><table>
         <thead><tr><th>Selecionar</th><th>Produto</th><th>ITEM_ID</th><th>Antes</th><th>Agora</th><th>Desconto</th><th>Termina</th><th>Prioridade</th><th>Ação</th><th>Situação da oferta</th><th>Situação no Valiô</th><th>URL original</th></tr></thead>
         <tbody>{ofertasVisiveis.map((oferta) => <tr key={oferta.chave}>
-          <td><input type="checkbox" aria-label={`Selecionar oferta ${oferta.posicao}`} checked={selecionados.has(oferta.chave)} disabled={oferta.situacao !== 'PRONTO'} onChange={(evento) => selecionar(oferta.chave, evento.target.checked)} /></td>
+          <td><input type="checkbox" aria-label={`Selecionar oferta ${oferta.posicao}`} checked={selecionados.has(oferta.chave)} disabled={enviando || oferta.situacao !== 'PRONTO'} onChange={(evento) => selecionar(oferta.chave, evento.target.checked)} /></td>
           <td><strong>{oferta.titulo ?? 'Título ausente'}</strong><small>Posição {oferta.posicao}</small>{oferta.imagem && <img src={oferta.imagem} alt="" loading="lazy" />}
             {novas.some((nova) => nova.chave === oferta.chave) && <div className={categorias.has(oferta.itemId!) ? 'flash-category' : 'flash-category flash-category--pendente'}>
               <label htmlFor={`flash-categoria-${oferta.chave}`}>Categoria — {oferta.titulo ?? 'Produto sem título'}</label>
@@ -302,6 +352,14 @@ export default function OfertasRelampagoPage() {
         </tr>)}</tbody>
       </table></div>
       <button type="button" disabled={!selecionados.size} onClick={preparar}>Preparar ofertas selecionadas</button>
+      {novasIncompativeis.length > 0 && <button type="button" disabled={enviando || !token.trim()} onClick={() => void preverAcao('ENVIAR', true)}>Prévia somente das ofertas compatíveis — preservar seleção</button>}
+      <label>Início das ofertas do lote <select disabled={enviando} value={agendarLote ? 'depois' : 'agora'} onChange={(e) => { setAgendarLote(e.target.value === 'depois'); setPreviaRemota(null) }}>
+        <option value="agora">Ativar agora</option><option value="depois">Agendar para depois</option>
+      </select></label>
+      {agendarLote && <div>
+        <label>Início do lote (Brasília)<input type="datetime-local" disabled={enviando} value={inicioLote} onChange={(e) => { setInicioLote(e.target.value); setPreviaRemota(null) }} /></label>
+        <label>Fim opcional do lote (Brasília)<input type="datetime-local" disabled={enviando} value={fimLote} onChange={(e) => { setFimLote(e.target.value); setPreviaRemota(null) }} /></label>
+      </div>}
       <div className="flash-actions">
         {([['ATIVAR', 'Ativar selecionadas'], ['DESATIVAR', 'Desativar selecionadas'],
           ['PRIORIDADE', 'Atualizar prioridade'], ['ENVIAR', 'Enviar selecionadas para Ofertas Relâmpago'],
@@ -314,6 +372,18 @@ export default function OfertasRelampagoPage() {
     {(ofertas.length > 0 || snapshot) && <section ref={loteRef} className="extrair-card flash-generator" aria-label="Lote para o Gerador">
       <h2>Gerador de links oficiais</h2>
       <p>Produtos novos precisam de retorno meli.la pareado por ITEM_ID. O snapshot desta área usa chave própria e não altera o lote da Lista de Afiliados.</p>
+      {vinculo && <section aria-label="Diagnóstico do vínculo do snapshot">
+        <h3>Vínculo seguro por ITEM_ID</h3>
+        <p>Snapshot: {vinculo.idsSnapshot.join(', ') || 'Nenhum'}</p>
+        <p>Lote atual: {vinculo.idsAtual.join(', ') || 'Nenhum'}</p>
+        <p>Selecionados: {selecionadas.map((o) => o.itemId ?? 'SEM ITEM_ID').join(', ') || 'Nenhum'}</p>
+        <p>Compatíveis: {vinculo.compativeis.join(', ') || 'Nenhum'}</p>
+        <p>Não publicar (recusado/pausado): {retorno?.pareamentos.filter((p) => p.situacao === 'NÃO PUBLICAR').map((p) => p.produto.itemId).join(', ') || 'Nenhum'}</p>
+        {!!vinculo.urlsDiferentes.length && <p>URLs diferentes com o mesmo ITEM_ID comprovado: {vinculo.urlsDiferentes.join(', ')}. O vínculo usa o ITEM_ID.</p>}
+        {!!vinculo.somenteSnapshot.length && <p>Somente no snapshot, fora do lote atual: {vinculo.somenteSnapshot.join(', ')}. Seus links continuam preservados.</p>}
+        {vinculo.problemas.map((p) => <p role="alert" key={p.itemId}>{p.itemId}: {p.motivo}</p>)}
+        <p>O snapshot e o retorno originais são preservados. Links compatíveis são aproveitados pelo ITEM_ID, sem novo pareamento por posição.</p>
+      </section>}
       {feedbackGerador && <p className={`flash-generator-feedback flash-generator-feedback--${feedbackGerador.tipo}`}
         role={feedbackGerador.tipo === 'erro' ? 'alert' : 'status'}>{feedbackGerador.texto}</p>}
       {snapshot ? <>
@@ -328,7 +398,7 @@ export default function OfertasRelampagoPage() {
         </li>)}</ol>
         <label htmlFor="flash-urls-gerador">URLs para o Gerador</label>
         <textarea id="flash-urls-gerador" aria-label="URLs para o Gerador" value={snapshot.snapshot.urlsParaGerador} readOnly rows={5} />
-        <label htmlFor="flash-retorno">Retorno do Gerador, na mesma ordem</label>
+        <label htmlFor="flash-retorno">Retorno do Gerador, na ordem original do snapshot</label>
         <textarea id="flash-retorno" value={retornoTexto} readOnly={snapshot.status === 'FINALIZADO' || enviando} onChange={(evento) => atualizarRetorno(evento.target.value)} rows={5} />
         {retorno && <p role="status">{retorno.linksValidos} link(s) válido(s) · {retorno.recusados} recusado(s) · {retorno.pausados} pausado(s) · {retorno.revisar} para revisar. {retorno.consistente ? 'Pareamento consistente.' : 'Revise a quantidade e a ordem.'}</p>}
         <p>Este botão remove apenas o lote local. Produtos, ofertas e links publicados permanecem no Valiô.</p>
@@ -368,7 +438,15 @@ export default function OfertasRelampagoPage() {
         {' '}· Conflitos: {resultadoConfirmacao.conflitos} · Erros: {resultadoConfirmacao.erros}</p>
       <ul>{resultadoConfirmacao.itens.map((item) => <li key={item.itemId}>{item.itemId}: {item.resultado}{item.motivo ? ` — ${item.motivo}` : ''}</li>)}</ul>
     </section>}
-    <LotePreparadoPanel podeSalvar={selecionadas.length > 0} criarAtual={() => criarLotePreparado(ofertas, selecionados, categorias, prioridades, existentes, verificados, retorno, desativadas)} />
+    <LotePreparadoPanel podeSalvar={selecionadas.length > 0} criarAtual={() => {
+      let ofertasDoLote = ofertas
+      if (agendarLote) {
+        const inicio = inicioFuturo(inicioLote), fim = agendaIso(fimLote)
+        if (fim && Date.parse(fim) <= Date.parse(inicio)) throw new Error('O fim deve ser posterior ao início.')
+        ofertasDoLote = ofertas.map((oferta) => ({ ...oferta, ofertaInicio: inicio, ofertaFim: fim }))
+      }
+      return criarLotePreparado(ofertasDoLote, selecionados, categorias, prioridades, existentes, verificados, retornoSeguro, desativadas)
+    }} />
     <GerenciarOfertasPanel key={token} />
   </AreaOperacional>
 }

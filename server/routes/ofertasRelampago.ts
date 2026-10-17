@@ -54,7 +54,7 @@ export function registrarOfertasRelampago(router: Router, { deps, autorizar }: C
     try { validarPedidoOfertas(req.body) }
     catch (erro) { res.status(400).json({ ok: false, erro: erro instanceof Error ? erro.message : 'Lote inválido.' }); return }
     try {
-      const previa = await criarPreviaOfertas(req.body, (deps.ofertas ?? criarOfertasGateway)(config))
+      const previa = await criarPreviaOfertas(req.body, (deps.ofertas ?? criarOfertasGateway)(config), (deps.agora?.() ?? new Date()).getTime())
       res.json({ ok: true, previa, assinatura: assinarPrevia(previa, config.serviceRoleKey) })
     } catch (erro) {
       res.status(409).json({ ok: false, erro: erro instanceof Error ? erro.message : 'Não foi possível preparar a prévia.' })
@@ -68,12 +68,12 @@ export function registrarOfertasRelampago(router: Router, { deps, autorizar }: C
     const entrada = req.body
     if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada)
       || Object.keys(entrada).length !== 2 || !Object.hasOwn(entrada, 'previa') || !Object.hasOwn(entrada, 'assinatura')
-      || !validarAssinatura(entrada.previa, entrada.assinatura, config.serviceRoleKey)) {
+      || !validarAssinatura(entrada.previa, entrada.assinatura, config.serviceRoleKey, (deps.agora?.() ?? new Date()).getTime())) {
       res.status(400).json({ ok: false, erro: 'Prévia inválida ou expirada; consulte novamente antes de confirmar.' }); return
     }
     try {
       const resultado = await confirmarPreviaOfertas(entrada.previa, (deps.ofertas ?? criarOfertasGateway)(config),
-        new Date(), [config.serviceRoleKey, req.headers.authorization ?? ''])
+        deps.agora?.() ?? new Date(), [config.serviceRoleKey, req.headers.authorization ?? ''])
       res.json({ ok: true, ...resultado })
     } catch {
       res.status(502).json({ ok: false, erro: 'Não foi possível consultar o estado atual das ofertas.' })

@@ -28,7 +28,7 @@ export function classificarOfertas(produtos: OfertaPublicada[], agora: number) {
       const inicio = instanteOferta(produto.oferta_inicio)
       const fim = instanteOferta(produto.oferta_fim, true)
       const expirada = fim !== null && fim <= agora
-      const agendada = !expirada && inicio !== null && inicio > agora
+      const agendada = produto.ativo && produto.oferta_relampago && !expirada && inicio !== null && inicio > agora
       const ativa = produto.ativo && produto.oferta_relampago && !expirada && !agendada
       const prazoExato = Boolean(produto.oferta_fim?.includes('T') && fim !== null)
       const situacao = !produto.oferta_relampago ? 'DESATIVADA' : expirada ? 'EXPIRADA' : agendada ? 'AGENDADA'

@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useSessaoOperacional } from '../../app/sessaoOperacionalContext'
 import { confirmarOfertas, listarOfertasPublicadas, preverOfertas, preverLimpezaExpiradas, type ModoOferta, type PreviaAssinadaOfertas, type ResultadoConfirmacaoOfertas } from '../../lib/ofertasRelampagoApi'
 import { classificarOfertas, type OfertaPublicada } from './gerenciarOfertas'
+import { agendaIso, agendaInput } from './agendaOferta'
 
 const dinheiro = (valor: number | null) => valor === null ? '—' : new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
 const data = (valor: string | null) => !valor ? 'Não informado' : /^\d{4}-\d{2}-\d{2}$/.test(valor)
-  ? valor.split('-').reverse().join('/') : new Date(valor).toLocaleString('pt-BR')
+  ? valor.split('-').reverse().join('/') : new Date(valor).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
 const filtros = ['Todas', 'Ativas agora', 'Na Home', 'Na fila', 'Expiradas / Histórico', 'Agendadas', 'Desativadas'] as const
 const modosHome = { auto: 'Automática', fixada: 'Fixar na Home', fila: 'Enviar para fila' } as const
 
@@ -16,6 +17,7 @@ export default function GerenciarOfertasPanel() {
   const [prioridades, setPrioridades] = useState<Record<string, number>>({})
   const [homeModes, setHomeModes] = useState<Record<string, 'auto' | 'fixada' | 'fila'>>({})
   const [prioridadeLote, setPrioridadeLote] = useState(0)
+  const [agendas, setAgendas] = useState<Record<string, { inicio: string; fim: string }>>({})
   const [filtro, setFiltro] = useState<typeof filtros[number]>('Todas')
   const [busca, setBusca] = useState('')
   const [ocupado, setOcupado] = useState(false)
@@ -68,7 +70,11 @@ export default function GerenciarOfertasPanel() {
     if (!ids.length || ocupado) return
     setOcupado(true); setErro(''); setPrevia(null); setResultado(null)
     try {
-      const itens = ids.map((id) => ({ tipo: 'ATUALIZAR_OFERTA' as const, dados: modo === 'HOME'
+      const itens = ids.map((id) => ({ tipo: 'ATUALIZAR_OFERTA' as const, dados: modo === 'AGENDAR' || modo === 'ATIVAR_AGORA'
+        ? { mercadoLivreId: id, ofertaInicio: modo === 'ATIVAR_AGORA' ? null : agendaIso(agendas[id]?.inicio ?? agendaInput(produtos.find((item) => item.mercado_livre_id === id)!.oferta_inicio)),
+          ofertaFim: agendas[id]?.fim !== undefined && agendas[id].fim !== agendaInput(produtos.find((item) => item.mercado_livre_id === id)!.oferta_fim)
+            ? agendaIso(agendas[id].fim) : produtos.find((item) => item.mercado_livre_id === id)!.oferta_fim }
+        : modo === 'HOME'
         ? { mercadoLivreId: id, homeOfertaMode: homeModes[id] ?? produtos.find((item) => item.mercado_livre_id === id)!.home_oferta_mode ?? 'auto' }
         : modo === 'PRIORIDADE'
         ? { mercadoLivreId: id, prioridadeOferta: emLote ? prioridadeLote : prioridades[id] ?? produtos.find((item) => item.mercado_livre_id === id)!.prioridade_oferta }
@@ -112,6 +118,10 @@ export default function GerenciarOfertasPanel() {
         const proximo = { ...atual }; for (const item of resposta.itens) if (item.resultado !== 'ERRO' && item.resultado !== 'CONFLITO') delete proximo[item.itemId]
         return proximo
       })
+      if (previa.previa.modo === 'AGENDAR' || previa.previa.modo === 'ATIVAR_AGORA') setAgendas((atual) => {
+        const proximo = { ...atual }; for (const item of resposta.itens) if (item.resultado !== 'ERRO' && item.resultado !== 'CONFLITO') delete proximo[item.itemId]
+        return proximo
+      })
       setAgora(Date.now())
     } catch (falha) {
       setPrevia(null)
@@ -131,7 +141,7 @@ export default function GerenciarOfertasPanel() {
     {ocupado && <p role="status">Consultando catálogo ou processando ação…</p>}
     {erro && <p className="extrair-erro" role="alert">{erro}</p>}
     {consulta?.token === token && <>
-      <p role="status">{marcadas.length} ofertas marcadas · {classificados.filter((item) => item.ativa).length} ativas agora · {classificados.filter((item) => item.naHome).length} na Home · {classificados.filter((item) => item.naFila).length} na fila · {expiradas.length} expiradas aguardando limpeza</p>
+      <p role="status">{marcadas.length} ofertas marcadas · {classificados.filter((item) => item.ativa).length} ativas agora · {classificados.filter((item) => item.situacao === 'AGENDADA').length} agendadas · {classificados.filter((item) => item.naHome).length} na Home · {classificados.filter((item) => item.naFila).length} na fila · {expiradas.length} expiradas aguardando limpeza</p>
       <p>A listagem principal mostra ativas e agendadas. Consulte as vencidas em Expiradas / Histórico.</p>
       {fixadas > 12 && <p role="alert">{fixadas} ofertas fixadas para 12 vagas. Entram as 12 primeiras por prioridade e ordem estável do catálogo; as demais ficam na fila.</p>}
       {produtos.some((item) => item.controle_home_disponivel === false) && <p role="alert">Controle de Home indisponível: aplique a migração 004 no Supabase. As demais ações continuam disponíveis.</p>}
@@ -167,9 +177,19 @@ export default function GerenciarOfertasPanel() {
             <button type="button" disabled={ocupado || !item.oferta_relampago || item.controle_home_disponivel === false} onClick={() => void preparar('HOME', [item.mercado_livre_id])}>Prévia da posição na Home</button>
           </td>
           <td><div className="flash-manager-item-actions">
+            {item.situacao === 'AGENDADA' && <small>Agendada para: {data(item.oferta_inicio)}</small>}
+            {item.ativa && <small>ATIVA AGORA · Termina em: {data(item.oferta_fim)}</small>}
+            <label>Início (Brasília)<input type="datetime-local" disabled={ocupado} value={agendas[item.mercado_livre_id]?.inicio ?? agendaInput(item.oferta_inicio)} onChange={(e) => {
+              setAgendas({ ...agendas, [item.mercado_livre_id]: { inicio: e.target.value, fim: agendas[item.mercado_livre_id]?.fim ?? agendaInput(item.oferta_fim) } }); invalidarPrevia()
+            }} /></label>
+            <label>Fim opcional (Brasília)<input type="datetime-local" disabled={ocupado} value={agendas[item.mercado_livre_id]?.fim ?? agendaInput(item.oferta_fim)} onChange={(e) => {
+              setAgendas({ ...agendas, [item.mercado_livre_id]: { inicio: agendas[item.mercado_livre_id]?.inicio ?? agendaInput(item.oferta_inicio), fim: e.target.value } }); invalidarPrevia()
+            }} /></label>
+            <button type="button" disabled={ocupado || !item.ativo} onClick={() => void preparar('AGENDAR', [item.mercado_livre_id])}>{item.situacao === 'AGENDADA' ? 'Editar agendamento — gerar prévia' : 'Agendar Oferta Relâmpago'}</button>
+            {item.situacao === 'AGENDADA' && <button type="button" disabled={ocupado} onClick={() => void preparar('ATIVAR_AGORA', [item.mercado_livre_id])}>Cancelar agendamento e ativar agora — prévia</button>}
             <button type="button" disabled={ocupado} onClick={() => void preparar('PRIORIDADE', [item.mercado_livre_id])}>Prévia de prioridade</button>
             {item.oferta_relampago
-              ? <button type="button" disabled={ocupado} onClick={() => void preparar('DESATIVAR', [item.mercado_livre_id])}>Desativar Oferta Relâmpago</button>
+              ? <button type="button" disabled={ocupado} onClick={() => void preparar('DESATIVAR', [item.mercado_livre_id])}>{item.situacao === 'AGENDADA' ? 'Cancelar agendamento e desativar somente a Oferta Relâmpago' : 'Desativar Oferta Relâmpago'}</button>
               : <button type="button" disabled={ocupado || !item.ativo || (item.oferta_fim !== null && Date.parse(item.oferta_fim) <= agora)} onClick={() => void preparar('REATIVAR', [item.mercado_livre_id])}>Reativar Oferta Relâmpago</button>}
           </div></td>
         </tr>)}</tbody>
