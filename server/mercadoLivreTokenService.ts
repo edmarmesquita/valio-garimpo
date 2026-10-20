@@ -49,16 +49,25 @@ export async function getBackendAccessToken(
   sessionHash: string,
   config: MercadoLivreConfig,
   rejectedAccessToken?: string,
+  onRefresh?: (bemSucedido: boolean) => void,
 ): Promise<string | null> {
   return withLockedConnection(sessionHash, async (client, connection) => {
     if (connection.status === 'reauth_required') return null
 
     const accessToken = decryptSecret(connection.access_token_ciphertext, `access:${connection.meli_user_id}`)
+    const renovar = async () => {
+      let bemSucedido = false
+      try {
+        const novoToken = await refreshConnection(client, connection, config)
+        bemSucedido = Boolean(novoToken)
+        return novoToken
+      } finally { onRefresh?.(bemSucedido) }
+    }
     if (rejectedAccessToken && accessToken === rejectedAccessToken) {
-      return refreshConnection(client, connection, config)
+      return renovar()
     }
     if (new Date(connection.access_expires_at).getTime() <= Date.now() + REFRESH_BEFORE_MS) {
-      return refreshConnection(client, connection, config)
+      return renovar()
     }
     return accessToken
   })

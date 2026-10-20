@@ -24,14 +24,30 @@ export async function consultarComRenovacao(ids: string[], sessionHash: string, 
   consultar: typeof consultarPrecoAtual = consultarPrecoAtual): Promise<
     { tipo: 'ok'; resultados: PrecoConsultado[] } | { tipo: 'sem_sessao' | 'rejeitada' }
   > {
-  let token = await obterToken(sessionHash, config)
+  let refreshExecutado = false
+  let refreshBemSucedido: boolean | null = null
+  const registrarRefresh = (bemSucedido: boolean) => {
+    refreshExecutado = true
+    refreshBemSucedido = bemSucedido
+  }
+  const anotarRefresh = (resultado: PrecoConsultado) => {
+    if (resultado.diagnostico) {
+      resultado.diagnostico.refreshExecutado = refreshExecutado
+      resultado.diagnostico.refreshBemSucedido = refreshBemSucedido
+    }
+  }
+  let token = await obterToken(sessionHash, config, undefined, registrarRefresh)
   if (!token) return { tipo: 'sem_sessao' }
   const resultados = await consultarGrupoLimitado(ids, token, consultar)
+  resultados.forEach(anotarRefresh)
   if (resultados.some((item) => item.autenticacaoExpirada)) {
-    token = await obterToken(sessionHash, config, token)
+    token = await obterToken(sessionHash, config, token, registrarRefresh)
     if (!token) return { tipo: 'sem_sessao' }
     for (const [indice, resultado] of resultados.entries()) {
-      if (resultado.autenticacaoExpirada) resultados[indice] = await consultar(resultado.itemId, token)
+      if (resultado.autenticacaoExpirada) {
+        resultados[indice] = await consultar(resultado.itemId, token)
+        anotarRefresh(resultados[indice])
+      }
     }
   }
   return resultados.some((item) => item.autenticacaoExpirada) ? { tipo: 'rejeitada' } : { tipo: 'ok', resultados }
@@ -62,7 +78,10 @@ router.post('/precos/consultar', async (req, res) => {
         : 'Sessão do Mercado Livre expirada. Conecte novamente.' })
       return
     }
-    res.json({ ok: true, resultados: consulta.resultados.map(({ itemId, situacao, preco, motivo }) => ({ itemId, situacao, preco, motivo })) })
+    const diagnosticoHabilitado = process.env.VERCEL_ENV === 'preview' || process.env.VERCEL_ENV === 'development'
+    res.json({ ok: true, resultados: consulta.resultados.map(({ itemId, situacao, preco, motivo, diagnostico }) => ({
+      itemId, situacao, preco, motivo, ...(diagnosticoHabilitado && diagnostico ? { diagnostico } : {}),
+    })) })
   } catch {
     res.status(503).json({ ok: false, erro: 'Não foi possível consultar a fonte oficial de preços.' })
   }

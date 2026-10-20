@@ -46,6 +46,54 @@ test('fonte oficial usa sale_price do marketplace, valida BRL e trata 404, 403, 
   assert.equal(chamadas, 3)
 })
 
+test('diagnóstico 403 só em Preview, sanitiza corpo e informa refresh sem expor token', async () => {
+  const ambienteAnterior = process.env.VERCEL_ENV
+  const resposta = (body, contentType = 'application/json') => ({ status: 403, ok: false,
+    headers: new Headers({ 'content-type': contentType }), json: async () => body })
+  try {
+    process.env.VERCEL_ENV = 'preview'
+    const consulta = await consultarPrecoAtual('MLB1', 'access-simulado', async (_url, opcoes) => {
+      assert.equal(opcoes.headers.authorization, 'Bearer access-simulado')
+      return resposta({ error: 'FORBIDDEN', message: 'Caller ID does not have rights to access this endpoint' })
+    })
+    assert.equal(consulta.situacao, 'REVISAR')
+    assert.deepEqual(consulta.diagnostico, {
+      itemId: 'MLB1', statusHttp: 403, error: 'FORBIDDEN',
+      mensagemSanitizada: 'Caller ID does not have rights to access this endpoint',
+      contentType: 'application/json', jsonValido: true, tokenEnviado: true,
+      refreshExecutado: false, refreshBemSucedido: null,
+    })
+    assert.equal(JSON.stringify(consulta).includes('access-simulado'), false)
+    const bloqueado = await consultarPrecoAtual('MLB2', 'access-simulado', async () =>
+      resposta({ error: 'forbidden', message: 'Bearer access-simulado; refresh_token=segredo',
+        error_description: 'Caller ID must match item owner' }))
+    assert.equal(bloqueado.diagnostico.mensagemSanitizada, 'Caller ID must match item owner')
+    assert.equal(JSON.stringify(bloqueado).includes('segredo'), false)
+    const invalido = await consultarPrecoAtual('MLB3', 'access-simulado', async () => ({
+      ...resposta(null, 'text/html'), json: async () => { throw new SyntaxError('invalid JSON') },
+    }))
+    assert.equal(invalido.diagnostico.jsonValido, false)
+    assert.equal(invalido.diagnostico.contentType, 'text/html')
+
+    const config = { clientId: 'id', clientSecret: 'secret', redirectUri: 'https://example.com', secureCookie: true }
+    const comRefresh = await consultarComRenovacao(['MLB1'], 'sessao', config,
+      async (_hash, _config, _rejeitado, informar) => { informar(true); return 'access-simulado' },
+      async () => ({ ...consulta, diagnostico: { ...consulta.diagnostico } }))
+    assert.equal(comRefresh.resultados[0].diagnostico.refreshExecutado, true)
+    assert.equal(comRefresh.resultados[0].diagnostico.refreshBemSucedido, true)
+    const semRefresh = await consultarComRenovacao(['MLB1'], 'sessao', config,
+      async () => 'access-simulado', async () => ({ ...consulta, diagnostico: { ...consulta.diagnostico } }))
+    assert.equal(semRefresh.resultados[0].diagnostico.refreshExecutado, false)
+    assert.equal(semRefresh.resultados[0].diagnostico.refreshBemSucedido, null)
+    process.env.VERCEL_ENV = 'production'
+    const production = await consultarPrecoAtual('MLB1', 'access-simulado', async () => resposta({ error: 'FORBIDDEN' }))
+    assert.equal(Object.hasOwn(production, 'diagnostico'), false)
+  } finally {
+    if (ambienteAnterior === undefined) delete process.env.VERCEL_ENV
+    else process.env.VERCEL_ENV = ambienteAnterior
+  }
+})
+
 test('classificação automática protege oferta ativa, detecta oferta expirada e restaura progresso sem token', () => {
   const data = Date.parse('2026-10-19T12:00:00Z')
   const base = salvo('MLB1', 60)
