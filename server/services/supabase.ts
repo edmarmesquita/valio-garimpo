@@ -210,10 +210,10 @@ export function criarCatalogoGateway(config: SupabaseConfig): CatalogoGateway {
       const produtos: ProdutoCatalogo[] = []
       const tamanho = 500
       for (let inicio = 0; ; inicio += tamanho) {
-        const { data, error } = await supabase.from('produtos')
+        const { data, error, status } = await supabase.from('produtos')
           .select('mercado_livre_id,titulo,preco,data_preco,categoria,link_afiliado,imagem,rating,ativo,updated_at,oferta_relampago,oferta_inicio,oferta_fim')
           .order('id', { ascending: true }).range(inicio, inicio + tamanho - 1)
-        if (error) throw error
+        if (error) throw Object.assign(error, { status })
         produtos.push(...(data ?? []).map((row) => ({
           mercadoLivreId: row.mercado_livre_id, titulo: row.titulo, preco: row.preco,
           dataPreco: row.data_preco, categoria: row.categoria, linkAfiliado: row.link_afiliado,

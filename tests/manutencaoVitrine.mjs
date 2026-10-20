@@ -71,6 +71,48 @@ test('API lista ativos e inativos e altera somente status ou categoria com auten
   } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
+test('falha no catálogo expõe somente diagnóstico seguro em Preview', async () => {
+  const app = express()
+  app.use('/api/valio', criarRotaValioProdutos({
+    config: () => config, token: () => token,
+    catalogo: () => ({ async listar() {
+      throw Object.assign(new Error('segredo-simulado https://host-simulado.invalid'), { status: 400, code: '42703' })
+    } }),
+  }))
+  const server = app.listen(0, '127.0.0.1')
+  const ambienteAnterior = process.env.VERCEL_ENV
+  try {
+    await new Promise((resolve) => server.once('listening', resolve))
+    const req = async () => {
+      const resposta = await fetch(`http://127.0.0.1:${server.address().port}/api/valio/catalogo`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      assert.equal(resposta.status, 502)
+      return resposta.json()
+    }
+    process.env.VERCEL_ENV = 'preview'
+    const preview = await req()
+    assert.equal(preview.etapa, 'consultar tabela produtos')
+    assert.equal(preview.statusHttpSupabase, 400)
+    assert.equal(preview.codigoSupabase, '42703')
+    assert.equal(preview.mensagemSanitizada, 'Coluna do catálogo não encontrada.')
+    assert.equal(preview.chegouAoSupabase, true)
+    assert.equal(preview.tabela, 'produtos')
+    assert.equal(preview.supabaseUrlPresente, true)
+    assert.equal(preview.supabaseUrlHttpsValida, true)
+    assert.equal(preview.serviceRolePresente, true)
+    assert.equal(JSON.stringify(preview).includes('segredo-simulado'), false)
+    assert.equal(JSON.stringify(preview).includes(config.serviceRoleKey), false)
+    process.env.VERCEL_ENV = 'production'
+    const production = await req()
+    assert.deepEqual(production, { ok: false, erro: preview.erro })
+  } finally {
+    if (ambienteAnterior === undefined) delete process.env.VERCEL_ENV
+    else process.env.VERCEL_ENV = ambienteAnterior
+    await new Promise((resolve) => server.close(resolve))
+  }
+})
+
 test('atualização rápida aceita meli.la e /social/, rejeita URL comum e preserva todos os demais campos', async () => {
   const original = produto('MLB5348529958', { titulo: 'Kit 10 Esmaltes', linkAfiliado: 'https://www.mercadolivre.com.br/produto' })
   const linhas = new Map([[original.mercadoLivreId, { ...original }]])
