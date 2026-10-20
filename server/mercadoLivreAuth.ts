@@ -114,9 +114,26 @@ router.get('/auth/iniciar', async (req, res) => {
     console.error('Falha ao iniciar OAuth Mercado Livre:', { nome, codigoPostgres, mensagem, etapa })
     const diagnostico = process.env.VERCEL_ENV === 'preview' || process.env.VERCEL_ENV === 'development'
       || (!process.env.VERCEL_ENV && process.env.NODE_ENV === 'development')
+    const chaveOriginal = diagnostico ? process.env.MELI_TOKEN_ENCRYPTION_KEY : undefined
+    const chaveNormalizada = chaveOriginal?.trim()
+    let base64Decodifica = false
+    let bytesDecodificados: number | null = null
+    if (chaveNormalizada && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(chaveNormalizada)) {
+      const bytes = Buffer.from(chaveNormalizada, 'base64')
+      base64Decodifica = bytes.toString('base64') === chaveNormalizada
+      if (base64Decodifica) bytesDecodificados = bytes.length
+    }
     res.status(503).json({
       ok: false, error: 'Armazenamento OAuth indisponível.',
-      ...(diagnostico ? { etapa, mensagem, nome, ...(codigoPostgres ? { codigoPostgres } : {}) } : {}),
+      ...(diagnostico ? {
+        etapa, mensagem, nome, ...(codigoPostgres ? { codigoPostgres } : {}),
+        chavePresente: Boolean(chaveOriginal),
+        comprimento: chaveOriginal?.length ?? 0,
+        base64Decodifica, bytesDecodificados,
+        temEspacoNoInicio: /^[ \t]/.test(chaveOriginal ?? ''),
+        temEspacoNoFim: /[ \t]$/.test(chaveOriginal ?? ''),
+        temQuebraDeLinha: /[\r\n]/.test(chaveOriginal ?? ''),
+      } : {}),
     })
   }
 })
