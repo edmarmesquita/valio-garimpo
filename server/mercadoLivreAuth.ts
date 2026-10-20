@@ -29,7 +29,16 @@ type DiagnosticoCallback = {
   nome: string
   mensagem: string
   statusHttpExterno?: number
-  codigoErroMercadoLivre?: 'invalid_grant' | 'access_denied'
+  codigoErroMercadoLivre?: string
+  mensagemMercadoLivre?: string
+  campoMensagemMercadoLivre?: 'message' | 'error_description'
+  contentTypeResposta?: string
+  respostaJsonValida?: boolean
+  clientIdPresente?: boolean
+  clientSecretPresente?: boolean
+  redirectUriIgual?: boolean
+  codeVerifierPresente?: boolean
+  grantTypeAuthorizationCode?: boolean
 }
 
 function returnToGarimpo(req: Request, res: Response, success: boolean, diagnostico?: DiagnosticoCallback) {
@@ -46,6 +55,14 @@ function returnToGarimpo(req: Request, res: Response, success: boolean, diagnost
       nome: diagnostico.nome, mensagem: diagnostico.mensagem })
     if (diagnostico.statusHttpExterno) parametros.set('statusHttpExterno', String(diagnostico.statusHttpExterno))
     if (diagnostico.codigoErroMercadoLivre) parametros.set('codigoErroMercadoLivre', diagnostico.codigoErroMercadoLivre)
+    if (diagnostico.mensagemMercadoLivre) parametros.set('mensagemMercadoLivre', diagnostico.mensagemMercadoLivre)
+    if (diagnostico.campoMensagemMercadoLivre) parametros.set('campoMensagemMercadoLivre', diagnostico.campoMensagemMercadoLivre)
+    if (diagnostico.contentTypeResposta) parametros.set('contentTypeResposta', diagnostico.contentTypeResposta)
+    if (diagnostico.respostaJsonValida !== undefined) parametros.set('respostaJsonValida', String(diagnostico.respostaJsonValida))
+    for (const campo of ['clientIdPresente', 'clientSecretPresente', 'redirectUriIgual',
+      'codeVerifierPresente', 'grantTypeAuthorizationCode'] as const) {
+      if (diagnostico[campo] !== undefined) parametros.set(campo, String(diagnostico[campo]))
+    }
     res.redirect(303, `${precos ? '/precos' : '/'}?${parametros}`)
     return
   }
@@ -57,12 +74,29 @@ function falhaCallback(req: Request, res: Response, etapa: string, mensagem: str
   const nome = error === undefined ? 'ValidationError'
     : ['Error', 'TypeError', 'RangeError', 'DatabaseError', 'AggregateError', 'error']
       .includes(nomeOriginal) ? nomeOriginal : 'Erro desconhecido'
-  const status = error instanceof MercadoLivreApiError ? error.itemFailure?.providerStatus : null
+  const token = etapa === 'trocar authorization code por token' && error instanceof MercadoLivreApiError
+    ? error.tokenFailure : undefined
+  const status = error instanceof MercadoLivreApiError
+    ? token?.statusHttpExterno ?? error.itemFailure?.providerStatus : null
   const statusHttpExterno = typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
     ? status : undefined
-  const codigoErroMercadoLivre = error instanceof MercadoLivreApiError && error.kind === 'invalid_grant'
-    ? 'invalid_grant' : req.query.error === 'access_denied' ? 'access_denied' : undefined
-  returnToGarimpo(req, res, false, { etapa, nome, mensagem, statusHttpExterno, codigoErroMercadoLivre })
+  const codigoErroMercadoLivre = token?.codigoErroMercadoLivre
+    ?? (error instanceof MercadoLivreApiError && error.kind === 'invalid_grant' ? 'invalid_grant'
+      : req.query.error === 'access_denied' ? 'access_denied' : undefined)
+  returnToGarimpo(req, res, false, {
+    etapa, nome, mensagem, statusHttpExterno, codigoErroMercadoLivre,
+    ...(token ? {
+      ...(token.mensagemMercadoLivre ? { mensagemMercadoLivre: token.mensagemMercadoLivre } : {}),
+      ...(token.campoMensagemMercadoLivre ? { campoMensagemMercadoLivre: token.campoMensagemMercadoLivre } : {}),
+      ...(token.contentTypeResposta ? { contentTypeResposta: token.contentTypeResposta } : {}),
+      ...(token.respostaJsonValida !== null ? { respostaJsonValida: token.respostaJsonValida } : {}),
+      clientIdPresente: token.clientIdPresente,
+      clientSecretPresente: token.clientSecretPresente,
+      redirectUriIgual: token.redirectUriIgual,
+      codeVerifierPresente: token.codeVerifierPresente,
+      grantTypeAuthorizationCode: token.grantTypeAuthorizationCode,
+    } : {}),
+  })
 }
 
 router.use((_req, res, next) => {

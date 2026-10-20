@@ -7,6 +7,20 @@ const PRODUCT_URL = 'https://api.mercadolibre.com/products/'
 const GRANTS_URL = 'https://api.mercadolibre.com/applications/6332151948097527/grants'
 const GRANTS_APP_ID = '6332151948097527'
 
+type TokenFailureDiagnostic = {
+  statusHttpExterno: number | null
+  codigoErroMercadoLivre: string | null
+  mensagemMercadoLivre: string | null
+  campoMensagemMercadoLivre: 'message' | 'error_description' | null
+  contentTypeResposta: string | null
+  respostaJsonValida: boolean | null
+  clientIdPresente: boolean
+  clientSecretPresente: boolean
+  redirectUriIgual: boolean
+  codeVerifierPresente: boolean
+  grantTypeAuthorizationCode: boolean
+}
+
 export class MercadoLivreApiError extends Error {
   constructor(
     public readonly kind: 'invalid_grant' | 'unauthorized' | 'unavailable' | 'not_found',
@@ -15,6 +29,7 @@ export class MercadoLivreApiError extends Error {
       providerCode: string | null
       providerMessage: string | null
     },
+    public readonly tokenFailure?: TokenFailureDiagnostic,
   ) {
     super(`Mercado Livre OAuth: ${kind}`)
   }
@@ -213,6 +228,54 @@ function userId(value: unknown): string | null {
   return null
 }
 
+function mensagemTokenSanitizada(value: unknown): string | null {
+  if (typeof value !== 'string' || !value) return null
+  const mensagem = value.toLowerCase().slice(0, 1000)
+  if (/redirect[_ -]?uri|callback/.test(mensagem)) return 'Redirect URI recusada ou divergente.'
+  if (/code[_ -]?verifier|pkce|code[_ -]?challenge/.test(mensagem)) return 'Verificador PKCE recusado.'
+  if (/client[_ -]?secret|client[_ -]?id|invalid[_ -]?client/.test(mensagem)) return 'Credenciais da aplicação recusadas.'
+  if (/authorization[_ -]?code|invalid[_ -]?grant|expir|expired|reutiliz|already used/.test(mensagem)) {
+    return 'Código de autorização inválido, expirado ou já utilizado.'
+  }
+  if (/scope|permission/.test(mensagem)) return 'Permissão OAuth recusada.'
+  if (/rate[_ -]?limit|too many/.test(mensagem)) return 'Limite de requisições do provedor.'
+  return 'Mensagem do provedor recebida; conteúdo omitido.'
+}
+
+function diagnosticoToken(params: URLSearchParams, response?: Response, json?: { valido: boolean; valor: unknown }): TokenFailureDiagnostic | undefined {
+  const ambiente = process.env.VERCEL_ENV
+  if (ambiente !== 'preview' && ambiente !== 'development' && !(ambiente === undefined && process.env.NODE_ENV === 'development')) return undefined
+  const body = json?.valor && typeof json.valor === 'object' && !Array.isArray(json.valor)
+    ? json.valor as Record<string, unknown> : null
+  const codigos = ['invalid_grant', 'invalid_client', 'unauthorized_client', 'invalid_request',
+    'unsupported_grant_type', 'access_denied', 'server_error', 'temporarily_unavailable']
+  const codigoErroMercadoLivre = typeof body?.error === 'string'
+    ? codigos.includes(body.error) ? body.error : 'outro_codigo' : null
+  const campoMensagemMercadoLivre = typeof body?.error_description === 'string' ? 'error_description'
+    : typeof body?.message === 'string' ? 'message' : null
+  const mensagemMercadoLivre = mensagemTokenSanitizada(campoMensagemMercadoLivre ? body?.[campoMensagemMercadoLivre] : null)
+  const tipoOriginal = response?.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
+  const tipos = ['application/json', 'application/problem+json', 'text/html', 'text/plain', 'application/octet-stream']
+  return {
+    statusHttpExterno: response?.status ?? null,
+    codigoErroMercadoLivre,
+    mensagemMercadoLivre,
+    campoMensagemMercadoLivre,
+    contentTypeResposta: tipoOriginal ? tipos.includes(tipoOriginal) ? tipoOriginal : 'outro' : null,
+    respostaJsonValida: json?.valido ?? null,
+    clientIdPresente: Boolean(params.get('client_id')),
+    clientSecretPresente: Boolean(params.get('client_secret')),
+    redirectUriIgual: params.get('redirect_uri') === process.env.MELI_REDIRECT_URI,
+    codeVerifierPresente: Boolean(params.get('code_verifier')),
+    grantTypeAuthorizationCode: params.get('grant_type') === 'authorization_code',
+  }
+}
+
+async function lerJson(response: Response): Promise<{ valido: boolean; valor: unknown }> {
+  try { return { valido: true, valor: await response.json() } }
+  catch { return { valido: false, valor: null } }
+}
+
 async function requestTokens(params: URLSearchParams): Promise<MercadoLivreTokens> {
   let response: Response
   try {
@@ -223,28 +286,32 @@ async function requestTokens(params: URLSearchParams): Promise<MercadoLivreToken
       signal: AbortSignal.timeout(10_000),
     })
   } catch {
-    throw new MercadoLivreApiError('unavailable')
+    throw new MercadoLivreApiError('unavailable', undefined, diagnosticoToken(params))
   }
 
   if (!response.ok) {
     // O provedor invalida o refresh token antigo depois de cada uso.
     if (response.status === 400 || response.status === 401) {
-      const body: unknown = await response.json().catch(() => null)
-      if (typeof body === 'object' && body !== null && 'error' in body && body.error === 'invalid_grant') {
-        throw new MercadoLivreApiError('invalid_grant')
+      const json = await lerJson(response)
+      if (typeof json.valor === 'object' && json.valor !== null && 'error' in json.valor && json.valor.error === 'invalid_grant') {
+        throw new MercadoLivreApiError('invalid_grant', undefined, diagnosticoToken(params, response, json))
       }
+      throw new MercadoLivreApiError('unavailable', undefined, diagnosticoToken(params, response, json))
     }
-    throw new MercadoLivreApiError('unavailable')
+    const json = process.env.VERCEL_ENV === 'preview' || process.env.VERCEL_ENV === 'development'
+      || (!process.env.VERCEL_ENV && process.env.NODE_ENV === 'development') ? await lerJson(response) : undefined
+    throw new MercadoLivreApiError('unavailable', undefined, diagnosticoToken(params, response, json))
   }
 
-  const value: unknown = await response.json().catch(() => null)
-  if (typeof value !== 'object' || value === null) throw new MercadoLivreApiError('unavailable')
+  const json = await lerJson(response)
+  const value = json.valor
+  if (typeof value !== 'object' || value === null) throw new MercadoLivreApiError('unavailable', undefined, diagnosticoToken(params, response, json))
   const token = value as Record<string, unknown>
   if (
     typeof token.access_token !== 'string' || !token.access_token ||
     typeof token.refresh_token !== 'string' || !token.refresh_token ||
     typeof token.expires_in !== 'number' || !Number.isFinite(token.expires_in) || token.expires_in <= 0
-  ) throw new MercadoLivreApiError('unavailable')
+  ) throw new MercadoLivreApiError('unavailable', undefined, diagnosticoToken(params, response, json))
 
   return {
     accessToken: token.access_token,
