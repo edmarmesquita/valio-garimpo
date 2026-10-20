@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { Request, Response } from 'express'
-import { getSupabaseConfig } from '../services/supabase.js'
+import { diagnosticarSupabaseEnv, getSupabaseConfig } from '../services/supabase.js'
 import type { CatalogoGateway, ConsultaProdutosGateway, LinkAfiliadoGateway, ProdutosGateway, SupabaseConfig } from '../services/supabase.js'
 import type { CliquesGateway } from '../services/cliques.js'
 import type { OfertaGateway } from '../ofertasRelampagoLote.js'
@@ -30,7 +30,21 @@ export function criarAutorizador(deps: Dependencias) {
     const config = (deps.config ?? getSupabaseConfig)()
     const esperado = (deps.token ?? (() => process.env.VALIO_PUBLISH_TOKEN))()?.trim()
     if (!config || !esperado || esperado.length < 32 || esperado === config.serviceRoleKey) {
-      res.status(503).json({ ok: false, erro: 'Publicação no Valiô não configurada no servidor.' })
+      const diagnostico = process.env.VERCEL_ENV === 'preview' || process.env.VERCEL_ENV === 'development'
+      const supabase = diagnostico ? diagnosticarSupabaseEnv() : null
+      const serviceRole = config?.serviceRoleKey ?? process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+      res.status(503).json({
+        ok: false, erro: 'Publicação no Valiô não configurada no servidor.',
+        ...(diagnostico && supabase ? {
+          supabaseUrlPresente: supabase.SUPABASE_URL.comprimentoMaiorQueZero,
+          supabaseUrlHttpsValida: supabase.urlHttps,
+          serviceRolePresente: supabase.SUPABASE_SERVICE_ROLE_KEY.comprimentoMaiorQueZero,
+          valioPublishTokenPresente: Boolean(esperado),
+          valioPublishTokenComprimento: esperado?.length ?? 0,
+          valioPublishTokenMin32: Boolean(esperado && esperado.length >= 32),
+          publishTokenIgualServiceRole: Boolean(esperado && serviceRole && esperado === serviceRole),
+        } : {}),
+      })
       return null
     }
     const authorization = req.get('authorization')
