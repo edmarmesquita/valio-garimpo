@@ -52,19 +52,47 @@ test('interface acumula dois JSONs, deduplica, atualiza preço, confirma igual e
     assert.equal(document.querySelectorAll('.fila-item').length, 3)
     await act(async () => botao('Selecionar todos encontrados').click())
     assert.match(document.querySelector('.fila-revisao').textContent, /2 produtos selecionados/)
-    await act(async () => botao('Atualizar preços selecionados').click())
-    assert.deepEqual(envios[0], [{ mercadoLivreId: 'MLB1', preco: 80, atualizarPreco: true }])
-    await act(async () => botao('Confirmar preços iguais selecionados').click())
-    assert.deepEqual(envios[1], [{ mercadoLivreId: 'MLB2', preco: 100, atualizarPreco: false }])
+    await act(async () => botao('Prévia dos preços selecionados').click())
+    assert.equal(envios.length, 0)
+    assert.match(document.querySelector('.fila-previa').textContent, /MLB1.*100,00.*80,00/s)
+    await act(async () => botao('Confirmar revisão de preços').click())
+    assert.deepEqual(envios[0], [{ mercadoLivreId: 'MLB1', preco: 80, atualizarPreco: true, precoEsperado: 100 }])
+    await act(async () => botao('Prévia dos preços iguais selecionados').click())
+    await act(async () => botao('Confirmar revisão de preços').click())
+    assert.deepEqual(envios[1], [{ mercadoLivreId: 'MLB2', preco: 100, atualizarPreco: false, precoEsperado: 100 }])
     assert.equal(aplicados.length, 2)
     falhar = true
     await act(async () => botao('Selecionar todos com preço alterado').click())
-    await act(async () => botao('Atualizar preços selecionados').click())
+    await act(async () => botao('Prévia dos preços selecionados').click())
+    await act(async () => botao('Confirmar revisão de preços').click())
     assert.match(document.querySelector('.extrair-resumo-envio').textContent, /1 erros/)
     assert.match(document.querySelector('.fila-revisao').textContent, /1 produtos selecionados/)
     assert.equal(document.querySelectorAll('.fila-item').length, 3)
     await act(async () => botao('Limpar lotes de revisão').click())
     assert.match(document.querySelector('.fila-estatisticas').textContent, /Lotes adicionados: 0.*Produtos únicos acumulados: 0/s)
+    falhar = false
+    await act(async () => document.querySelectorAll('input[name="fonte-revisao"]')[1].click())
+    const html = `<script id="__NORDIC_RENDERING_CTX__">_n.ctx.r = ${JSON.stringify({ appProps: { pageProps: { data: {
+      items: [card('MLB1', 120), card('MLB2', 100), card('MLB3', 80)].map((item, index) => ({ position: index + 1, card: item })),
+      polycardContext: {},
+    } } } })};</script>`
+    await adicionar(html)
+    assert.match(document.querySelector('.fila-revisao').textContent, /3 produtos encontrados · 3 com preço válido · 0 para revisar/)
+    assert.match([...document.querySelectorAll('.fila-estatisticas')].at(-1).textContent, /Produtos com preço válido: 3/)
+    const itens = [...document.querySelectorAll('.fila-item')]
+    for (const id of ['MLB1', 'MLB3']) {
+      const item = itens.find((linha) => linha.textContent.includes(id))
+      await act(async () => item.querySelector('input[type="checkbox"]').click())
+    }
+    const antesPrevia = envios.length
+    await act(async () => botao('Prévia dos preços selecionados').click())
+    assert.equal(envios.length, antesPrevia)
+    assert.match(document.querySelector('.fila-previa').textContent, /MLB1.*100,00.*120,00/s)
+    assert.match(document.querySelector('.fila-previa').textContent, /MLB3.*100,00.*80,00/s)
+    await act(async () => botao('Confirmar revisão de preços').click())
+    assert.deepEqual(envios.at(-1).map((item) => item.mercadoLivreId), ['MLB1', 'MLB3'])
+    assert.deepEqual(envios.at(-1).map((item) => Object.keys(item).sort()),
+      Array(2).fill(['atualizarPreco', 'mercadoLivreId', 'preco', 'precoEsperado']))
     assert.equal(document.querySelector('.fila-revisao').textContent.includes('token-de-teste'), false)
   } finally {
     if (root) await act(async () => root.unmount())

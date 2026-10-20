@@ -23,6 +23,7 @@ let rejectRefresh = false
 let itemFailureMode = null
 let itemCalls = 0
 let priceCalls = []
+let salePriceCalls = []
 let priceMode = 'success'
 let publicCalls = 0
 let publicMode = 'success'
@@ -43,6 +44,13 @@ let restrictionsUserCalls = 0
 let consumedApplicationsCalls = 0
 const usedRefreshTokens = new Set()
 const provider = createServer(async (req, res) => {
+  if (/^\/items\/MLB\d+\/sale_price\?context=channel_marketplace$/.test(req.url || '')) {
+    salePriceCalls.push(req.url)
+    assert.equal(req.headers.authorization, 'Bearer access-1')
+    res.setHeader('content-type', 'application/json')
+    res.end(JSON.stringify({ amount: 149.9, regular_amount: 199.9, currency_id: 'BRL' }))
+    return
+  }
   if (/^\/items\/MLB\d+\/prices$/.test(req.url || '')) {
     priceCalls.push(req.url)
     assert.equal(req.method, 'GET')
@@ -492,6 +500,20 @@ try {
   const status = await request(apiPorts[0], '/api/mercadolivre/status', cookie)
   assert.equal(status.status, 200)
   assert.deepEqual(await status.json(), { connected: true, account: { id: '123456789', nickname: 'conta-teste' } })
+  const consultarCinco = (sessionCookie) => fetch(`http://127.0.0.1:${apiPorts[0]}/api/mercadolivre/precos/consultar`, {
+    method: 'POST', headers: { 'content-type': 'application/json', ...(sessionCookie ? { cookie: sessionCookie } : {}) },
+    body: JSON.stringify({ itemIds: ['MLB1', 'MLB2', 'MLB3', 'MLB4', 'MLB5'] }),
+  })
+  assert.equal((await consultarCinco()).status, 401)
+  assert.equal(salePriceCalls.length, 0)
+  const cincoPrecos = await consultarCinco(cookie)
+  assert.equal(cincoPrecos.status, 200)
+  const cincoBody = await cincoPrecos.json()
+  assert.deepEqual(cincoBody.resultados.map((item) => [item.itemId, item.situacao, item.preco]),
+    ['MLB1', 'MLB2', 'MLB3', 'MLB4', 'MLB5'].map((id) => [id, 'OK', 149.9]))
+  assert.equal(salePriceCalls.length, 5)
+  for (const secret of ['access-1', 'refresh-1', 'secret-teste', 'client_secret'])
+    assert.equal(JSON.stringify(cincoBody).includes(secret), false)
   const diagnosticPath = '/api/mercadolivre/diagnostico'
   assert.deepEqual(await (await request(apiPorts[0], diagnosticPath)).json(), { connected: false })
   assert.deepEqual(await (await request(apiPorts[0], diagnosticPath, `meli_oauth_session=${'z'.repeat(43)}`)).json(), { connected: false })
@@ -912,6 +934,16 @@ try {
   } finally {
     unavailable.kill()
   }
+  const iniciarPrecos = await request(apiPorts[0], '/api/mercadolivre/auth/iniciar?retorno=precos')
+  assert.equal(iniciarPrecos.status, 302)
+  const sessaoPrecos = iniciarPrecos.headers.get('set-cookie').match(/meli_oauth_session=[A-Za-z0-9_-]{43}/)[0]
+  const cookiePrecos = `${sessaoPrecos}; meli_oauth_return=precos`
+  const statePrecos = new URL(iniciarPrecos.headers.get('location')).searchParams.get('state')
+  assert.equal((await request(apiPorts[0], `/api/mercadolivre/callback?state=${'x'.repeat(43)}&code=codigo-teste`, cookiePrecos))
+    .headers.get('location'), '/precos?meli=erro')
+  assert.equal((await request(apiPorts[0], `/api/mercadolivre/callback?state=${statePrecos}&code=codigo-teste`, cookiePrecos))
+    .headers.get('location'), '/precos?meli=conectado')
+  assert.equal((await (await request(apiPorts[0], '/api/mercadolivre/status', sessaoPrecos)).json()).connected, true)
   console.log('OAuth e produto: link válido/inválido, inexistente, renovação, falha Mercado Livre/Neon: OK')
 } finally {
   for (const child of children) child.kill()

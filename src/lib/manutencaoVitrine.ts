@@ -6,6 +6,7 @@ export type ProdutoCatalogo = {
   mercadoLivreId: string; titulo: string; preco: number; dataPreco: string
   categoria: CategoriaValio; linkAfiliado: string; imagem: string
   rating: number | null; ativo: boolean; updatedAt: string
+  ofertaRelampago?: boolean; ofertaInicio?: string | null; ofertaFim?: string | null
 }
 export type FiltroVitrine = 'todos' | 'ativos' | 'inativos' | 'atualizados' | 'revisar-breve' | 'precisa-revisao' | 'revisar-catalogo'
 export type OrdemVitrine = 'antigos' | 'recentes' | 'menor-preco' | 'maior-preco' | 'categoria'

@@ -69,6 +69,12 @@ const html = (items) => `<html><script id="__NORDIC_RENDERING_CTX__">_n.ctx.r = 
   items, polycardContext: { picture_template: 'https://http2.mlstatic.com/D_Q_NP_{id}-AB.webp' },
 } } } })};</script></html>`
 
+test('agendamento interpreta 17/10/2026 09:30 em Brasília sem exigir fim', async () => {
+  const { agendaIso } = await vite.ssrLoadModule('/src/features/ofertas-relampago/agendaOferta.ts')
+  assert.equal(agendaIso('2026-10-17T09:30'), '2026-10-17T12:30:00.000Z')
+  assert.equal(agendaIso(''), null)
+})
+
 const urlsReais = JSON.parse(readFileSync(new URL('./fixtures/ofertasRelampagoUrlsReais.json', import.meta.url), 'utf8'))
 
 async function fixturePreparado() {
@@ -579,6 +585,32 @@ test('interface seleciona, verifica, prepara prévia e limpa somente ofertas atu
     await click(button('Preparar ofertas selecionadas'))
     assert.match(query('.flash-payload').textContent, /2 pronta\(s\) · 0 bloqueada\(s\)/)
     assert.match(query('.flash-preview').textContent, /2 ofertas selecionadas/)
+    const modoAgenda = query('.flash-preview > label select')
+    await act(async () => { modoAgenda.value = 'depois'; modoAgenda.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+    const inicioInput = query('.flash-preview input[type="datetime-local"]')
+    const inicioBrasilia = new Date(Date.now() + 24 * 60 * 60 * 1000 - 3 * 60 * 60 * 1000).toISOString().slice(0, 16)
+    await fill(inicioInput, inicioBrasilia)
+    assert.equal(query('.flash-payload'), null)
+    await click(button('Preparar ofertas selecionadas'))
+    const payloadAgendado = JSON.parse(query('.flash-payload pre').textContent)
+    assert.deepEqual(payloadAgendado.map((item) => item.dados.ofertaInicio),
+      Array(2).fill(new Date(`${inicioBrasilia}:00-03:00`).toISOString()))
+    assert.deepEqual(payloadAgendado.map((item) => item.dados.ofertaFim), [null, null])
+    const chamadasAntesAgenda = calls.length
+    await click(button('Enviar selecionadas para Ofertas Relâmpago'))
+    assert.deepEqual(JSON.parse(calls.at(-1)[1].body).itens.map((item) => item.dados.ofertaInicio),
+      Array(2).fill(new Date(`${inicioBrasilia}:00-03:00`).toISOString()))
+    assert.deepEqual(JSON.parse(query('.flash-payload pre').textContent), payloadAgendado)
+    calls.splice(chamadasAntesAgenda)
+    await fill(inicioInput, '')
+    assert.equal(query('.flash-payload'), null)
+    await click(button('Preparar ofertas selecionadas'))
+    assert.match(query('.flash-import [role="alert"]').textContent, /Escolha um início futuro/)
+    await fill(inicioInput, inicioBrasilia)
+    await act(async () => { modoAgenda.value = 'agora'; modoAgenda.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+    assert.equal(query('.flash-payload'), null)
+    await click(button('Preparar ofertas selecionadas'))
+    assert.deepEqual(JSON.parse(query('.flash-payload pre').textContent).map((item) => item.dados.ofertaInicio), [null, null])
     await act(async () => {
       const prioridade = query('[aria-label="Prioridade de MLB123"]')
       prioridade.value = '100'

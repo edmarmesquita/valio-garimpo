@@ -5,6 +5,7 @@ import cors from 'cors'
 import OpenAI from 'openai'
 import mercadoLivreAuth from './mercadoLivreAuth.js'
 import mercadoLivreProduto from './mercadoLivreProduto.js'
+import mercadoLivrePrecos from './mercadoLivrePrecos.js'
 import { criarRotaValioProdutos } from './valioProdutos.js'
 
 const app = express()
@@ -13,6 +14,7 @@ app.use(cors())
 app.use(express.json())
 app.use('/api/mercadolivre', mercadoLivreAuth)
 app.use('/api/mercadolivre', mercadoLivreProduto)
+app.use('/api/mercadolivre', mercadoLivrePrecos)
 app.use('/api/valio', criarRotaValioProdutos())
 app.use('/api/valio', (_req, res) => {
     res.status(404).json({ ok: false, erro: 'Rota do Valiô não encontrada.' })

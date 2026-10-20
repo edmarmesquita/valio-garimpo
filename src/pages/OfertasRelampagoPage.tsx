@@ -91,8 +91,21 @@ export default function OfertasRelampagoPage() {
   const novasIncompativeis = novas.filter((oferta) => !vinculo?.compativeis.includes(oferta.itemId!)
     || retornoSeguro?.pareamentos.some((p) => p.produto.itemId === oferta.itemId && p.situacao === 'NÃO PUBLICAR'))
 
-  function prepararComVinculo(selecao: ReadonlySet<string>, desativar: ReadonlySet<string>) {
-    const resultado = prepararOfertasSelecionadas(ofertas, selecao, existentes, verificados, categorias, retornoSeguro, prioridades, desativar)
+  function agendamentoDoLote() {
+    if (!agendarLote) return null
+    const inicio = inicioFuturo(inicioLote)
+    const fim = agendaIso(fimLote)
+    if (fim && Date.parse(fim) <= Date.parse(inicio)) throw new Error('O fim deve ser posterior ao início.')
+    return { inicio, fim }
+  }
+
+  function ofertasComAgendamento() {
+    const agenda = agendamentoDoLote()
+    return agenda ? ofertas.map((oferta) => ({ ...oferta, ofertaInicio: agenda.inicio, ofertaFim: agenda.fim })) : ofertas
+  }
+
+  function prepararComVinculo(selecao: ReadonlySet<string>, desativar: ReadonlySet<string>, origem = ofertas) {
+    const resultado = prepararOfertasSelecionadas(origem, selecao, existentes, verificados, categorias, retornoSeguro, prioridades, desativar)
     // Explica exatamente a divergência, sem impedir o preview dos compatíveis.
     for (const bloqueado of resultado.bloqueados) {
       const problema = vinculo?.problemas.find((p) => p.itemId === bloqueado.itemId)
@@ -200,8 +213,13 @@ export default function OfertasRelampagoPage() {
   }
 
   function preparar() {
-    const resultado = prepararComVinculo(selecionados, desativadas)
-    setPrevia(resultado); setPreviaRemota(null); setErro(''); setPedidoScroll({ destino: 'payload' })
+    try {
+      const resultado = prepararComVinculo(selecionados, desativadas, ofertasComAgendamento())
+      setPrevia(resultado); setPreviaRemota(null); setErro(''); setPedidoScroll({ destino: 'payload' })
+    } catch (falha) {
+      setPrevia(null)
+      setErro(falha instanceof Error ? falha.message : 'Não foi possível preparar o agendamento.')
+    }
   }
 
   async function preverAcao(modo: ModoOferta, somenteCompativeis = false) {
@@ -222,7 +240,14 @@ export default function OfertasRelampagoPage() {
         ? { mercadoLivreId: oferta.itemId, ofertaRelampago: false }
         : { mercadoLivreId: oferta.itemId, prioridadeOferta: prioridades.get(oferta.chave) ?? 0 } }))
     } else {
-      const local = prepararComVinculo(selecaoAlvo, modo === 'ENVIAR' ? desativadas : new Set())
+      let ofertasParaPreparo: OfertaExtraida[]
+      try { ofertasParaPreparo = ofertasComAgendamento() }
+      catch (falha) {
+        setPrevia(null)
+        setErro(falha instanceof Error ? falha.message : 'Não foi possível preparar o agendamento.')
+        return
+      }
+      const local = prepararComVinculo(selecaoAlvo, modo === 'ENVIAR' ? desativadas : new Set(), ofertasParaPreparo)
       setPrevia(local)
       if (local.bloqueados.length || local.prontos.length !== selecionadasAlvo.length) {
         setErro(`Ofertas bloqueadas: ${local.bloqueados.map((p) => `${p.itemId ?? 'SEM ITEM_ID'}: ${p.motivo}`).join(' · ')} O snapshot e os links foram preservados.`); return
@@ -232,13 +257,6 @@ export default function OfertasRelampagoPage() {
     envioEmCurso.current = true
     setEnviando(true); setErro(''); setPreviaRemota(null); setResultadoConfirmacao(null)
     try {
-      if (agendarLote && !['DESATIVAR', 'PRIORIDADE'].includes(modo)) {
-        const inicio = inicioFuturo(inicioLote)
-        const fim = agendaIso(fimLote)
-        if (fim && Date.parse(fim) <= Date.parse(inicio)) throw new Error('O fim deve ser posterior ao início.')
-        itens = itens.map((item) => item.dados.ofertaRelampago === false ? item : { ...item,
-          dados: { ...item.dados, ofertaInicio: inicio, ofertaFim: fim } })
-      }
       const resposta = await preverOfertas(modo, itens, token)
       if (versaoDaPrevia !== versaoSelecao.current) {
         setPreviaRemota(null); setErro(SELECAO_ALTERADA); return
@@ -353,12 +371,12 @@ export default function OfertasRelampagoPage() {
       </table></div>
       <button type="button" disabled={!selecionados.size} onClick={preparar}>Preparar ofertas selecionadas</button>
       {novasIncompativeis.length > 0 && <button type="button" disabled={enviando || !token.trim()} onClick={() => void preverAcao('ENVIAR', true)}>Prévia somente das ofertas compatíveis — preservar seleção</button>}
-      <label>Início das ofertas do lote <select disabled={enviando} value={agendarLote ? 'depois' : 'agora'} onChange={(e) => { setAgendarLote(e.target.value === 'depois'); setPreviaRemota(null) }}>
+      <label>Início das ofertas do lote <select disabled={enviando} value={agendarLote ? 'depois' : 'agora'} onChange={(e) => { setAgendarLote(e.target.value === 'depois'); setPrevia(null); setPreviaRemota(null) }}>
         <option value="agora">Ativar agora</option><option value="depois">Agendar para depois</option>
       </select></label>
       {agendarLote && <div>
-        <label>Início do lote (Brasília)<input type="datetime-local" disabled={enviando} value={inicioLote} onChange={(e) => { setInicioLote(e.target.value); setPreviaRemota(null) }} /></label>
-        <label>Fim opcional do lote (Brasília)<input type="datetime-local" disabled={enviando} value={fimLote} onChange={(e) => { setFimLote(e.target.value); setPreviaRemota(null) }} /></label>
+        <label>Início do lote (Brasília)<input type="datetime-local" disabled={enviando} value={inicioLote} onChange={(e) => { setInicioLote(e.target.value); setPrevia(null); setPreviaRemota(null) }} /></label>
+        <label>Fim opcional do lote (Brasília)<input type="datetime-local" disabled={enviando} value={fimLote} onChange={(e) => { setFimLote(e.target.value); setPrevia(null); setPreviaRemota(null) }} /></label>
       </div>}
       <div className="flash-actions">
         {([['ATIVAR', 'Ativar selecionadas'], ['DESATIVAR', 'Desativar selecionadas'],
@@ -439,13 +457,7 @@ export default function OfertasRelampagoPage() {
       <ul>{resultadoConfirmacao.itens.map((item) => <li key={item.itemId}>{item.itemId}: {item.resultado}{item.motivo ? ` — ${item.motivo}` : ''}</li>)}</ul>
     </section>}
     <LotePreparadoPanel podeSalvar={selecionadas.length > 0} criarAtual={() => {
-      let ofertasDoLote = ofertas
-      if (agendarLote) {
-        const inicio = inicioFuturo(inicioLote), fim = agendaIso(fimLote)
-        if (fim && Date.parse(fim) <= Date.parse(inicio)) throw new Error('O fim deve ser posterior ao início.')
-        ofertasDoLote = ofertas.map((oferta) => ({ ...oferta, ofertaInicio: inicio, ofertaFim: fim }))
-      }
-      return criarLotePreparado(ofertasDoLote, selecionados, categorias, prioridades, existentes, verificados, retornoSeguro, desativadas)
+      return criarLotePreparado(ofertasComAgendamento(), selecionados, categorias, prioridades, existentes, verificados, retornoSeguro, desativadas)
     }} />
     <GerenciarOfertasPanel key={token} />
   </AreaOperacional>

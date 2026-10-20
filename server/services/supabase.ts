@@ -47,12 +47,13 @@ export type ProdutoExistente = {
   ativo: boolean
 }
 export type ConsultaProdutosGateway = { consultarExistentes: (ids: string[]) => Promise<ProdutoExistente[]> }
-export type ProdutoCatalogo = ProdutoExistente & { rating: number | null; updatedAt: string }
+export type ProdutoCatalogo = ProdutoExistente & { rating: number | null; updatedAt: string;
+  ofertaRelampago?: boolean; ofertaInicio?: string | null; ofertaFim?: string | null }
 export type CatalogoGateway = {
   listar: () => Promise<ProdutoCatalogo[]>
   alterarStatus: (id: string, ativo: boolean) => Promise<boolean>
   alterarCategoria: (id: string, categoria: string) => Promise<boolean>
-  atualizarPreco: (id: string, preco: number, dataPreco: string, updatedAt: string, confirmar: boolean) => Promise<boolean>
+  atualizarPreco: (id: string, preco: number, dataPreco: string, updatedAt: string, confirmar: boolean, precoEsperado?: number) => Promise<boolean>
 }
 
 export function diagnosticarSupabaseEnv(env: NodeJS.ProcessEnv = process.env) {
@@ -210,13 +211,14 @@ export function criarCatalogoGateway(config: SupabaseConfig): CatalogoGateway {
       const tamanho = 500
       for (let inicio = 0; ; inicio += tamanho) {
         const { data, error } = await supabase.from('produtos')
-          .select('mercado_livre_id,titulo,preco,data_preco,categoria,link_afiliado,imagem,rating,ativo,updated_at')
+          .select('mercado_livre_id,titulo,preco,data_preco,categoria,link_afiliado,imagem,rating,ativo,updated_at,oferta_relampago,oferta_inicio,oferta_fim')
           .order('id', { ascending: true }).range(inicio, inicio + tamanho - 1)
         if (error) throw error
         produtos.push(...(data ?? []).map((row) => ({
           mercadoLivreId: row.mercado_livre_id, titulo: row.titulo, preco: row.preco,
           dataPreco: row.data_preco, categoria: row.categoria, linkAfiliado: row.link_afiliado,
           imagem: row.imagem, rating: row.rating, ativo: row.ativo, updatedAt: row.updated_at,
+          ofertaRelampago: row.oferta_relampago, ofertaInicio: row.oferta_inicio, ofertaFim: row.oferta_fim,
         })))
         if (!data || data.length < tamanho) return produtos
       }
@@ -234,11 +236,11 @@ export function criarCatalogoGateway(config: SupabaseConfig): CatalogoGateway {
       if (error) throw error
       return data !== null
     },
-    async atualizarPreco(id, preco, dataPreco, updatedAt, confirmar) {
+    async atualizarPreco(id, preco, dataPreco, updatedAt, confirmar, precoEsperado) {
       const alteracoes = confirmar ? { data_preco: dataPreco, updated_at: updatedAt }
         : { preco, data_preco: dataPreco, updated_at: updatedAt }
       let consulta = supabase.from('produtos').update(alteracoes).eq('mercado_livre_id', id)
-      if (confirmar) consulta = consulta.eq('preco', preco)
+      if (confirmar || precoEsperado !== undefined) consulta = consulta.eq('preco', precoEsperado ?? preco)
       const { data, error } = await consulta.select('mercado_livre_id').maybeSingle()
       if (error) throw error
       return data !== null

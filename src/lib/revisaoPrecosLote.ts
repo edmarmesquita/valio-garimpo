@@ -2,29 +2,49 @@ import type { ProdutoAfiliado } from './extrairProdutosAfiliados'
 import { classificarIdadePreco } from './manutencaoVitrine'
 import type { IdadePreco, ProdutoCatalogo } from './manutencaoVitrine'
 
-export type LotesRevisao = { lotes: number; brutos: number; duplicados: number; produtos: Map<string, ProdutoAfiliado> }
-export const lotesVazios = (): LotesRevisao => ({ lotes: 0, brutos: 0, duplicados: 0, produtos: new Map() })
+export type LotesRevisao = { lotes: number; brutos: number; duplicados: number; semId: number; atualizadosSessao: number;
+  produtos: Map<string, ProdutoAfiliado>; problemas: Map<string, string>; fontes: Map<string, 'json' | 'html'>;
+  urls: Map<string, string> }
+export const lotesVazios = (): LotesRevisao => ({ lotes: 0, brutos: 0, duplicados: 0, semId: 0, atualizadosSessao: 0,
+  produtos: new Map(), problemas: new Map(), fontes: new Map(), urls: new Map() })
 
-export function adicionarLote(atual: LotesRevisao, extraidos: ProdutoAfiliado[]): LotesRevisao {
+export function adicionarLote(atual: LotesRevisao, extraidos: ProdutoAfiliado[], opcoes: {
+  fonte?: 'json' | 'html'; brutos?: number; semId?: number; problemas?: ReadonlyMap<string, string>; urls?: ReadonlyMap<string, string>
+} = {}): LotesRevisao {
   const produtos = new Map(atual.produtos)
-  let duplicados = atual.duplicados
+  const problemas = new Map(atual.problemas)
+  const fontes = new Map(atual.fontes)
+  const urls = new Map(atual.urls)
+  let duplicados = atual.duplicados + Math.max(0, (opcoes.brutos ?? extraidos.length) - extraidos.length - (opcoes.semId ?? 0))
+  let atualizadosSessao = atual.atualizadosSessao
   for (const item of extraidos) {
     if (!item.itemId || !/^MLB\d+$/.test(item.itemId)) continue
-    if (produtos.has(item.itemId)) duplicados++
+    const anterior = produtos.get(item.itemId)
+    if (anterior) {
+      duplicados++
+      if (anterior.precoAtual !== item.precoAtual) atualizadosSessao++
+    }
     produtos.set(item.itemId, item)
+    fontes.set(item.itemId, opcoes.fonte ?? 'json')
+    if (opcoes.problemas?.has(item.itemId)) problemas.set(item.itemId, opcoes.problemas.get(item.itemId)!)
+    else problemas.delete(item.itemId)
+    if (opcoes.urls?.has(item.itemId)) urls.set(item.itemId, opcoes.urls.get(item.itemId)!)
+    else urls.delete(item.itemId)
   }
-  return { lotes: atual.lotes + 1, brutos: atual.brutos + extraidos.length, duplicados, produtos }
+  return { lotes: atual.lotes + 1, brutos: atual.brutos + (opcoes.brutos ?? extraidos.length), duplicados,
+    semId: atual.semId + (opcoes.semId ?? 0),
+    atualizadosSessao, produtos, problemas, fontes, urls }
 }
 
 export type ItemFila = {
   produto: ProdutoCatalogo; idade: IdadePreco; extraido?: ProdutoAfiliado
-  diferencaCentavos: number | null; outrosCampos: string[]
+  diferencaCentavos: number | null; outrosCampos: string[]; problema?: string; fonte?: 'json' | 'html'; url?: string
 }
 
 export function montarFila(catalogo: ProdutoCatalogo[], lotes: LotesRevisao, incluirAtualizados = false, hoje = new Date()): ItemFila[] {
   return catalogo.flatMap((produto) => {
     const idade = classificarIdadePreco(produto.dataPreco, hoje)
-    if (idade === 'Atualizado' && !incluirAtualizados) return []
+    if (idade === 'Atualizado' && !incluirAtualizados && !lotes.produtos.has(produto.mercadoLivreId)) return []
     const extraido = lotes.produtos.get(produto.mercadoLivreId)
     const diferencaCentavos = extraido?.precoAtual == null || extraido.precoAtual <= 0 ? null : Math.round(extraido.precoAtual * 100) - Math.round(produto.preco * 100)
     const outrosCampos = extraido ? [
@@ -33,7 +53,9 @@ export function montarFila(catalogo: ProdutoCatalogo[], lotes: LotesRevisao, inc
       ...(extraido.linkOriginal && extraido.linkOriginal !== produto.linkAfiliado ? ['link'] : []),
       ...(extraido.avaliacao != null && extraido.avaliacao !== produto.rating ? ['rating'] : []),
     ] : []
-    return [{ produto, idade, extraido, diferencaCentavos, outrosCampos }]
+    return [{ produto, idade, extraido, diferencaCentavos, outrosCampos,
+      problema: lotes.problemas.get(produto.mercadoLivreId), fonte: lotes.fontes.get(produto.mercadoLivreId),
+      url: lotes.urls.get(produto.mercadoLivreId) }]
   })
 }
 
@@ -71,7 +93,7 @@ export function selecionarFila(fila: ItemFila[], modo: 'alterados' | 'encontrado
     && (modo === 'encontrados' || item.diferencaCentavos !== 0)).map((item) => item.produto.mercadoLivreId))
 }
 
-export type EntradaPreco = { mercadoLivreId: string; preco: number; atualizarPreco: boolean }
+export type EntradaPreco = { mercadoLivreId: string; preco: number; atualizarPreco: boolean; precoEsperado?: number }
 export type ResultadoPreco = { mercadoLivreId: string; status: 'atualizado' | 'confirmado' | 'erro'; erro?: string; dataPreco?: string; updatedAt?: string }
 export function dividirEmBlocos<T>(itens: T[], tamanho = 50): T[][] {
   if (!Number.isInteger(tamanho) || tamanho < 1) throw new Error('Tamanho de bloco inválido.')

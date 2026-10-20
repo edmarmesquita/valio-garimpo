@@ -24,9 +24,12 @@ function getSessionId(req: Request) {
   return sessionId && /^[A-Za-z0-9_-]{43}$/.test(sessionId) ? sessionId : null
 }
 
-function returnToGarimpo(res: Response, success: boolean) {
+function returnToGarimpo(req: Request, res: Response, success: boolean) {
+  const precos = req.get('cookie')?.split(';').some((parte) => parte.trim() === 'meli_oauth_return=precos')
+  res.clearCookie('meli_oauth_return', { path: '/', httpOnly: true, sameSite: 'lax' })
   res.set('Referrer-Policy', 'no-referrer')
-  res.redirect(303, success ? '/?meli=conectado' : '/?meli=erro')
+  const retorno = success ? 'conectado' : req.query.error === 'access_denied' ? 'negado' : 'erro'
+  res.redirect(303, `${precos ? '/precos' : '/'}?meli=${retorno}`)
 }
 
 router.use((_req, res, next) => {
@@ -34,31 +37,41 @@ router.use((_req, res, next) => {
   next()
 })
 
-router.get('/auth/iniciar', async (_req, res) => {
+router.get('/auth/iniciar', async (req, res) => {
   const config = getMercadoLivreConfig()
   if (!config) {
     res.status(503).json({ ok: false, error: 'Integração com Mercado Livre não configurada.' })
     return
   }
 
+  let etapa = 'validar criptografia'
   try {
     assertEncryptionConfigured()
+    etapa = 'gerar e criptografar credenciais temporárias'
     const state = randomBytes(32).toString('base64url')
     const sessionId = randomBytes(32).toString('base64url')
     const codeVerifier = randomBytes(32).toString('base64url')
     const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url')
     const stateHash = hashOpaque(state)
+    const verifierCiphertext = encryptSecret(codeVerifier, `verifier:${stateHash}`)
+    etapa = 'persistir tentativa OAuth'
     await createAuthorizationAttempt(
       hashOpaque(sessionId), stateHash,
-      encryptSecret(codeVerifier, `verifier:${stateHash}`),
+      verifierCiphertext,
       new Date(Date.now() + SESSION_TTL_MS),
       new Date(Date.now() + PENDING_TTL_MS),
     )
 
+    etapa = 'configurar cookies'
     res.cookie(SESSION_COOKIE, sessionId, {
       httpOnly: true, secure: config.secureCookie, sameSite: 'lax',
       path: '/', maxAge: SESSION_TTL_MS,
     })
+    if (req.query.retorno === 'precos') res.cookie('meli_oauth_return', 'precos', {
+      httpOnly: true, secure: config.secureCookie, sameSite: 'lax', path: '/', maxAge: PENDING_TTL_MS,
+    })
+    else res.clearCookie('meli_oauth_return', { path: '/', httpOnly: true, sameSite: 'lax' })
+    etapa = 'montar redirecionamento'
     const authorizationUrl = new URL(AUTHORIZATION_URL)
     authorizationUrl.searchParams.set('response_type', 'code')
     authorizationUrl.searchParams.set('client_id', config.clientId)
@@ -67,7 +80,38 @@ router.get('/auth/iniciar', async (_req, res) => {
     authorizationUrl.searchParams.set('code_challenge', codeChallenge)
     authorizationUrl.searchParams.set('code_challenge_method', 'S256')
     res.redirect(302, authorizationUrl.toString())
-  } catch {
+  } catch (error) {
+    const nomeOriginal = error instanceof Error ? error.name : ''
+    const nome = ['Error', 'TypeError', 'RangeError', 'DatabaseError', 'AggregateError', 'error']
+      .includes(nomeOriginal) ? nomeOriginal : 'Erro desconhecido'
+    const codigoOriginal = error && typeof error === 'object' && 'code' in error ? error.code : null
+    const codigoPostgres = typeof codigoOriginal === 'string' && /^[0-9A-Z]{5}$/.test(codigoOriginal)
+      && error && typeof error === 'object' && 'severity' in error
+      ? codigoOriginal : null
+    const mensagens: Record<string, string> = {
+      '28P01': 'Autenticação PostgreSQL recusada.',
+      '42501': 'Permissão PostgreSQL negada.',
+      '42P01': 'Tabela PostgreSQL ausente.',
+      '42703': 'Coluna PostgreSQL ausente.',
+      '23502': 'Coluna obrigatória sem valor.',
+      '23503': 'Chave estrangeira inválida.',
+      '23505': 'Chave duplicada.',
+      '57014': 'Consulta PostgreSQL cancelada ou expirada.',
+    }
+    const mensagem = codigoPostgres
+      ? mensagens[codigoPostgres] ?? 'Falha PostgreSQL; detalhes suprimidos.'
+      : etapa === 'validar criptografia'
+        ? 'Configuração da chave de criptografia inválida ou ausente.'
+        : etapa === 'persistir tentativa OAuth' && codigoOriginal === 'EACCES'
+          ? 'Acesso à rede negado.'
+          : etapa === 'persistir tentativa OAuth' && codigoOriginal === 'ECONNREFUSED'
+            ? 'Conexão PostgreSQL recusada.'
+            : etapa === 'persistir tentativa OAuth' && codigoOriginal === 'ETIMEDOUT'
+              ? 'Conexão PostgreSQL expirou.'
+              : etapa === 'persistir tentativa OAuth' && codigoOriginal === 'ENOTFOUND'
+                ? 'Servidor PostgreSQL não encontrado.'
+                : 'Falha na etapa indicada; detalhes suprimidos.'
+    console.error('Falha ao iniciar OAuth Mercado Livre:', { nome, codigoPostgres, mensagem, etapa })
     res.status(503).json({ ok: false, error: 'Armazenamento OAuth indisponível.' })
   }
 })
@@ -77,7 +121,7 @@ router.get('/callback', async (req, res) => {
     ? req.query.state : null
   const sessionId = getSessionId(req)
   if (!state || !sessionId) {
-    returnToGarimpo(res, false)
+    returnToGarimpo(req, res, false)
     return
   }
 
@@ -85,14 +129,14 @@ router.get('/callback', async (req, res) => {
     const stateHash = hashOpaque(state)
     const verifierCiphertext = await consumeAuthorizationAttempt(stateHash, hashOpaque(sessionId))
     if (!verifierCiphertext) {
-      returnToGarimpo(res, false)
+      returnToGarimpo(req, res, false)
       return
     }
     // O state é consumido mesmo quando o provedor retorna erro ou não envia code.
     const code = typeof req.query.code === 'string' ? req.query.code : null
     const config = getMercadoLivreConfig()
     if (req.query.error || !code || !config) {
-      returnToGarimpo(res, false)
+      returnToGarimpo(req, res, false)
       return
     }
 
@@ -108,10 +152,10 @@ router.get('/callback', async (req, res) => {
       refreshTokenCiphertext: encryptSecret(tokens.refreshToken, `refresh:${identity.userId}`),
       accessExpiresAt: new Date(Date.now() + tokens.expiresIn * 1000),
     })
-    returnToGarimpo(res, true)
+    returnToGarimpo(req, res, true)
   } catch {
     // Não registrar code, verifier, tokens ou resposta do provedor em logs.
-    returnToGarimpo(res, false)
+    returnToGarimpo(req, res, false)
   }
 })
 

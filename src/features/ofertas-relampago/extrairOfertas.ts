@@ -50,7 +50,7 @@ function jsonBalanceado(html: string, inicio: number): string | null {
   return null
 }
 
-function dadosNordic(html: string): Registro {
+export function dadosNordic(html: string): Registro {
   if (!html.trim() || html.length > 10_000_000) throw new Error('Cole um HTML de até 10 MB.')
   const script = /<script\b(?=[^>]*\bid=["']__NORDIC_RENDERING_CTX__["'])[^>]*>([\s\S]*?)<\/script\s*>/i.exec(html)
   if (!script) throw new Error('O HTML não contém o JSON estruturado das ofertas (__NORDIC_RENDERING_CTX__).')

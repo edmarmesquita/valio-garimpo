@@ -10,6 +10,7 @@ test('rotas diretas e navegação compartilham token somente em memória', async
   const original = { window: globalThis.window, document: globalThis.document, navigator: globalThis.navigator,
     HTMLElement: globalThis.HTMLElement, fetch: globalThis.fetch, actEnvironment: globalThis.IS_REACT_ACT_ENVIRONMENT }
   let root; let vite
+  let mercadoLivreConectado = false
   try {
     globalThis.window = dom.window; globalThis.document = dom.window.document
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator })
@@ -17,7 +18,7 @@ test('rotas diretas e navegação compartilham token somente em memória', async
     globalThis.fetch = async (url) => ({ ok: true, json: async () =>
       url === '/api/garimpo/status' ? { ok: true, garimpo: 'Valiô Garimpo', status: 'pronto' }
         : url === '/api/valio/catalogo' ? { ok: true, produtos: [] }
-          : url === '/api/valio/produtos/verificar' ? { ok: true, existentes: [] } : { connected: false } })
+          : url === '/api/valio/produtos/verificar' ? { ok: true, existentes: [] } : { connected: mercadoLivreConectado } })
     const { createRoot } = await import('react-dom/client')
     vite = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
     const { default: Roteador } = await vite.ssrLoadModule('/src/app/Roteador.tsx')
@@ -49,6 +50,12 @@ test('rotas diretas e navegação compartilham token somente em memória', async
       if (path === '/precos') {
         await act(async () => [...document.querySelectorAll('button')].find((item) => item.textContent === 'Carregar catálogo').click())
         assert.ok(document.querySelector('.fila-revisao'))
+        assert.match(document.querySelector('[aria-label="Conexão Mercado Livre para preços"] [role="status"]').textContent, /DESCONECTADO/)
+        assert.equal([...document.querySelectorAll('button')].find((item) => item.textContent === 'Testar piloto de 5 produtos').disabled, true)
+        mercadoLivreConectado = true
+        await act(async () => [...document.querySelectorAll('button')].find((item) => item.textContent === 'Atualizar conexão').click())
+        assert.match(document.querySelector('[aria-label="Conexão Mercado Livre para preços"] [role="status"]').textContent, /CONECTADO/)
+        assert.equal([...document.querySelectorAll('button')].find((item) => item.textContent === 'Testar piloto de 5 produtos').disabled, false)
       }
       if (path === '/diagnostico') assert.match(document.querySelector('.extrair-diagnostico').textContent, /IDs enviados: 0/)
     }
