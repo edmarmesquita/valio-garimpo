@@ -112,7 +112,12 @@ router.get('/auth/iniciar', async (req, res) => {
                 ? 'Servidor PostgreSQL não encontrado.'
                 : 'Falha na etapa indicada; detalhes suprimidos.'
     console.error('Falha ao iniciar OAuth Mercado Livre:', { nome, codigoPostgres, mensagem, etapa })
-    res.status(503).json({ ok: false, error: 'Armazenamento OAuth indisponível.' })
+    const diagnostico = process.env.VERCEL_ENV === 'preview' || process.env.VERCEL_ENV === 'development'
+      || (!process.env.VERCEL_ENV && process.env.NODE_ENV === 'development')
+    res.status(503).json({
+      ok: false, error: 'Armazenamento OAuth indisponível.',
+      ...(diagnostico ? { etapa, mensagem, nome, ...(codigoPostgres ? { codigoPostgres } : {}) } : {}),
+    })
   }
 })
 
