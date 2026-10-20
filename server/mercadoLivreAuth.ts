@@ -24,12 +24,45 @@ function getSessionId(req: Request) {
   return sessionId && /^[A-Za-z0-9_-]{43}$/.test(sessionId) ? sessionId : null
 }
 
-function returnToGarimpo(req: Request, res: Response, success: boolean) {
+type DiagnosticoCallback = {
+  etapa: string
+  nome: string
+  mensagem: string
+  statusHttpExterno?: number
+  codigoErroMercadoLivre?: 'invalid_grant' | 'access_denied'
+}
+
+function returnToGarimpo(req: Request, res: Response, success: boolean, diagnostico?: DiagnosticoCallback) {
   const precos = req.get('cookie')?.split(';').some((parte) => parte.trim() === 'meli_oauth_return=precos')
   res.clearCookie('meli_oauth_return', { path: '/', httpOnly: true, sameSite: 'lax' })
   res.set('Referrer-Policy', 'no-referrer')
   const retorno = success ? 'conectado' : req.query.error === 'access_denied' ? 'negado' : 'erro'
-  res.redirect(303, `${precos ? '/precos' : '/'}?meli=${retorno}`)
+  const destino = `${precos ? '/precos' : '/'}?meli=${retorno}`
+  const exibirDiagnostico = process.env.VERCEL_ENV === 'preview' || process.env.VERCEL_ENV === 'development'
+    || (!process.env.VERCEL_ENV && process.env.NODE_ENV === 'development')
+  if (!success && diagnostico && exibirDiagnostico) {
+    console.error('Falha no callback OAuth Mercado Livre:', diagnostico)
+    const parametros = new URLSearchParams({ meli: retorno, etapa: diagnostico.etapa,
+      nome: diagnostico.nome, mensagem: diagnostico.mensagem })
+    if (diagnostico.statusHttpExterno) parametros.set('statusHttpExterno', String(diagnostico.statusHttpExterno))
+    if (diagnostico.codigoErroMercadoLivre) parametros.set('codigoErroMercadoLivre', diagnostico.codigoErroMercadoLivre)
+    res.redirect(303, `${precos ? '/precos' : '/'}?${parametros}`)
+    return
+  }
+  res.redirect(303, destino)
+}
+
+function falhaCallback(req: Request, res: Response, etapa: string, mensagem: string, error?: unknown) {
+  const nomeOriginal = error instanceof Error ? error.name : ''
+  const nome = error === undefined ? 'ValidationError'
+    : ['Error', 'TypeError', 'RangeError', 'DatabaseError', 'AggregateError', 'error']
+      .includes(nomeOriginal) ? nomeOriginal : 'Erro desconhecido'
+  const status = error instanceof MercadoLivreApiError ? error.itemFailure?.providerStatus : null
+  const statusHttpExterno = typeof status === 'number' && Number.isInteger(status) && status >= 100 && status <= 599
+    ? status : undefined
+  const codigoErroMercadoLivre = error instanceof MercadoLivreApiError && error.kind === 'invalid_grant'
+    ? 'invalid_grant' : req.query.error === 'access_denied' ? 'access_denied' : undefined
+  returnToGarimpo(req, res, false, { etapa, nome, mensagem, statusHttpExterno, codigoErroMercadoLivre })
 }
 
 router.use((_req, res, next) => {
@@ -143,30 +176,36 @@ router.get('/callback', async (req, res) => {
     ? req.query.state : null
   const sessionId = getSessionId(req)
   if (!state || !sessionId) {
-    returnToGarimpo(req, res, false)
+    falhaCallback(req, res, 'validar cookie/state', 'Cookie ou state ausente ou inválido.')
     return
   }
 
+  let etapa = 'carregar tentativa OAuth do banco'
   try {
     const stateHash = hashOpaque(state)
     const verifierCiphertext = await consumeAuthorizationAttempt(stateHash, hashOpaque(sessionId))
     if (!verifierCiphertext) {
-      returnToGarimpo(req, res, false)
+      falhaCallback(req, res, etapa, 'Tentativa OAuth ausente, expirada ou não vinculada à sessão.')
       return
     }
     // O state é consumido mesmo quando o provedor retorna erro ou não envia code.
     const code = typeof req.query.code === 'string' ? req.query.code : null
     const config = getMercadoLivreConfig()
     if (req.query.error || !code || !config) {
-      returnToGarimpo(req, res, false)
+      falhaCallback(req, res, 'validar retorno OAuth', req.query.error === 'access_denied'
+        ? 'Autorização recusada pelo Mercado Livre.' : 'Código de autorização ou configuração OAuth ausente.')
       return
     }
 
+    etapa = 'descriptografar code_verifier'
     const verifier = decryptSecret(verifierCiphertext, `verifier:${stateHash}`)
+    etapa = 'trocar authorization code por token'
     const tokens = await exchangeAuthorizationCode(config, code, verifier)
+    etapa = 'consultar identidade/usuário'
     const identity = await getMercadoLivreIdentity(tokens.accessToken)
     if (tokens.userId && tokens.userId !== identity.userId) throw new Error('Identidade Mercado Livre divergente')
 
+    etapa = 'salvar conexão OAuth'
     await saveConnection({
       sessionHash: hashOpaque(sessionId), userId: identity.userId,
       nickname: identity.nickname, scope: tokens.scope,
@@ -175,9 +214,19 @@ router.get('/callback', async (req, res) => {
       accessExpiresAt: new Date(Date.now() + tokens.expiresIn * 1000),
     })
     returnToGarimpo(req, res, true)
-  } catch {
-    // Não registrar code, verifier, tokens ou resposta do provedor em logs.
-    returnToGarimpo(req, res, false)
+  } catch (error) {
+    const mensagens = {
+      invalid_grant: 'Código de autorização recusado ou expirado.',
+      unauthorized: 'Acesso à API do Mercado Livre não autorizado.',
+      unavailable: 'Serviço do Mercado Livre indisponível ou resposta inválida.',
+      not_found: 'Recurso do Mercado Livre não encontrado.',
+    }
+    const mensagem = error instanceof MercadoLivreApiError ? mensagens[error.kind]
+      : etapa === 'descriptografar code_verifier' ? 'Falha ao descriptografar o verificador OAuth.'
+        : etapa === 'salvar conexão OAuth' ? 'Falha ao salvar a conexão OAuth.'
+          : etapa === 'consultar identidade/usuário' ? 'Falha ao validar a identidade OAuth.'
+            : 'Falha na etapa indicada; detalhes suprimidos.'
+    falhaCallback(req, res, etapa, mensagem, error)
   }
 })
 
