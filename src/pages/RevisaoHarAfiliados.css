@@ -7,6 +7,20 @@
 .har-cards > div { display: grid; gap: 6px; padding: 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .har-cards strong { font-size: 22px; color: var(--yellow-primary); }
 .har-cards span { font-size: 13px; }
+.har-listas-detectadas { margin: 16px 0 22px; padding: 18px; border: 2px solid var(--yellow-border); border-radius: var(--radius-sm); background: var(--yellow-soft); }
+.har-listas-detectadas h4 { margin: 0 0 14px; font-size: 17px; letter-spacing: .04em; }
+.har-listas-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); gap: 12px; }
+.har-lista { min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-card); }
+.har-lista h5 { margin: 0; color: var(--text-primary); font-size: 17px; overflow-wrap: anywhere; }
+.har-lista-id { margin: 5px 0 14px; color: var(--text-muted); font-size: 11px; overflow-wrap: anywhere; }
+.har-lista dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 0; }
+.har-lista dt { color: var(--text-muted); font-size: 12px; }
+.har-lista dd { margin: 4px 0 0; color: var(--text-primary); font-size: 20px; font-weight: 750; overflow-wrap: anywhere; }
+.har-lista dd.har-lista-status { display: inline-block; padding: 6px 9px; border-radius: var(--radius-sm); font-size: 12px; letter-spacing: .02em; }
+.har-lista dd.har-lista-status--completa { background: var(--success-soft); color: var(--success); }
+.har-lista dd.har-lista-status--incompleta { background: var(--yellow-soft); color: var(--yellow-primary); }
+.har-lista dd.har-lista-status--total_desconhecido { background: var(--bg-elevated); }
+.har-lista-aviso { margin: 14px 0 0; font-size: 12px; color: var(--text-muted); }
 .har-tabela { overflow: auto; max-height: 650px; margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .har-tabela table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
 .har-tabela th, .har-tabela td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; min-width: 110px; overflow-wrap: anywhere; }

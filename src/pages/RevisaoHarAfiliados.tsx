@@ -1,6 +1,6 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ProdutoCatalogo } from '../lib/manutencaoVitrine'
-import { analisarHar, combinarHars } from '../lib/harAfiliadosParser'
+import { analisarDocumentoLista, analisarHar, combinarHars } from '../lib/harAfiliadosParser'
 import type { ResultadoParsingHar } from '../lib/harAfiliadosParser'
 import { compararHarCatalogo, filtrarComparacaoHar, filtrosHar } from '../lib/compararHarCatalogo'
 import type { FiltroHar } from '../lib/compararHarCatalogo'
@@ -33,6 +33,7 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
   const inputCsv = useRef<HTMLInputElement>(null)
   const catalogoEscolhido = fonte === 'csv' ? csv?.dados.produtos ?? null : !erroCatalogo && !carregandoCatalogo ? catalogo : null
   const comparacao = resultado && catalogoEscolhido ? compararHarCatalogo(resultado, catalogoEscolhido) : null
+  const idsEncontrados = new Set(comparacao?.encontrados.map((p) => p.har.itemId) ?? [])
   const filtrados = comparacao ? filtrarComparacaoHar(comparacao.encontrados, filtro) : []
   const contexto = useMemo(() => ({ resultado, catalogo, csv, fonte, arquivos, erroCatalogo, carregandoCatalogo, analisando, lendoCsv }),
     [resultado, catalogo, csv, fonte, arquivos, erroCatalogo, carregandoCatalogo, analisando, lendoCsv])
@@ -88,11 +89,17 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
       }
       const parciais: ResultadoParsingHar[] = []
       for (const arquivo of arquivos) {
-        if (!/\.(har|json)$/i.test(arquivo.name)) throw new Error('Selecione somente arquivos .har ou .json contendo HAR.')
+        if (!/\.(har|json|html|htm|html\.txt|htm\.txt)$/i.test(arquivo.name)) throw new Error('Selecione arquivos .har, .json, .html ou .html.txt.')
         let conteudo: string
         try { conteudo = await arquivo.text() } catch { throw new Error('Não foi possível ler um dos arquivos locais.') }
         if (atual !== geracao.current) return
-        parciais.push(analisarHar(conteudo, arquivo.name))
+        if (/\.(html|htm)(\.txt)?$/i.test(arquivo.name) || !conteudo.trimStart().startsWith('{')) {
+          parciais.push(analisarDocumentoLista(conteudo, arquivo.name))
+        } else {
+          let har = false
+          try { har = Boolean((JSON.parse(conteudo) as { log?: unknown }).log) } catch { /* parser HAR informa erro */ }
+          parciais.push(har ? analisarHar(conteudo, arquivo.name) : analisarDocumentoLista(conteudo, arquivo.name))
+        }
       }
       if (atual !== geracao.current) return
       setResultado(combinarHars([...(resultado ? [resultado] : []), ...parciais]))
@@ -111,7 +118,8 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
   }
 
   const cards: [string, number][] = resultado ? [
-    ['Arquivos HAR importados', resultado.arquivos.length], ['Chamadas search válidas (HTTP 200)', resultado.chamadasSearch],
+    ['Arquivos importados', resultado.arquivos.length], ['Chamadas search válidas (HTTP 200)', resultado.chamadasSearch],
+    ['Documentos de listas detectados', resultado.documentosLista], ['Listas detectadas', resultado.listas.length],
     ['Ocorrências de produtos', resultado.ocorrencias], ['ITEM_IDs únicos', resultado.produtos.length],
     ['Produtos válidos com preço BRL, sem conflito', resultado.produtos.filter((p) => p.valido).length],
     ['Duplicados removidos', resultado.duplicados], ['Conflitos entre capturas', resultado.produtos.filter((p) => p.conflito).length],
@@ -151,8 +159,8 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
       <div><strong>{csv.dados.idsDuplicados}</strong><span>ITEM_IDs duplicados: revisar</span></div>
       <div><strong>{csv.dados.ofertasIncompletas}</strong><span>Flag de oferta ausente/inválida: protegidos para revisão</span></div>
     </div>}
-    <label htmlFor="har-arquivos">Selecionar arquivos HAR (ou JSON contendo HAR)</label>
-    <input ref={input} id="har-arquivos" type="file" accept=".har,.json" multiple disabled={analisando}
+    <label htmlFor="har-arquivos">Selecionar HARs ou documentos de listas de afiliados</label>
+    <input ref={input} id="har-arquivos" type="file" accept=".har,.json,.html,.htm,.html.txt,.htm.txt" multiple disabled={analisando}
       onChange={(e) => { previaAutorizada.current = null; setArquivos(Array.from(e.target.files ?? [])); setErro('') }} />
     <p>Até 50 MB por arquivo e 100 MB por lote. Novas análises são combinadas nesta sessão; limpar ou sair da página descarta os dados.</p>
     {arquivos.length > 0 && <ul aria-label="Arquivos selecionados">{arquivos.map((f, i) => <li key={i}>{f.name}</li>)}</ul>}
@@ -163,11 +171,25 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
     {erro && <p role="alert">{erro} O lote não foi incorporado; a análise anterior, se houver, foi preservada.</p>}
     {resultado && <>
       <p role="status">Análise local concluída. Nenhuma alteração foi enviada.</p>
+      {resultado.listas.length > 0 && <section className="har-listas-detectadas" aria-label="Resumo das listas de afiliados">
+        <h4>LISTAS DETECTADAS</h4>
+        <div className="har-listas-grade">{resultado.listas.map((lista) => <article className="har-lista" key={lista.id}>
+          <h5>{lista.nome}</h5>
+          <p className="har-lista-id">ID da lista: {lista.id}</p>
+          <dl>
+            <div><dt>Esperados</dt><dd>{lista.totalEsperado ?? 'Não informado'}</dd></div>
+            <div><dt>Extraídos</dt><dd>{lista.extraidos}</dd></div>
+            <div><dt>Encontrados no Valiô</dt><dd>{comparacao ? lista.itemIds.filter((id) => idsEncontrados.has(id)).length : 'Aguardando catálogo'}</dd></div>
+            <div><dt>Status</dt><dd className={`har-lista-status har-lista-status--${lista.status.toLowerCase()}`}>{lista.status}</dd></div>
+          </dl>
+          {lista.status !== 'COMPLETA' && <p className="har-lista-aviso">A captura não comprova a cobertura total da lista.</p>}
+        </article>)}</div>
+      </section>}
       <details><summary>Arquivos importados ({resultado.arquivos.length})</summary>
         <ul>{resultado.arquivos.map((nome, i) => <li key={i}>{nome}</li>)}</ul>
       </details>
       <div className="har-cards">{cards.map(([label, n]) => <div key={label}><strong>{n}</strong><span>{label}</span></div>)}</div>
-      {resultado.chamadasSearch === 0 && <p role="alert">Nenhuma resposta HTTP 200 de busca de afiliados foi identificada neste lote.</p>}
+      {resultado.chamadasSearch === 0 && resultado.documentosLista === 0 && <p role="alert">Nenhuma resposta HTTP 200 de busca de afiliados ou documento de lista foi identificado neste lote.</p>}
     </>}
     {fonte === 'api' && erroCatalogo && <p role="alert">Catálogo indisponível: {erroCatalogo} A comparação está bloqueada. Verifique a autorização e a configuração do Supabase; HTTP 401 indica autenticação recusada. Nenhuma escrita é realizada por esta seção.</p>}
     {!comparacao && <p>{fonte === 'csv' ? 'Carregue um CSV e analise os HARs para visualizar o cruzamento local.'
@@ -200,7 +222,8 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
             <td>{reais(linha.diferenca)}</td><td>{linha.diferencaPercentual === null ? '—' : `${linha.diferencaPercentual.toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`}</td>
             <td>{linha.har.classificacao.replace('_', '/')}</td>
             <td>{[...new Set(linha.har.capturas.map((p) => p.discountLabel ?? '—'))].join(' / ')}</td>
-            <td>{[...new Set(linha.har.capturas.map((p) => p.arquivoOrigem))].join(', ')}
+            <td>{[...new Set(linha.har.capturas.map((p) => p.listaId
+              ? `${p.arquivoOrigem} · ${p.listaNome} (${p.listaId})` : p.arquivoOrigem))].join(', ')}
               {linha.har.conflito && <ul>{linha.har.capturas.map((p, indice) => <li key={indice}>{p.arquivoOrigem}: {reais(p.precoAtual)} ({p.moeda ?? 'sem moeda'})</li>)}</ul>}</td>
             <td><strong>{linha.status}</strong>{linha.har.conflito && <p>CONFLITO ENTRE CAPTURAS</p>}
               {linha.ofertaProtegida && <p className="har-protegida">OFERTA_PROTEGIDA</p>}</td>

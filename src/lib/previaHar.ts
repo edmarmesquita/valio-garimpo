@@ -11,7 +11,8 @@ export function motivosBloqueioHar(linha: ComparacaoHar): string[] {
   if (linha.har.classificacao === 'PIX') motivos.push('PIX')
   if (linha.har.classificacao === 'CUPOM') motivos.push('CUPOM')
   if (linha.har.classificacao === 'OUTRO_REVISAR') {
-    const combinada = linha.har.capturas.some((p) => /pix/i.test(p.discountLabel ?? '') && /cupom/i.test(p.discountLabel ?? ''))
+    const combinada = linha.har.capturas.some((p) => /pix/i.test([p.discountLabel, ...p.evidenciasCondicao].join(' '))
+      && /cupom/i.test([p.discountLabel, ...p.evidenciasCondicao].join(' ')))
     motivos.push(combinada ? 'CONDIÇÃO COMBINADA (PIX + CUPOM)' : 'OUTRO/REVISAR')
   }
   if (linha.diferenca === 0) motivos.push('PREÇO IGUAL')
@@ -46,7 +47,8 @@ export function gerarPreviaHar(linhas: ComparacaoHar[], selecionados: readonly s
     return Object.freeze({ itemId: id, titulo: p.produto.titulo, precoBase: p.produto.preco, novoPreco: p.har.precoAtual!,
       diferenca: p.diferenca!, diferencaPercentual: p.diferencaPercentual!, classificacao: p.har.classificacao as 'NORMAL' | 'DESCONTO',
       discountLabels: Object.freeze([...new Set(p.har.capturas.map((c) => c.discountLabel ?? '—'))]),
-      arquivosOrigem: Object.freeze([...new Set(p.har.capturas.map((c) => c.arquivoOrigem))]) })
+      arquivosOrigem: Object.freeze([...new Set(p.har.capturas.map((c) => c.listaId
+        ? `${c.arquivoOrigem} · ${c.listaNome} (${c.listaId})` : c.arquivoOrigem))]) })
   })
   const aumentos = itens.filter((p) => p.diferenca > 0)
   const reducoes = itens.filter((p) => p.diferenca < 0)
