@@ -7,7 +7,13 @@ after(() => vite.close())
 const s = await vite.ssrLoadModule('/server/precosHar.ts')
 const { criarPrecosHarGateway } = await vite.ssrLoadModule('/server/services/precosHar.ts')
 const { criarRotaValioProdutos } = await vite.ssrLoadModule('/server/valioProdutos.ts')
+const { confirmarPrecosHar, selecaoAtualHar } = await vite.ssrLoadModule('/src/lib/atualizarPrecosHar.ts')
+const { gerarPreviaHar } = await vite.ssrLoadModule('/src/lib/previaHar.ts')
+const { analisarHar } = await vite.ssrLoadModule('/src/lib/harAfiliadosParser.ts')
+const { compararHarCatalogo } = await vite.ssrLoadModule('/src/lib/compararHarCatalogo.ts')
+const { arquivoHar, entradaHar, cardHar, catalogoHar } = await import('./fixtures/harAfiliados.mjs')
 const agora = Date.parse('2026-10-21T15:00:00Z')
+const versao = '00000000-0000-4000-8000-000000000001'
 const pedido = (outros = {}) => ({ itemId: 'MLB123', precoBase: 100, novoPreco: 110, classificacao: 'NORMAL',
   evidencia: { moeda: 'BRL', labels: [''], precoAnterior: null, conflito: false }, ...outros })
 const row = (outros = {}) => ({ mercado_livre_id: 'MLB123', titulo: 'Produto sintético', preco: 100, ativo: true,
@@ -94,9 +100,10 @@ test('endpoints autenticados: revalidar nunca grava, assinatura vincula valores,
   try {
     assert.equal((await request('revalidar', { fonte: 'api', itens: [pedido()] }, 'invalido')).status, 401)
     assert.equal((await request('revalidar', { fonte: 'csv', itens: [pedido()] })).status, 400)
-    const r = await request('revalidar', { fonte: 'api', itens: [pedido()] })
+    const r = await request('revalidar', { fonte: 'api', versao, itens: [pedido()] })
     assert.equal(r.body.previa.resultados[0].status, 'PRONTO'); assert.equal(escritas, 0)
-    const assinado = { previa: r.body.previa, assinatura: r.body.assinatura }
+    const assinado = { previa: r.body.previa, assinatura: r.body.assinatura,
+      selecaoAtual: { versao, itens: [{ itemId: 'MLB123', precoBase: 100, novoPreco: 110, classificacao: 'NORMAL' }] } }
     const adulterado = structuredClone(assinado); adulterado.previa.itens[0].novoPreco = 120
     assert.equal((await request('confirmar', adulterado)).status, 409)
     atual.oferta_relampago = true
@@ -106,4 +113,51 @@ test('endpoints autenticados: revalidar nunca grava, assinatura vincula valores,
     assert.equal((await request('confirmar', assinado)).body.resultados[0].status, 'BLOQUEADO_PRECO_ALTERADO'); assert.equal(escritas, 1)
     assert.equal(s.assinaturaHarValida(assinado.previa, assinado.assinatura, 'segredo-sintetico', agora + 300001), false)
   } finally { await new Promise((r) => server.close(r)) }
+})
+
+test('66 → 5: assinatura antiga, seleção vazia, nova versão e itens divergentes bloqueiam antes de qualquer escrita mock', async () => {
+  const token = 'token-mock-selecao-12345678901234567890'
+  const escritos = []
+  const itens = Array.from({ length: 66 }, (_, n) => pedido({ itemId: `MLB${n + 1}`, novoPreco: n < 62 ? 110 : 140 }))
+  const g = { async buscar(id) { return [row({ mercado_livre_id: id })] }, async atualizar(p) { escritos.push(p.mercado_livre_id); return 1 } }
+  const app = express(); app.use(express.json())
+  app.use('/api/valio', criarRotaValioProdutos({ config: () => ({ url: 'https://mock.example', serviceRoleKey: 'segredo-mock' }), token: () => token, precosHar: () => g }))
+  const server = app.listen(0, '127.0.0.1'); await new Promise((r) => server.once('listening', r))
+  const request = async (acao, body) => {
+    const r = await fetch(`http://127.0.0.1:${server.address().port}/api/valio/produtos/precos-har/${acao}`, { method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    return { status: r.status, body: await r.json() }
+  }
+  const vinculo = (v, lista) => ({ versao: v, itens: lista.map(({ itemId, precoBase, novoPreco, classificacao }) => ({ itemId, precoBase, novoPreco, classificacao })) })
+  try {
+    const a = (await request('revalidar', { fonte: 'api', versao, itens })).body
+    assert.equal(a.previa.resultados.filter((p) => p.status === 'PRONTO').length, 62)
+    const assinaturaAntiga = { previa: a.previa, assinatura: a.assinatura }
+    const versaoNova = '00000000-0000-4000-8000-000000000002'
+    const cinco = itens.slice(0, 5)
+    for (const selecaoAtual of [vinculo(versao, cinco), vinculo(versao, []), vinculo(versaoNova, itens),
+      vinculo(versao, [...itens.slice(0, 65), itens[0]]), vinculo(versao, itens.map((p, n) => n === 0 ? { ...p, novoPreco: 115 } : p))]) {
+      assert.equal((await request('confirmar', { ...assinaturaAntiga, selecaoAtual })).status, 409)
+      assert.equal(escritos.length, 0)
+    }
+    assert.equal((await request('confirmar', assinaturaAntiga)).status, 409)
+    const b = (await request('revalidar', { fonte: 'api', versao: versaoNova, itens: cinco })).body
+    assert.equal((await request('confirmar', { ...assinaturaAntiga, selecaoAtual: vinculo(versaoNova, cinco) })).status, 409)
+    assert.equal(escritos.length, 0)
+    const final = await request('confirmar', { previa: b.previa, assinatura: b.assinatura, selecaoAtual: vinculo(versaoNova, cinco) })
+    assert.equal(final.body.resultados.filter((p) => p.status === 'ATUALIZADO').length, 5)
+    assert.deepEqual(escritos, cinco.map((p) => p.itemId))
+  } finally { await new Promise((r) => server.close(r)) }
+})
+
+test('cliente bloqueia assinatura antiga antes do fetch ao gerar nova prévia, mesmo com os mesmos IDs', async () => {
+  const linhas = compararHarCatalogo(analisarHar(arquivoHar(entradaHar([cardHar()])), 'a.har'), [catalogoHar()]).encontrados
+  const antiga = gerarPreviaHar(linhas, ['MLB123'], 'api')
+  const nova = gerarPreviaHar(linhas, ['MLB123'], 'api')
+  let envios = 0
+  const enviar = async () => { envios++; throw new Error('não deve enviar') }
+  const revalidacao = { previa: { finalidade: 'precos-har-v1', fonte: 'api', emitidaEm: agora, versao: antiga.versao,
+    itens: selecaoAtualHar(antiga).itens, resultados: [] }, assinatura: 'assinatura-antiga-mock' }
+  await assert.rejects(() => confirmarPrecosHar(revalidacao, nova, linhas, 'token-mock', enviar), /Revalidação antiga/)
+  assert.equal(envios, 0)
 })

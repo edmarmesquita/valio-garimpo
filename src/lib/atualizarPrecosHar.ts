@@ -2,10 +2,11 @@ import type { ComparacaoHar } from './compararHarCatalogo'
 import { candidatoSeguroHar } from './previaHar'
 import type { PreviaFinalHar } from './previaHar'
 import type { PedidoPrecoHar, RevalidacaoAssinadaHar, ResultadoPrecoHar } from './atualizacaoHarTipos'
+import { selecaoCorrespondeHar } from './vinculoPreviaHar'
 
-export function pedidoRevalidacaoHar(previa: PreviaFinalHar, linhas: ComparacaoHar[]): { fonte: 'api'; itens: PedidoPrecoHar[] } {
+export function pedidoRevalidacaoHar(previa: PreviaFinalHar, linhas: ComparacaoHar[]): { fonte: 'api'; versao: string; itens: PedidoPrecoHar[] } {
   if (previa.fonte !== 'api') throw new Error('Atualização indisponível com catálogo CSV. Carregue o catálogo pela API para revalidar e gravar.')
-  return { fonte: 'api', itens: previa.itens.map((i) => {
+  return { fonte: 'api', versao: previa.versao, itens: previa.itens.map((i) => {
     const encontrados = linhas.filter((l) => l.har.itemId === i.itemId)
     const l = encontrados[0]
     if (encontrados.length !== 1 || !candidatoSeguroHar(l) || l.produto.preco !== i.precoBase || l.har.precoAtual !== i.novoPreco
@@ -29,10 +30,17 @@ async function requisitar(acao: 'revalidar' | 'confirmar', body: unknown, token:
 export async function revalidarPrecosHar(previa: PreviaFinalHar, linhas: ComparacaoHar[], token: string, enviar: typeof fetch = fetch): Promise<RevalidacaoAssinadaHar> {
   const dados = await requisitar('revalidar', pedidoRevalidacaoHar(previa, linhas), token, enviar)
   if (!dados.previa || !Array.isArray(dados.previa.resultados) || typeof dados.assinatura !== 'string') throw new Error('Revalidação inválida retornada pela API.')
+  if (!selecaoCorrespondeHar(dados.previa, selecaoAtualHar(previa))) throw new Error('Revalidação não corresponde à prévia atual.')
   return { previa: dados.previa, assinatura: dados.assinatura }
 }
-export async function confirmarPrecosHar(revalidacao: RevalidacaoAssinadaHar, token: string, enviar: typeof fetch = fetch): Promise<ResultadoPrecoHar[]> {
-  const dados = await requisitar('confirmar', revalidacao, token, enviar)
+export function selecaoAtualHar(previa: PreviaFinalHar) {
+  return { versao: previa.versao, itens: previa.itens.map(({ itemId, precoBase, novoPreco, classificacao }) => ({ itemId, precoBase, novoPreco, classificacao })) }
+}
+export async function confirmarPrecosHar(revalidacao: RevalidacaoAssinadaHar, previaAtual: PreviaFinalHar, linhas: ComparacaoHar[], token: string, enviar: typeof fetch = fetch): Promise<ResultadoPrecoHar[]> {
+  pedidoRevalidacaoHar(previaAtual, linhas)
+  const selecaoAtual = selecaoAtualHar(previaAtual)
+  if (!selecaoCorrespondeHar(revalidacao.previa, selecaoAtual)) throw new Error('Revalidação antiga ou seleção alterada. Gere e revalide uma nova prévia.')
+  const dados = await requisitar('confirmar', { ...revalidacao, selecaoAtual }, token, enviar)
   if (!Array.isArray(dados.resultados)) throw new Error('Resultado inválido. Recarregue o catálogo antes de continuar.')
   return dados.resultados
 }

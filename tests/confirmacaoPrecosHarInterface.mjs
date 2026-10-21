@@ -19,10 +19,10 @@ test('confirmação exige revalidação; seleção, HAR, catálogo, CSV e fonte 
     globalThis.fetch = async (url, op) => {
       const body = JSON.parse(op.body); envios.push({ url, body })
       if (url.endsWith('/revalidar')) {
-        assert.deepEqual(Object.keys(body).sort(), ['fonte', 'itens'])
+        assert.deepEqual(Object.keys(body).sort(), ['fonte', 'itens', 'versao'])
         assert.deepEqual(Object.keys(body.itens[0]).sort(), ['classificacao', 'evidencia', 'itemId', 'novoPreco', 'precoBase'])
         assert.doesNotMatch(JSON.stringify(body), /arquivoOrigem|headers|cookies|polycard|Authorization|userProductId|urlParams|RAW-SENTINELA/)
-        const resposta = { ok: true, previa: { finalidade: 'precos-har-v1', fonte: 'api', emitidaEm: Date.now(), itens: body.itens,
+        const resposta = { ok: true, previa: { finalidade: 'precos-har-v1', versao: body.versao, fonte: 'api', emitidaEm: Date.now(), itens: body.itens,
           resultados: body.itens.map((i) => ({ ...i, titulo: 'Produto sintético', status: 'PRONTO', motivo: 'Revalidado' })) }, assinatura: 'assinatura-mock' }
         if (adiar) await new Promise((r) => { resolver = r })
         return { ok: true, json: async () => resposta }

@@ -31,6 +31,7 @@ export type ItemPreviaHar = Readonly<{
   classificacao: 'NORMAL' | 'DESCONTO'; discountLabels: readonly string[]; arquivosOrigem: readonly string[]
 }>
 export type PreviaFinalHar = Readonly<{
+  versao: string
   fonte: 'api' | 'csv'; itens: readonly ItemPreviaHar[]
   resumo: Readonly<{ selecionados: number; aumentos: number; reducoes: number; mediaPercentual: number
     maiorAumentoPercentual: number | null; maiorReducaoPercentual: number | null }>
@@ -49,7 +50,7 @@ export function gerarPreviaHar(linhas: ComparacaoHar[], selecionados: readonly s
   })
   const aumentos = itens.filter((p) => p.diferenca > 0)
   const reducoes = itens.filter((p) => p.diferenca < 0)
-  return Object.freeze({ fonte, itens: Object.freeze(itens), resumo: Object.freeze({ selecionados: itens.length,
+  return Object.freeze({ versao: crypto.randomUUID(), fonte, itens: Object.freeze(itens), resumo: Object.freeze({ selecionados: itens.length,
     aumentos: aumentos.length, reducoes: reducoes.length, mediaPercentual: itens.reduce((s, p) => s + p.diferencaPercentual, 0) / itens.length,
     maiorAumentoPercentual: aumentos.length ? Math.max(...aumentos.map((p) => p.diferencaPercentual)) : null,
     maiorReducaoPercentual: reducoes.length ? Math.min(...reducoes.map((p) => p.diferencaPercentual)) : null }) })

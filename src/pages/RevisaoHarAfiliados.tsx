@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ProdutoCatalogo } from '../lib/manutencaoVitrine'
 import { analisarHar, combinarHars } from '../lib/harAfiliadosParser'
 import type { ResultadoParsingHar } from '../lib/harAfiliadosParser'
@@ -36,20 +36,34 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
   const filtrados = comparacao ? filtrarComparacaoHar(comparacao.encontrados, filtro) : []
   const contexto = useMemo(() => ({ resultado, catalogo, csv, fonte, arquivos, erroCatalogo, carregandoCatalogo, analisando, lendoCsv }),
     [resultado, catalogo, csv, fonte, arquivos, erroCatalogo, carregandoCatalogo, analisando, lendoCsv])
+  const previaAutorizada = useRef<{ contexto: typeof contexto; previa: PreviaFinalHar } | null>(null)
+  useLayoutEffect(() => { if (previaAutorizada.current?.contexto !== contexto) previaAutorizada.current = null }, [contexto])
   const [selecao, setSelecao] = useState<{ contexto: typeof contexto; ids: string[]; previa: PreviaFinalHar | null }>({ contexto, ids: [], previa: null })
   // Ajuste condicionado ao contexto: voltar à fonte anterior não restaura uma seleção antiga.
   if (selecao.contexto !== contexto) setSelecao({ contexto, ids: [], previa: null })
   const selecionados = selecao.contexto === contexto ? selecao.ids : []
   const previa = selecao.contexto === contexto ? selecao.previa : null
   const candidatos = comparacao ? selecionarCandidatosHar(comparacao.encontrados) : []
-  function selecionar(ids: string[]) { setSelecao({ contexto, ids, previa: null }) }
+  function selecionar(ids: string[]) { previaAutorizada.current = null; setSelecao({ contexto, ids, previa: null }) }
+  function selecionarItem(itemId: string, marcado: boolean) {
+    previaAutorizada.current = null
+    setSelecao((atual) => {
+      const ids = atual.contexto === contexto ? atual.ids : []
+      return { contexto, ids: marcado ? [...new Set([...ids, itemId])] : ids.filter((id) => id !== itemId), previa: null }
+    })
+  }
   function gerarPrevia() {
     if (!comparacao || analisando || lendoCsv || arquivos.length) return
-    try { setSelecao({ contexto, ids: selecionados, previa: gerarPreviaHar(comparacao.encontrados, selecionados, fonte) }) }
+    try {
+      const nova = gerarPreviaHar(comparacao.encontrados, selecionados, fonte)
+      previaAutorizada.current = { contexto, previa: nova }
+      setSelecao({ contexto, ids: selecionados, previa: nova })
+    }
     catch { selecionar([]) }
   }
 
   async function carregarCsv(arquivo: File) {
+    previaAutorizada.current = null
     const atual = ++geracaoCsv.current
     setLendoCsv(true); setErroCsv(''); setFonte('csv'); setCsv(null)
     try {
@@ -65,6 +79,7 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
   }
 
   async function analisar() {
+    previaAutorizada.current = null
     const atual = ++geracao.current
     setAnalisando(true); setErro('')
     try {
@@ -88,6 +103,7 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
     } finally { if (atual === geracao.current) setAnalisando(false) }
   }
   function limpar() {
+    previaAutorizada.current = null
     geracao.current++; setArquivos([]); setResultado(null); setErro(''); setFiltro('Todos'); setAnalisando(false)
     if (input.current) input.current.value = ''
     geracaoCsv.current++; setCsv(null); setErroCsv(''); setLendoCsv(false); setFonte('api')
@@ -115,7 +131,7 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
     <p>Importe capturas manuais para comparar preços por ITEM_ID. A importação não grava dados; atualizar exige revalidação pela API e confirmação explícita.</p>
     <p className="har-privacidade">O arquivo HAR é processado localmente para extrair apenas dados de produtos. Cookies, tokens e headers não são armazenados nem exibidos.</p>
     <label htmlFor="har-fonte-catalogo">Fonte do catálogo</label>
-    <select id="har-fonte-catalogo" value={fonte} onChange={(e) => { setFonte(e.target.value as 'api' | 'csv'); setFiltro('Todos') }}>
+    <select id="har-fonte-catalogo" value={fonte} onChange={(e) => { previaAutorizada.current = null; setFonte(e.target.value as 'api' | 'csv'); setFiltro('Todos') }}>
       <option value="api">API da vitrine</option><option value="csv">CSV local</option>
     </select>
     <p><strong>Fonte do catálogo: {fonte === 'csv' ? 'CSV local' : 'API da vitrine'}</strong></p>
@@ -137,7 +153,7 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
     </div>}
     <label htmlFor="har-arquivos">Selecionar arquivos HAR (ou JSON contendo HAR)</label>
     <input ref={input} id="har-arquivos" type="file" accept=".har,.json" multiple disabled={analisando}
-      onChange={(e) => { setArquivos(Array.from(e.target.files ?? [])); setErro('') }} />
+      onChange={(e) => { previaAutorizada.current = null; setArquivos(Array.from(e.target.files ?? [])); setErro('') }} />
     <p>Até 50 MB por arquivo e 100 MB por lote. Novas análises são combinadas nesta sessão; limpar ou sair da página descarta os dados.</p>
     {arquivos.length > 0 && <ul aria-label="Arquivos selecionados">{arquivos.map((f, i) => <li key={i}>{f.name}</li>)}</ul>}
     <div className="har-acoes">
@@ -176,7 +192,7 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
           <tbody>{filtrados.map((linha, i) => <tr key={`${linha.har.itemId}-${i}`}>
             <td>{candidatoSeguroHar(linha) ? <input type="checkbox" aria-label={`Selecionar ${linha.har.itemId}`}
               disabled={analisando || lendoCsv || arquivos.length > 0} checked={selecionados.includes(linha.har.itemId)}
-              onChange={(e) => selecionar(e.target.checked ? [...selecionados, linha.har.itemId] : selecionados.filter((id) => id !== linha.har.itemId))} />
+              onChange={(e) => selecionarItem(linha.har.itemId, e.target.checked)} />
               : <span>{motivosBloqueioHar(linha).join(' · ')}</span>}</td>
             <td>{linha.har.itemId}</td><td>{linha.produto.titulo}</td>
             <td>{reais(Number.isFinite(linha.produto.preco) && linha.produto.preco > 0 ? linha.produto.preco : null)}</td>
@@ -215,7 +231,8 @@ export default function RevisaoHarAfiliados({ catalogo, erroCatalogo, carregando
           </tr>)}</tbody>
         </table>
       </div>
-      {comparacao && <ConfirmacaoPrecosHar previa={previa} linhas={comparacao.encontrados} token={token} />}
+      {comparacao && <ConfirmacaoPrecosHar previa={previa} linhas={comparacao.encontrados} token={token}
+        validarPreviaAtual={(p) => previaAutorizada.current?.previa === p && previaAutorizada.current.contexto === contexto} />}
     </section>}
   </section>
 }

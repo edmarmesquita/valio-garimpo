@@ -13,7 +13,8 @@ const dinheiro = (v: unknown): v is number => typeof v === 'number' && Number.is
   && Number.isSafeInteger(Math.round(v * 100)) && Math.abs(v * 100 - Math.round(v * 100)) < 0.00001
 export function validarPedidoHar(valor: unknown): PedidoPrecoHar[] {
   const p = obj(valor)
-  if (!p || !exatas(p, ['fonte', 'itens']) || p.fonte !== 'api' || !Array.isArray(p.itens) || !p.itens.length || p.itens.length > 100) throw new Error('Pedido HAR inválido; use catálogo API e de 1 a 100 itens.')
+  if (!p || !exatas(p, ['fonte', 'versao', 'itens']) || typeof p.versao !== 'string'
+    || !/^[a-f0-9-]{36}$/i.test(p.versao) || p.fonte !== 'api' || !Array.isArray(p.itens) || !p.itens.length || p.itens.length > 100) throw new Error('Pedido HAR inválido; use catálogo API e de 1 a 100 itens.')
   const ids = new Set<string>()
   return p.itens.map((v) => {
     const i = obj(v); const e = obj(i?.evidencia)
@@ -91,7 +92,7 @@ export function assinarPreviaHar(p: RevalidacaoHar, segredo: string): string {
 }
 export function assinaturaHarValida(p: unknown, assinatura: unknown, segredo: string, agora: number): p is RevalidacaoHar {
   const o = obj(p)
-  if (!o || o.finalidade !== 'precos-har-v1' || o.fonte !== 'api' || typeof o.emitidaEm !== 'number'
+  if (!o || o.finalidade !== 'precos-har-v1' || typeof o.versao !== 'string' || !/^[a-f0-9-]{36}$/i.test(o.versao) || o.fonte !== 'api' || typeof o.emitidaEm !== 'number'
     || o.emitidaEm > agora || agora - o.emitidaEm > 5 * 60_000 || typeof assinatura !== 'string' || !/^[a-f0-9]{64}$/.test(assinatura)) return false
   const esperado = assinarPreviaHar(p as RevalidacaoHar, segredo)
   return timingSafeEqual(Buffer.from(esperado, 'hex'), Buffer.from(assinatura, 'hex'))
