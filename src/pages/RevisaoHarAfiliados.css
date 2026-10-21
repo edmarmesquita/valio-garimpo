@@ -1,0 +1,20 @@
+.garimpo-shell .har-revisao { margin-top: 24px; border-top: 2px solid var(--yellow-border); }
+.har-revisao > p { line-height: 1.6; }
+.har-revisao > label { display: block; margin: 16px 0 8px; font-weight: 650; }
+.har-privacidade { padding: 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.har-acoes { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
+.har-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(155px, 1fr)); gap: 10px; margin: 20px 0; }
+.har-cards > div { display: grid; gap: 6px; padding: 14px; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.har-cards strong { font-size: 22px; color: var(--yellow-primary); }
+.har-cards span { font-size: 13px; }
+.har-tabela { overflow: auto; max-height: 650px; margin-top: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.har-tabela table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: left; }
+.har-tabela th, .har-tabela td { padding: 12px; border-bottom: 1px solid var(--border); vertical-align: top; min-width: 110px; overflow-wrap: anywhere; }
+.har-tabela th { position: sticky; top: 0; background: var(--bg-card); z-index: 1; }
+.har-tabela td:nth-child(2), .har-tabela td:nth-child(9) { min-width: 220px; }
+.har-tabela p { margin: 8px 0 0; }
+.har-protegida { font-weight: 750; color: var(--yellow-primary); }
+.har-revisao > ul, .har-revisao details { overflow-wrap: anywhere; }
+.har-tabela input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--yellow-primary); }
+.har-previa-final { margin-top: 28px; padding-top: 20px; border-top: 2px solid var(--yellow-border); }
+.har-previa-final h4 { font-size: 19px; margin: 0 0 12px; }

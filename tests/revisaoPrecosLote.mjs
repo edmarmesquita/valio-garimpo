@@ -59,6 +59,7 @@ test('diagnóstico 403 só em Preview, sanitiza corpo e informa refresh sem expo
     assert.equal(consulta.situacao, 'REVISAR')
     assert.deepEqual(consulta.diagnostico, {
       itemId: 'MLB1', statusHttp: 403, error: 'FORBIDDEN',
+      chavesJson: ['error', 'message'],
       mensagemSanitizada: 'Caller ID does not have rights to access this endpoint',
       contentType: 'application/json', jsonValido: true, tokenEnviado: true,
       refreshExecutado: false, refreshBemSucedido: null,
@@ -69,6 +70,17 @@ test('diagnóstico 403 só em Preview, sanitiza corpo e informa refresh sem expo
         error_description: 'Caller ID must match item owner' }))
     assert.equal(bloqueado.diagnostico.mensagemSanitizada, 'Caller ID must match item owner')
     assert.equal(JSON.stringify(bloqueado).includes('segredo'), false)
+    const real = await consultarPrecoAtual('MLB5348431355', 'access-simulado', async () =>
+      resposta({ status: 403, code: 'access_denied', error: 'Access to the requested resource is forbidden' }))
+    assert.equal(real.diagnostico.error, 'Access to the requested resource is forbidden')
+    assert.equal(real.diagnostico.code, 'access_denied')
+    assert.deepEqual(real.diagnostico.chavesJson, ['status', 'code', 'error'])
+    const segredo = await consultarPrecoAtual('MLB4', 'access-simulado', async () =>
+      resposta({ error: 'access-simulado', code: 'eyJabc_def_ghi_12345', access_token: 'nunca-retornar' }))
+    assert.equal(segredo.diagnostico.error, 'Erro do Mercado Livre omitido por segurança.')
+    assert.equal(segredo.diagnostico.chavesJson.includes('access_token'), false)
+    assert.equal(JSON.stringify(segredo).includes('access-simulado'), false)
+    assert.equal(JSON.stringify(segredo).includes('nunca-retornar'), false)
     const invalido = await consultarPrecoAtual('MLB3', 'access-simulado', async () => ({
       ...resposta(null, 'text/html'), json: async () => { throw new SyntaxError('invalid JSON') },
     }))

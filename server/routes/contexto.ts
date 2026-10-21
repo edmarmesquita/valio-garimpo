@@ -4,8 +4,10 @@ import { diagnosticarSupabaseEnv, getSupabaseConfig } from '../services/supabase
 import type { CatalogoGateway, ConsultaProdutosGateway, LinkAfiliadoGateway, ProdutosGateway, SupabaseConfig } from '../services/supabase.js'
 import type { CliquesGateway } from '../services/cliques.js'
 import type { OfertaGateway } from '../ofertasRelampagoLote.js'
+import type { PrecosHarGateway } from '../precosHar.js'
 
 export type Dependencias = {
+  precosHar?: (config: SupabaseConfig) => PrecosHarGateway
   config?: () => SupabaseConfig | null
   gateway?: (config: SupabaseConfig) => ProdutosGateway
   consulta?: (config: SupabaseConfig) => ConsultaProdutosGateway

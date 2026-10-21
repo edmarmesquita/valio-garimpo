@@ -8,6 +8,8 @@ export type PrecoConsultado = {
     itemId: string
     statusHttp: number
     error?: string
+    code?: string
+    chavesJson: string[]
     mensagemSanitizada?: string
     contentType: string | null
     jsonValido: boolean
@@ -19,10 +21,15 @@ export type PrecoConsultado = {
 
 const diagnosticoHabilitado = () => process.env.VERCEL_ENV === 'preview' || process.env.VERCEL_ENV === 'development'
 
-function erroSeguro(valor: unknown): string | undefined {
+function erroSeguro(valor: unknown, accessToken: string): string | undefined {
   if (typeof valor !== 'string') return undefined
-  const conhecidos = ['forbidden', 'FORBIDDEN', 'unauthorized', 'access_denied', 'not_found', 'not.found', 'insufficient_scope', 'PA_BLOCKED']
-  return conhecidos.includes(valor) ? valor : 'Erro do Mercado Livre omitido por segurança.'
+  if ([accessToken, process.env.MELI_CLIENT_SECRET, process.env.MELI_TOKEN_ENCRYPTION_KEY,
+    process.env.DATABASE_URL].some((segredo) => segredo && valor.includes(segredo)))
+    return 'Erro do Mercado Livre omitido por segurança.'
+  if (valor === 'Access to the requested resource is forbidden') return valor
+  return (/^(?:[a-z][a-z0-9._-]{0,31}|[A-Z][A-Z0-9._-]{0,31})$/.test(valor)
+    && (!/[A-Za-z0-9]{16,}/.test(valor)) && (valor.length <= 15 || /[._-]/.test(valor)))
+    ? valor : 'Erro do Mercado Livre omitido por segurança.'
 }
 
 function mensagemSegura(valor: unknown): string | undefined {
@@ -68,12 +75,18 @@ export async function consultarPrecoAtual(itemId: string, accessToken: string,
         catch { /* o corpo não é JSON válido */ }
         const campos = corpo && typeof corpo === 'object' && !Array.isArray(corpo)
           ? corpo as Record<string, unknown> : {}
+        const chavesJson = Object.keys(campos).filter((chave) => /^[A-Za-z][A-Za-z0-9_]{0,39}$/.test(chave)
+          && !/(?:token|secret|cookie|auth|password|credential|database|key)/i.test(chave)).slice(0, 30)
         const mensagem = [campos.message, campos.error_description].map(mensagemSegura)
           .find((valor) => valor && valor !== 'Mensagem do Mercado Livre omitida por segurança.')
           ?? mensagemSegura(campos.message ?? campos.error_description)
+        const error = erroSeguro(campos.error, accessToken)
+        const code = erroSeguro(campos.code, accessToken)
         diagnostico = {
           itemId, statusHttp: resposta.status,
-          ...(erroSeguro(campos.error) ? { error: erroSeguro(campos.error) } : {}),
+          ...(error ? { error } : {}),
+          ...(code ? { code } : {}),
+          chavesJson,
           ...(mensagem ? { mensagemSanitizada: mensagem } : {}),
           contentType, jsonValido, tokenEnviado: Boolean(accessToken),
           refreshExecutado: false, refreshBemSucedido: null,

@@ -6,6 +6,7 @@ import type { ProdutoCatalogo } from '../lib/manutencaoVitrine'
 import type { EntradaPreco, ResultadoPreco } from '../lib/revisaoPrecosLote'
 import FilaRevisaoPrecos from './FilaRevisaoPrecos'
 import RevisaoAutomaticaPrecos from './RevisaoAutomaticaPrecos'
+import RevisaoHarAfiliados from './RevisaoHarAfiliados'
 import './PrecosPage.css'
 
 async function lerConexaoMercadoLivre(): Promise<{ connected?: boolean; requiresReconnect?: boolean }> {
@@ -61,7 +62,7 @@ export default function PrecosPage() {
   }, [retornoOAuth])
 
   async function carregar() {
-    setCarregando(true); setErro('')
+    setCarregando(true); setErro(''); setCatalogo(null)
     try { setCatalogo(await carregarCatalogo(token)) }
     catch (falha) { setErro(falha instanceof Error ? falha.message : 'Não foi possível carregar o catálogo.') }
     finally { setCarregando(false) }
@@ -102,5 +103,6 @@ export default function PrecosPage() {
         onSessaoExpirada={() => { setMercadoLivreStatus('desconectado'); setMensagemMercadoLivre('A sessão expirou. Conecte sua conta novamente.') }}
         onResultados={aplicarPrecos} />}
     </section>
+    <RevisaoHarAfiliados catalogo={catalogo} erroCatalogo={erro} carregandoCatalogo={carregando} token={token} />
   </AreaOperacional>
 }
