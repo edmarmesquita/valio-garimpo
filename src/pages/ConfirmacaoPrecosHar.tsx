@@ -43,7 +43,7 @@ export default function ConfirmacaoPrecosHar({ previa, linhas, token, validarPre
   if (previa.fonte !== 'api') return <p>Atualização indisponível com catálogo CSV. Carregue o catálogo pela API para revalidar e gravar.</p>
   return <section className="har-confirmacao" aria-label="Revalidação e atualização HAR">
     <h4>Rechecagem no banco</h4>
-    <p>Variações superiores a ±30% são bloqueadas, sem override. Revalidações expiram em cinco minutos.</p>
+    <p>Variações superiores a ±50% são bloqueadas, sem override. Revalidações expiram em cinco minutos.</p>
     <button type="button" disabled={!token.trim() || Boolean(atual?.ocupado || atual?.finalizado)} onClick={() => void revalidar()}>Revalidar e preparar atualização</button>
     {!token.trim() && <p>Informe o token operacional para consultar e revalidar na API.</p>}
     {atual?.ocupado && <p role="status">Processando os itens no backend…</p>}
