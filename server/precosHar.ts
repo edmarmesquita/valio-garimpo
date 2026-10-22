@@ -58,8 +58,8 @@ export function bloqueioPrecoHar(i: PedidoPrecoHar, atual: LinhaPrecoHar[], agor
   if (!dinheiro(p.preco) || p.preco !== i.precoBase) return { status: 'BLOQUEADO_PRECO_ALTERADO', motivo: 'Preço atual não corresponde ao preço-base da prévia.' }
   if (ofertaProtegida(p, agora)) return { status: 'BLOQUEADO_OFERTA', motivo: 'Oferta ativa, agendada ou com dados inconclusivos.' }
   const base = Math.round(i.precoBase * 100); const novo = Math.round(i.novoPreco * 100)
-  // BigInt evita arredondar +30,01% para 30% e mantém os limites exatos inclusivos.
-  if (BigInt(Math.abs(novo - base)) * 100n > BigInt(base) * 30n) return { status: 'BLOQUEADO_VARIACAO_EXTREMA', motivo: 'Variação absoluta superior a 30%, sem override.' }
+  // BigInt evita arredondar +50,01% para 50% e mantém os limites exatos inclusivos.
+  if (BigInt(Math.abs(novo - base)) * 100n > BigInt(base) * 50n) return { status: 'BLOQUEADO_VARIACAO_EXTREMA', motivo: 'Variação absoluta superior a 50%, sem override.' }
   const classes = i.evidencia.labels.map((l) => classificarPrecoAfiliado(l, i.novoPreco, i.evidencia.precoAnterior))
   if (i.evidencia.moeda !== 'BRL' || i.evidencia.conflito || !['NORMAL', 'DESCONTO'].includes(i.classificacao)
     || classes.some((c) => c !== i.classificacao)) return { status: 'BLOQUEADO_CLASSIFICACAO', motivo: 'Classificação, moeda ou evidência da captura não permite atualização.' }

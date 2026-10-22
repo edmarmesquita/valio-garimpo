@@ -19,8 +19,8 @@ const pedido = (outros = {}) => ({ itemId: 'MLB123', precoBase: 100, novoPreco: 
 const row = (outros = {}) => ({ mercado_livre_id: 'MLB123', titulo: 'Produto sintético', preco: 100, ativo: true,
   oferta_relampago: false, oferta_inicio: null, oferta_fim: null, ...outros })
 const validar = (p = pedido(), r = [row()]) => s.bloqueioPrecoHar(p, r, agora).status
-test('NORMAL dentro de 30% revalida', () => assert.equal(validar(), 'PRONTO'))
-test('DESCONTO dentro de 30% revalida', () => assert.equal(validar(pedido({ classificacao: 'DESCONTO', evidencia: { moeda: 'BRL', labels: ['10% OFF'], precoAnterior: 150, conflito: false } })), 'PRONTO'))
+test('NORMAL dentro de 50% revalida', () => assert.equal(validar(), 'PRONTO'))
+test('DESCONTO dentro de 50% revalida', () => assert.equal(validar(pedido({ classificacao: 'DESCONTO', evidencia: { moeda: 'BRL', labels: ['10% OFF'], precoAnterior: 150, conflito: false } })), 'PRONTO'))
 for (const [tipo, label] of [['PIX', '8% OFF no Pix'], ['CUPOM', 'com Cupom'], ['OUTRO_REVISAR', 'Saldo no Mercado Pago']]) {
   test(`${tipo} bloqueado inclusive quando cliente mente NORMAL`, () => {
     const evidencia = { moeda: 'BRL', labels: [label], precoAnterior: null, conflito: false }
@@ -47,7 +47,7 @@ test('preço-base diferente e precisão escondida bloqueados', () => {
   assert.equal(validar(pedido(), [row({ preco: 101 })]), 'BLOQUEADO_PRECO_ALTERADO')
   assert.equal(validar(pedido(), [row({ preco: 100.001 })]), 'BLOQUEADO_PRECO_ALTERADO')
 })
-for (const [novo, status] of [[130.01, 'BLOQUEADO_VARIACAO_EXTREMA'], [69.99, 'BLOQUEADO_VARIACAO_EXTREMA'], [130, 'PRONTO'], [70, 'PRONTO']]) {
+for (const [novo, status] of [[150.01, 'BLOQUEADO_VARIACAO_EXTREMA'], [49.99, 'BLOQUEADO_VARIACAO_EXTREMA'], [150, 'PRONTO'], [50, 'PRONTO'], [149.99, 'PRONTO'], [50.01, 'PRONTO'], [130.01, 'PRONTO'], [69.99, 'PRONTO']]) {
   test(`limite extremo ${novo} é ${status}`, () => assert.equal(validar(pedido({ novoPreco: novo })), status))
 }
 test('payload recusa CSV, preço inválido, campos extras, duplicatas e HAR bruto', () => {
@@ -118,7 +118,7 @@ test('endpoints autenticados: revalidar nunca grava, assinatura vincula valores,
 test('66 → 5: assinatura antiga, seleção vazia, nova versão e itens divergentes bloqueiam antes de qualquer escrita mock', async () => {
   const token = 'token-mock-selecao-12345678901234567890'
   const escritos = []
-  const itens = Array.from({ length: 66 }, (_, n) => pedido({ itemId: `MLB${n + 1}`, novoPreco: n < 62 ? 110 : 140 }))
+  const itens = Array.from({ length: 66 }, (_, n) => pedido({ itemId: `MLB${n + 1}`, novoPreco: n < 62 ? 110 : 160 }))
   const g = { async buscar(id) { return [row({ mercado_livre_id: id })] }, async atualizar(p) { escritos.push(p.mercado_livre_id); return 1 } }
   const app = express(); app.use(express.json())
   app.use('/api/valio', criarRotaValioProdutos({ config: () => ({ url: 'https://mock.example', serviceRoleKey: 'segredo-mock' }), token: () => token, precosHar: () => g }))
