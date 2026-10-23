@@ -25,6 +25,7 @@ export default function FilaRevisaoPrecos({ catalogo, token, onResultados }: Pro
   const [resultado, setResultado] = useState<ResultadoPreco[] | null>(null)
   const [previa, setPrevia] = useState<{ modo: 'atualizar' | 'confirmar'; entradas: EntradaPreco[]; token: string } | null>(null)
   const fila = montarFila(catalogo, lotes, incluirAtualizados)
+  const ativos = catalogo.filter((produto) => produto.ativo)
   const visiveis = filtrarFila(fila, filtro, ordem)
   const paginaAtual = Math.min(pagina, Math.max(1, Math.ceil(visiveis.length / 40)))
   const exibidos = visiveis.slice((paginaAtual - 1) * 40, paginaAtual * 40)
@@ -46,7 +47,7 @@ export default function FilaRevisaoPrecos({ catalogo, token, onResultados }: Pro
         setLotes((atual) => adicionarLote(atual, extracao.produtos, { fonte: 'html', brutos: extracao.encontrados, semId: extracao.semId,
           problemas: extracao.problemas, urls: extracao.urls }))
         const validos = extracao.produtos.filter((item) => item.precoAtual !== null).length
-        const noCatalogo = extracao.produtos.filter((item) => catalogo.some((salvo) => salvo.mercadoLivreId === item.itemId)).length
+        const noCatalogo = extracao.produtos.filter((item) => ativos.some((salvo) => salvo.mercadoLivreId === item.itemId)).length
         setDiagnostico(`${extracao.encontrados} produtos encontrados · ${validos} com preço válido · ${extracao.encontrados - validos} para revisar · ${noCatalogo} produtos do Valiô encontrados neste lote.`)
       } else {
         const extraidos = extrairProdutosAfiliados(JSON.parse(texto))
@@ -91,9 +92,9 @@ export default function FilaRevisaoPrecos({ catalogo, token, onResultados }: Pro
     <h3 id="fila-titulo">Fila de revisão de preços</h3>
     <p>Adicione JSONs da Central ou HTML estruturado do Mercado Livre e compare por ITEM_ID. Adicionar lotes não altera preços.</p>
     <div className="fila-contadores">
-      <span>{catalogo.length} produtos no catálogo</span><span>{fila.filter((item) => item.idade === 'Precisa revisão').length} precisam revisão</span>
+      <span>{ativos.length} produtos ativos no catálogo</span><span>{fila.filter((item) => item.idade === 'Precisa revisão').length} precisam revisão</span>
       <span>{fila.filter((item) => item.idade === 'Revisar em breve').length} revisar em breve</span>
-      <span>{catalogo.length - fila.filter((item) => item.idade !== 'Atualizado').length} atualizados</span>
+      <span>{ativos.length - fila.filter((item) => item.idade !== 'Atualizado').length} atualizados</span>
     </div>
     <fieldset className="fila-fonte"><legend>Fonte da revisão</legend>
       <label><input type="radio" name="fonte-revisao" checked={fonte === 'json'} onChange={() => { setFonte('json'); setTexto(''); setPrevia(null) }} /> JSON DA CENTRAL</label>

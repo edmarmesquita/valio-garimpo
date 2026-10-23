@@ -17,6 +17,16 @@ const salvo = (id, preco = 100, dataPreco = '01/10/2026') => ({ mercadoLivreId: 
 const extraido = (id, preco, outros = {}) => ({ itemId: id, titulo: `Produto ${id}`, precoAtual: preco,
   imagemUrl: `https://imagem.com/${id}`, linkOriginal: `https://mercadolivre.com.br/${id}?aff=original`, avaliacao: 4.8, ...outros })
 
+test('fila aceita ativos e ignora inativos mesmo quando aparecem no lote ou ao incluir atualizados', () => {
+  const catalogo = [salvo('MLB1'), { ...salvo('MLB2'), ativo: false }, salvo('MLB3', 100, '20/10/2026')]
+  const hoje = new Date(2026, 9, 23)
+  const vazio = fila.montarFila(catalogo, fila.lotesVazios(), false, hoje)
+  assert.deepEqual(vazio.map((item) => item.produto.mercadoLivreId), ['MLB1'])
+  const lote = fila.adicionarLote(fila.lotesVazios(), [extraido('MLB2', 80), extraido('MLB3', 90)])
+  assert.deepEqual(fila.montarFila(catalogo, lote, false, hoje).map((item) => item.produto.mercadoLivreId), ['MLB1', 'MLB3'])
+  assert.deepEqual(fila.montarFila(catalogo, lote, true, hoje).map((item) => item.produto.mercadoLivreId), ['MLB1', 'MLB3'])
+})
+
 test('fonte oficial usa sale_price do marketplace, valida BRL e trata 404, 403, retry e timeout', async () => {
   const resposta = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body })
   const urls = []

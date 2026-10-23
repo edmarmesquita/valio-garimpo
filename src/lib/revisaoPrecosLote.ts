@@ -43,6 +43,7 @@ export type ItemFila = {
 
 export function montarFila(catalogo: ProdutoCatalogo[], lotes: LotesRevisao, incluirAtualizados = false, hoje = new Date()): ItemFila[] {
   return catalogo.flatMap((produto) => {
+    if (!produto.ativo) return []
     const idade = classificarIdadePreco(produto.dataPreco, hoje)
     if (idade === 'Atualizado' && !incluirAtualizados && !lotes.produtos.has(produto.mercadoLivreId)) return []
     const extraido = lotes.produtos.get(produto.mercadoLivreId)

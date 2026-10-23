@@ -12,6 +12,7 @@ const lote = (...cards) => JSON.stringify({ polycard_context: { picture_template
 const catalogo = ['MLB1', 'MLB2', 'MLB3'].map((id) => ({ mercadoLivreId: id, titulo: `Produto ${id}`, preco: 100,
   dataPreco: '01/10/2026', categoria: 'Achados para Elas', linkAfiliado: `https://mercadolivre.com.br/${id}`,
   imagem: `https://http2.mlstatic.com/imagem-${id}.webp`, rating: 4.8, ativo: true, updatedAt: '2026-10-01T12:00:00Z' }))
+catalogo.push({ ...catalogo[0], mercadoLivreId: 'MLB4', titulo: 'Produto MLB4', ativo: false })
 
 test('interface acumula dois JSONs, deduplica, atualiza preço, confirma igual e limpa lotes', async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/' })
@@ -38,6 +39,9 @@ test('interface acumula dois JSONs, deduplica, atualiza preço, confirma igual e
     root = createRoot(document.getElementById('root'))
     const aplicados = []
     await act(async () => root.render(createElement(Fila, { catalogo, token: 'token-de-teste', onResultados: (resultados, entradas) => aplicados.push({ resultados, entradas }) })))
+    assert.match(document.querySelector('.fila-revisao').textContent, /3 produtos ativos no catálogo/)
+    assert.match(document.querySelector('.fila-revisao').textContent, /3 na fila.*3 ainda não encontrados/s)
+    assert.equal(document.querySelector('.fila-revisao').textContent.includes('MLB4'), false)
     const botao = (texto) => [...document.querySelectorAll('button')].find((el) => el.textContent === texto)
     const campo = document.getElementById('json-lote-revisao')
     const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set
