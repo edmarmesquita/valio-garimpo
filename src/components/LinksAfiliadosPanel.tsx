@@ -36,6 +36,8 @@ export default function LinksAfiliadosPanel({ token, onLinksAtualizados }: Props
     try {
       const previa = await preverLinksLote(textoLote, token)
       setPreviaLote({ ...previa, texto: textoLote })
+      setErroLote(previa.falhasSublotes?.map((falha) =>
+        `Falha no sublote ${falha.sublote} de ${falha.totalSublotes}: ${falha.motivo}`).join(' ') ?? '')
     } catch (falha) { setErroLote(falha instanceof Error ? falha.message : 'Não foi possível preparar a prévia.') }
     finally { setCarregandoPrevia(false) }
   }
@@ -78,7 +80,7 @@ export default function LinksAfiliadosPanel({ token, onLinksAtualizados }: Props
     </form>
     <section className="vitrine-lote-links" aria-labelledby="vitrine-lote-links-titulo">
       <div className="vitrine-links-cabecalho"><span className="vitrine-links-etapa">02 · EM LOTE</span><h3 id="vitrine-lote-links-titulo">Atualizar links afiliados em lote</h3>
-        <p>Até 50 produtos por vez. Uma linha por produto:</p><code className="vitrine-lote-instrucao">MLB5348529958 | https://meli.la/...</code></div>
+        <p>{'A pr\u00e9via processa automaticamente todos os itens em sublotes de at\u00e9 50. Uma linha por produto:'}</p><code className="vitrine-lote-instrucao">MLB5348529958 | https://meli.la/...</code></div>
       <label htmlFor="vitrine-lote-links-texto">ITEM_ID | Link afiliado oficial</label>
       <textarea id="vitrine-lote-links-texto" value={textoLote} disabled={carregandoPrevia || confirmandoLote}
         onChange={(evento) => { setTextoLote(evento.target.value); setPreviaLote(null); setResultadoLote(null); setErroLote('') }}
@@ -98,7 +100,7 @@ export default function LinksAfiliadosPanel({ token, onLinksAtualizados }: Props
             <td>{item.linha} · {item.mercado_livre_id ?? 'Inválido'}</td><td>{item.titulo ?? '—'}</td>
             <td>{item.link_anterior ?? '—'}</td><td>{item.link_novo ?? '—'}</td><td><span className={item.motivo ? 'vitrine-lote-status vitrine-lote-status--erro' : 'vitrine-lote-status vitrine-lote-status--pronto'}>{item.motivo ?? 'Pronto'}</span></td>
           </tr>)}</tbody></table></div>
-        <button type="button" className="vitrine-lote-confirmar" disabled={confirmandoLote || !linhasProntas}
+        <button type="button" className="vitrine-lote-confirmar" disabled={confirmandoLote || !linhasProntas || !!previaLote.falhasSublotes?.length}
           onClick={() => void aplicarLote()}>{confirmandoLote ? 'Atualizando...' : `Confirmar atualização de ${linhasProntas} link(s)`}</button>
       </div>}
       {resultadoLote && <div role="status" className="vitrine-link-resultado">

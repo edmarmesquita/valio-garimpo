@@ -97,6 +97,22 @@ test('envia apenas LINK para prévia sem gravar e confirma explicitamente só pr
     idsAtualizados: ['MLB11'], falhas: [{ linha: 2, mercado_livre_id: 'MLB44', motivo: 'Produto não encontrado.' }] }) })
 })
 
+test('lote processado não mostra alerta nem é contaminado pelo lote pendente', async () => {
+  await montar(async ({ botao, extrair, processar }) => {
+    await extrair(Array.from({ length: 32 }, (_, indice) => `MLB${indice + 1}`))
+    const retorno = Array.from({ length: 30 }, (_, indice) => indice === 14
+      ? 'Este produto não cumpre com os requisitos do Programa.'
+      : `https://meli.la/item-${indice + 1}`).join('\n')
+    await processar(retorno)
+    assert.ok(botao('Lote 1 · 30 produtos · PROCESSADO'))
+    assert.ok(botao('Lote 2 · 2 produtos · PENDENTE'))
+    assert.equal(document.querySelector('.lista-afiliados-pareamento [role="alert"]'), null)
+    assert.deepEqual([...document.querySelectorAll('.lista-afiliados-contadores-retorno strong')].map((el) => el.textContent), ['30', '29', '1', '0', '0', '0'])
+    const enviar = [...document.querySelectorAll('button')].find((el) => el.textContent.includes('Enviar válidos para prévia'))
+    assert.equal(enviar.disabled, true)
+  })
+})
+
 test('bloqueia prévia com REVISAR, quantidade divergente ou nenhum link válido', async () => {
   await montar(async ({ chamadas, botao, extrair, processar }) => {
     await extrair(['MLB11', 'MLB22'])
@@ -427,5 +443,162 @@ test('interface usa snapshot misto após trocar a lista atual e mantém lote ati
     assert.match(document.querySelector('.lista-afiliados-snapshot').textContent, /Lote ativo para o Gerador/)
     assert.equal(botao('Enviar válidos para prévia').disabled, true)
     assert.equal(chamadas.length, 0)
+  })
+})
+
+test('switching generator batches keeps returns isolated', async () => {
+  await montar(async ({ botao, extrair, processar, dom }) => {
+    await extrair(Array.from({ length: 32 }, (_, i) => 'MLB' + (i + 1)))
+    const firstReturn = Array.from({ length: 30 }, (_, i) => 'https://meli.la/first-' + (i + 1)).join('\n')
+    await processar(firstReturn)
+    assert.equal(document.getElementById('retorno-gerador-lista').value, firstReturn)
+    assert.match(document.querySelector('.lista-afiliados-snapshot-produtos').textContent, /MLB1/)
+    const send = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Enviar v'))
+    assert.equal(send.disabled, true)
+    let copied = ''
+    Object.defineProperty(dom.window.navigator, 'clipboard', { configurable: true, value: { writeText: async (v) => { copied = v } } })
+    await act(async () => botao('Copiar URLs do lote 2').click())
+    assert.match(copied, /MLB31/)
+    assert.match(document.querySelector('.lista-afiliados-snapshot-produtos').textContent, /MLB31/)
+    assert.equal(document.getElementById('retorno-gerador-lista').value, '')
+    const savedBefore = JSON.parse(dom.window.localStorage.getItem('valio-garimpa:affiliate-batch-snapshot:v1'))
+    assert.match(savedBefore.lotes[0].retornoTexto, /first-30/)
+    await act(async () => [...document.querySelectorAll('button')].find((b) => b.textContent.includes('Lote 1')).click())
+    assert.equal(document.getElementById('retorno-gerador-lista').value, firstReturn)
+    await act(async () => botao('Copiar URLs do lote 2').click())
+    await processar('https://meli.la/second-a\nhttps://meli.la/second-b')
+    const saved = JSON.parse(dom.window.localStorage.getItem('valio-garimpa:affiliate-batch-snapshot:v1'))
+    assert.match(saved.lotes[0].retornoTexto, /first-30/)
+    assert.match(saved.lotes[1].retornoTexto, /second-b/)
+    assert.equal([...document.querySelectorAll('button')].find((b) => b.textContent.includes('Enviar v')).disabled, false)
+  })
+})
+
+test('new product categories stay editable after finalized link preview', async () => {
+  const makeCard = (id) => ({ unique_id: 'card-' + id, metadata: { id, url: 'www.mercadolivre.com.br/' + id },
+    pictures: [{ id: 'image-' + id }], components: [
+      { id: 'title', title: { text: 'Product ' + id } },
+      { id: 'price', price: { current_price: { value: 49.9, currency: 'BRL' } } },
+    ] })
+  await montar(async ({ chamadas, botao, preencher, processar, dom, reiniciar }) => {
+    await preencher('html-lista-afiliados', JSON.stringify({ polycard_context: {
+      picture_template: 'https://http2.mlstatic.com/D_{id}-O.webp',
+    }, polycards: ['MLB11', 'MLB22', 'MLB33'].map(makeCard) }))
+    await act(async () => botao('Extrair produtos da lista').click())
+    await act(async () => botao('Preparar lote para o Gerador').click())
+    await processar('https://meli.la/one\nhttps://meli.la/two\nhttps://meli.la/three')
+    const key = 'valio-garimpa:affiliate-batch-snapshot:v1'
+    const saved = JSON.parse(dom.window.localStorage.getItem(key))
+    saved.status = 'FINALIZADO'
+    saved.linksConcluidos = saved.snapshot.produtos.map((product) => product.itemId)
+    dom.window.localStorage.setItem(key, JSON.stringify(saved))
+    await reiniciar()
+    assert.equal(document.getElementById('retorno-gerador-lista').disabled, true)
+    assert.equal([...document.querySelectorAll('[aria-label^="Categoria de "]')].length, 0)
+    await act(async () => [...document.querySelectorAll('button')].find((button) => button.textContent.includes('Enviar')).click())
+
+
+    const selects = ['MLB22', 'MLB33'].map((id) => document.querySelector('[aria-label="Categoria de ' + id + '"]'))
+    assert.ok(selects.every((select) => select && !select.disabled), document.querySelector('.lista-afiliados-previa').textContent)
+    assert.equal(document.querySelector('[aria-label="Categoria de MLB11"]'), null)
+    assert.ok(document.querySelector('.lista-afiliados-novos').textContent.includes('1 produto(s) existente(s)'))
+    assert.equal(document.querySelectorAll('.lista-afiliados-novos tbody tr').length, 2)
+    assert.match(document.querySelector('.lista-afiliados-novos tbody tr').textContent, /SEM CATEGORIA/)
+
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set
+    await act(async () => { setter.call(selects[0], 'Achados para Casa'); selects[0].dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+    const rows = [...document.querySelectorAll('.lista-afiliados-novos tbody tr')]
+    assert.match(rows.find((row) => row.cells[0].textContent === 'MLB22').textContent, /PRONTO PARA PUBLICAR/)
+    assert.match(rows.find((row) => row.cells[0].textContent === 'MLB33').textContent, /SEM CATEGORIA/)
+    assert.equal([...document.querySelectorAll('button')].find((button) => button.textContent.includes('Publicar novos no')).disabled, false)
+    await act(async () => [...document.querySelectorAll('button')].find((button) => button.textContent.includes('Publicar novos no')).click())
+    assert.ok(document.querySelector('.lista-afiliados-publicacao-previa').textContent.includes('1 produto(s) pronto(s)'))
+    assert.equal(chamadas.filter((call) => call.url === '/api/valio/produtos').length, 0)
+  }, async (url) => url.endsWith('/previa') ? { ok: true, json: async () => ({ ok: true, solicitadas: 3, linhas: [
+    { linha: 1, mercado_livre_id: 'MLB11', titulo: 'Existing product', link_anterior: 'https://meli.la/old', link_novo: 'https://meli.la/one', motivo: null },
+    { linha: 2, mercado_livre_id: 'MLB22', titulo: null, link_anterior: null, link_novo: 'https://meli.la/two', motivo: 'Produto n\u00e3o encontrado; nenhum cadastro ser\u00e1 criado.' },
+    { linha: 3, mercado_livre_id: 'MLB33', titulo: null, link_anterior: null, link_novo: 'https://meli.la/three', motivo: 'Produto n\u00e3o encontrado; nenhum cadastro ser\u00e1 criado.' },
+  ] }) } : { ok: true, json: async () => ({ ok: true }) })
+})
+
+test('61 new products across 30+30+9 lots keep independent clickable categories when snapshot storage fails', async () => {
+  const makeCard = (id) => ({ unique_id: 'card-' + id, metadata: { id, url: 'www.mercadolivre.com.br/' + id },
+    pictures: [{ id: 'image-' + id }], components: [
+      { id: 'title', title: { text: 'Product ' + id } },
+      { id: 'price', price: { current_price: { value: 49.9, currency: 'BRL' } } },
+    ] })
+  const existentes = new Set([2, 16, 31, 47, 51, 62, 68, 69])
+  await montar(async ({ chamadas, botao, preencher, dom }) => {
+    await preencher('html-lista-afiliados', JSON.stringify({ polycard_context: {
+      picture_template: 'https://http2.mlstatic.com/D_{id}-O.webp',
+    }, polycards: Array.from({ length: 69 }, (_, indice) => makeCard('MLB' + (indice + 1))) }))
+    await act(async () => botao('Extrair produtos da lista').click())
+    await act(async () => botao('Preparar lote para o Gerador').click())
+    for (const [lote, inicio, quantidade] of [[1, 1, 30], [2, 31, 30], [3, 61, 9]]) {
+      if (lote > 1) {
+        const selecionarLote = [...document.querySelectorAll('.lista-afiliados-lotes button')]
+          .find((button) => button.textContent.includes('Lote ' + lote + ' '))
+        await act(async () => selecionarLote.click())
+      }
+      const retorno = Array.from({ length: quantidade }, (_, indice) => 'https://meli.la/item' + (inicio + indice)).join('\n')
+      await preencher('retorno-gerador-lista', retorno)
+      await act(async () => botao('Processar retorno').click())
+    }
+    await act(async () => botao('Enviar válidos para prévia').click())
+    assert.deepEqual(chamadas.filter((call) => call.url.endsWith('/previa')).map((call) =>
+      JSON.parse(call.options.body).texto.split('\n').length), [50, 19])
+
+    const selects = [...document.querySelectorAll('[aria-label^="Categoria de "]')]
+    assert.equal(selects.length, 61)
+    assert.ok(selects.every((select) => !select.disabled))
+    for (const existente of existentes) {
+      assert.equal(document.querySelector('[aria-label="Categoria de MLB' + existente + '"]'), null)
+    }
+    assert.equal(document.querySelectorAll('.lista-afiliados-novos tbody tr').length, 61)
+
+    const setItemOriginal = dom.window.Storage.prototype.setItem
+    Object.defineProperty(dom.window.Storage.prototype, 'setItem', { configurable: true, value() { throw new Error('quota local') } })
+    try {
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set
+      const escolhas = new Map([
+        ['MLB1', 'Achados para Casa'],
+        ['MLB30', 'Achados para Maridos'],
+        ['MLB32', 'Achados para Elas'],
+        ['MLB52', 'Achados para Presentear'],
+        ['MLB67', 'Achados para Casa'],
+      ])
+      for (const [itemId, categoria] of escolhas) {
+        const select = document.querySelector('[aria-label="Categoria de ' + itemId + '"]')
+        assert.ok(select, itemId + ' deve ser produto novo elegível')
+        await act(async () => {
+          setter.call(select, categoria)
+          select.dispatchEvent(new dom.window.Event('change', { bubbles: true }))
+        })
+        assert.equal(document.querySelector('[aria-label="Categoria de ' + itemId + '"]').value, categoria)
+        const linha = [...document.querySelectorAll('.lista-afiliados-novos tbody tr')]
+          .find((row) => row.cells[0].textContent === itemId)
+        assert.match(linha.textContent, /PRONTO PARA PUBLICAR/)
+      }
+      for (const itemId of ['MLB1', 'MLB30', 'MLB32', 'MLB52', 'MLB67']) {
+        assert.notEqual(document.querySelector('[aria-label="Categoria de ' + itemId + '"]').value, '')
+      }
+      assert.equal(document.querySelector('[aria-label="Categoria de MLB3"]').value, '')
+      assert.match(document.querySelector('[aria-label="Categoria de MLB3"]').closest('tr').textContent, /SEM CATEGORIA/)
+      assert.ok(document.querySelector('[role="alert"]').textContent.includes('salvar o lote no navegador'))
+      assert.equal(chamadas.some((call) => call.url === '/api/valio/produtos'), false)
+    } finally {
+      Object.defineProperty(dom.window.Storage.prototype, 'setItem', { configurable: true, value: setItemOriginal })
+    }
+  }, async (url, options) => {
+    if (!url.endsWith('/previa')) return { ok: true, json: async () => ({ ok: true }) }
+    const linhas = JSON.parse(options.body).texto.split('\n')
+    return { ok: true, json: async () => ({ ok: true, solicitadas: linhas.length, linhas: linhas.map((linha, indice) => {
+      const [mercado_livre_id, link_novo] = linha.split(' | ')
+      const numero = Number(mercado_livre_id.slice(3))
+      const existente = existentes.has(numero)
+      return { linha: indice + 1, mercado_livre_id, titulo: existente ? 'Existing ' + mercado_livre_id : null,
+        link_anterior: existente ? 'https://meli.la/old-' + numero : null, link_novo,
+        motivo: existente ? null : 'Produto n\u00e3o encontrado; nenhum cadastro ser\u00e1 criado.' }
+    }) }) }
   })
 })

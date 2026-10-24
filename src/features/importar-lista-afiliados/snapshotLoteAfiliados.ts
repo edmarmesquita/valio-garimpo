@@ -4,6 +4,7 @@ import type { ProdutoListaAfiliados, ResultadoListaAfiliados } from './extrairLi
 import { processarRetornoGerador } from './processarRetornoGerador'
 
 export const CHAVE_SNAPSHOT_LOTE = 'valio-garimpa:affiliate-batch-snapshot:v1'
+export const MAX_PRODUTOS_GERADOR = 30
 export type StatusSnapshot = 'AGUARDANDO RETORNO' | 'RETORNO PROCESSADO' | 'FINALIZADO'
 export type ProdutoSnapshot = ProdutoListaAfiliados & { posicaoGerador: number; urlNormalizada: string }
 export type SnapshotLote = {
@@ -24,6 +25,8 @@ export type RegistroSnapshot = {
   novosConcluidos: string[]
   categorias: Record<string, CategoriaValio>
 }
+
+export type RegistrosSnapshot = { schemaVersion: 2; lotes: RegistroSnapshot[] }
 
 const objeto = (valor: unknown): Record<string, unknown> | null =>
   valor !== null && typeof valor === 'object' && !Array.isArray(valor) ? valor as Record<string, unknown> : null
@@ -75,6 +78,44 @@ export function criarRegistroSnapshot(lista: ResultadoListaAfiliados, origemList
     retornoTexto: null, linksConcluidos: [], novosConcluidos: [], categorias: {} }
   if (!validarRegistroSnapshot(registro)) throw new Error('A lista não pôde formar um snapshot válido.')
   return congelar(registro)
+}
+
+export function criarRegistrosSnapshot(lista: ResultadoListaAfiliados, origemLista = '', agora = new Date()): RegistroSnapshot[] {
+  const produtos = lista.produtos.filter((produto) => produto.urlNormalizada !== null)
+  if (!produtos.length) throw new Error('Nenhuma URL válida para preparar o lote do Gerador.')
+  const lotes: RegistroSnapshot[] = []
+  for (let inicio = 0; inicio < produtos.length; inicio += MAX_PRODUTOS_GERADOR) {
+    const parte = produtos.slice(inicio, inicio + MAX_PRODUTOS_GERADOR)
+    lotes.push(criarRegistroSnapshot({ ...lista, produtos: parte, urlsParaGerador: parte.map((produto) => produto.urlNormalizada!).join('\n') }, origemLista, agora))
+  }
+  return lotes
+}
+
+export function validarRegistrosSnapshot(valor: unknown): valor is RegistrosSnapshot {
+  const registro = objeto(valor)
+  if (registro?.schemaVersion !== 2 || !Array.isArray(registro.lotes) || registro.lotes.length <= 1
+    || !registro.lotes.every((lote) => validarRegistroSnapshot(lote))) return false
+  const ids = registro.lotes.flatMap((lote) => lote.snapshot.produtos.map((produto) => produto.itemId))
+  return new Set(ids).size === ids.length
+}
+
+export function lerRegistrosSnapshot(armazenamento: Pick<Storage, 'getItem'>): { registros: RegistroSnapshot[]; invalido: boolean } {
+  let bruto: string | null
+  try { bruto = armazenamento.getItem(CHAVE_SNAPSHOT_LOTE) } catch { return { registros: [], invalido: true } }
+  if (bruto === null) return { registros: [], invalido: false }
+  try {
+    const valor: unknown = JSON.parse(bruto)
+    if (validarRegistroSnapshot(valor)) return { registros: [congelar(valor)], invalido: false }
+    if (validarRegistrosSnapshot(valor)) return { registros: valor.lotes.map(congelar), invalido: false }
+    return { registros: [], invalido: true }
+  } catch { return { registros: [], invalido: true } }
+}
+
+export function salvarRegistrosSnapshot(armazenamento: Pick<Storage, 'setItem'>, registros: readonly RegistroSnapshot[]): RegistroSnapshot[] {
+  if (!registros.length || registros.some((registro) => !validarRegistroSnapshot(registro))) throw new Error('Snapshot inválido; nenhuma alteração foi salva.')
+  const valor: unknown = registros.length === 1 ? registros[0] : { schemaVersion: 2, lotes: registros }
+  armazenamento.setItem(CHAVE_SNAPSHOT_LOTE, JSON.stringify(valor))
+  return registros.map(congelar)
 }
 
 export function validarRegistroSnapshot(valor: unknown): valor is RegistroSnapshot {

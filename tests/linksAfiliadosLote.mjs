@@ -5,6 +5,7 @@ import { createServer } from 'vite'
 
 const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
 const { criarRotaValioProdutos } = await vite.ssrLoadModule('/server/valioProdutos.ts')
+const { preverLinksLote, confirmarLinksLote } = await vite.ssrLoadModule('/src/lib/manutencaoVitrine.ts')
 after(async () => vite.close())
 
 const token = 'token-local-de-teste-com-mais-de-32-caracteres'
@@ -162,4 +163,112 @@ test('confirmação rejeita linha sem prévia e link alterado desde a prévia', 
     assert.match(resultado.data.falhas[0].motivo, /mudou desde a prévia/i)
     assert.equal(escritas.length, 0)
   })
+})
+
+test('client preview and confirmation split large batches while preserving line mappings', async () => {
+  const { preverLinksLote, confirmarLinksLote } = await vite.ssrLoadModule('/src/lib/manutencaoVitrine.ts')
+  const sizes = [1, 30, 49, 50, 51, 69, 100, 101]
+  for (const size of sizes) {
+    const calls = []
+    const texto = Array.from({ length: size }, (_, i) => `${id(i + 1)} | ${link(i + 1)}`).join('\n')
+    const previa = await preverLinksLote(texto, token, async (_url, options) => {
+      const linhas = JSON.parse(options.body).texto.split('\n')
+      calls.push(linhas.length)
+      return { ok: true, status: 200, json: async () => ({ ok: true, solicitadas: linhas.length,
+        linhas: linhas.map((linha, indice) => { const [mercado_livre_id, link_novo] = linha.split(' | ')
+          return { linha: indice + 1, mercado_livre_id, link_novo, titulo: null,
+            link_anterior: 'https://meli.la/old-' + indice, motivo: null } }) }) }
+    })
+    assert.deepEqual(calls, Array.from({ length: Math.ceil(size / 50) }, (_, i) => Math.min(50, size - i * 50)))
+    assert.equal(previa.solicitadas, size)
+    assert.deepEqual(previa.linhas.map((item) => item.linha), Array.from({ length: size }, (_, i) => i + 1))
+    assert.equal(previa.linhas.at(-1).mercado_livre_id, id(size))
+    assert.equal(previa.linhas.at(-1).link_novo, link(size))
+  }
+})
+
+test('mixed existing and new previews consolidate, then confirm in 50 plus remainder', async () => {
+  const { preverLinksLote, confirmarLinksLote } = await vite.ssrLoadModule('/src/lib/manutencaoVitrine.ts')
+  const size = 69
+  const texto = Array.from({ length: size }, (_, i) => `${id(i + 1)} | ${link(i + 1)}`).join('\n')
+  const previewCalls = []
+  const previa = await preverLinksLote(texto, token, async (_url, options) => {
+    const requestLines = JSON.parse(options.body).texto.split('\n')
+    previewCalls.push(requestLines.length)
+    const rows = requestLines.map((line, index) => {
+      const [mercado_livre_id, link_novo] = line.split(' | ')
+      const existente = Number(mercado_livre_id.slice(3)) % 2 === 1
+      return { linha: index + 1, mercado_livre_id, link_novo, titulo: existente ? 'Existente' : null,
+        link_anterior: existente ? 'https://meli.la/old-' + mercado_livre_id : null,
+        motivo: existente ? null : 'Produto n\u00e3o encontrado; nenhum cadastro ser\u00e1 criado.' }
+    })
+    return { ok: true, status: 200, json: async () => ({ ok: true, solicitadas: requestLines.length, linhas: rows }) }
+  })
+  assert.deepEqual(previewCalls, [50, 19])
+  assert.equal(previa.linhas.filter((item) => !item.motivo).length, 35)
+  assert.equal(previa.linhas.filter((item) => item.motivo).length, 34)
+  assert.equal(previa.linhas[50].linha, 51)
+  assert.equal(previa.linhas[50].mercado_livre_id, id(51))
+  const updateCalls = []
+  const resultado = await confirmarLinksLote(texto, previa, token, async (_url, options) => {
+    const corpo = JSON.parse(options.body)
+    const linhas = corpo.texto.split('\n')
+    updateCalls.push({ count: linhas.length, confirmations: corpo.confirmacoes })
+    const confirmed = new Set(corpo.confirmacoes.map((item) => item.linha))
+    return { ok: true, status: 200, json: async () => ({ ok: true, solicitadas: linhas.length,
+      atualizadas: confirmed.size, erros: linhas.length - confirmed.size,
+      idsAtualizados: corpo.confirmacoes.map((item) => item.mercado_livre_id),
+      falhas: linhas.flatMap((line, indice) => { if (confirmed.has(indice + 1)) return []
+        return [{ linha: indice + 1, mercado_livre_id: line.split(' | ')[0], motivo: 'Produto novo; sem atualizacao de link.' }] }) }) }
+  })
+  assert.deepEqual(updateCalls.map((item) => item.count), [50, 19])
+  assert.equal(updateCalls[1].confirmations[0].linha, 1)
+  assert.deepEqual([resultado.solicitadas, resultado.atualizadas, resultado.erros], [69, 35, 34])
+  assert.equal(resultado.falhas.at(-1).linha, 68)
+  assert.equal(resultado.falhas.at(-1).mercado_livre_id, id(68))
+  assert.equal(resultado.idsAtualizados.at(-1), id(69))
+})
+
+test('failed preview sublot remains explicit and cannot be confirmed', async () => {
+  const { preverLinksLote, confirmarLinksLote } = await vite.ssrLoadModule('/src/lib/manutencaoVitrine.ts')
+  const size = 101
+  const texto = Array.from({ length: size }, (_, i) => `${id(i + 1)} | ${link(i + 1)}`).join('\n')
+  let call = 0
+  const previa = await preverLinksLote(texto, token, async (_url, options) => {
+    call++
+    const linhas = JSON.parse(options.body).texto.split('\n')
+    if (call === 2) return { ok: false, status: 503, json: async () => ({ ok: false, erro: 'Falha simulada' }) }
+    return { ok: true, status: 200, json: async () => ({ ok: true, solicitadas: linhas.length,
+      linhas: linhas.map((linha, indice) => { const [mercado_livre_id, link_novo] = linha.split(' | ')
+        return { linha: indice + 1, mercado_livre_id, link_novo, titulo: 'Existente',
+          link_anterior: 'https://meli.la/old-' + mercado_livre_id, motivo: null } }) }) }
+  })
+  assert.equal(call, 3)
+  assert.deepEqual(previa.falhasSublotes.map((item) => [item.sublote, item.totalSublotes]), [[2, 3]])
+  assert.match(previa.linhas[50].motivo, /sublote 2 de 3/)
+  assert.equal(previa.linhas[49].mercado_livre_id, id(50))
+  assert.equal(previa.linhas[100].mercado_livre_id, id(101))
+  await assert.rejects(() => confirmarLinksLote(texto, previa, token, async () => {
+    throw new Error('must not call confirmation for incomplete preview')
+  }), /incompleta/)
+})
+
+test('duplicate ITEM_ID across split boundary is blocked in both positions', async () => {
+  const { preverLinksLote } = await vite.ssrLoadModule('/src/lib/manutencaoVitrine.ts')
+  const ids = Array.from({ length: 51 }, (_, i) => id(i + 1))
+  ids[50] = ids[0]
+  const texto = ids.map((itemId, i) => `${itemId} | ${link(i + 1)}`).join('\n')
+  const calls = []
+  const previa = await preverLinksLote(texto, token, async (_url, options) => {
+    const linhas = JSON.parse(options.body).texto.split('\n')
+    calls.push(linhas.length)
+    return { ok: true, status: 200, json: async () => ({ ok: true, solicitadas: linhas.length,
+      linhas: linhas.map((linha, indice) => { const [mercado_livre_id, link_novo] = linha.split(' | ')
+        return { linha: indice + 1, mercado_livre_id, link_novo, titulo: null,
+          link_anterior: 'https://meli.la/old', motivo: null } }) }) }
+  })
+  assert.deepEqual(calls, [49])
+  assert.match(previa.linhas[0].motivo, /duplicado/)
+  assert.match(previa.linhas[50].motivo, /duplicado/)
+  assert.deepEqual([previa.linhas[1].linha, previa.linhas[1].mercado_livre_id], [2, id(2)])
 })

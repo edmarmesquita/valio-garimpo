@@ -148,28 +148,147 @@ export type LinhaPreviaLink = {
   linha: number; mercado_livre_id: string | null; link_novo: string | null
   titulo: string | null; link_anterior: string | null; motivo: string | null
 }
-export type PreviaLinksLote = { solicitadas: number; linhas: LinhaPreviaLink[] }
+export type FalhaSubloteLinks = { sublote: number; totalSublotes: number; etapa: 'pr\u00e9via' | 'atualiza\u00e7\u00e3o'; motivo: string }
+export type PreviaLinksLote = { solicitadas: number; linhas: LinhaPreviaLink[]; falhasSublotes?: FalhaSubloteLinks[] }
 export type ResultadoLinksLote = {
   solicitadas: number; atualizadas: number; erros: number; idsAtualizados: string[]
-  falhas: { linha: number; mercado_livre_id: string | null; motivo: string }[]
+  falhas: { linha: number; mercado_livre_id: string | null; motivo: string }[]; falhasSublotes?: FalhaSubloteLinks[]
+}
+
+const MAX_LINHAS_LINKS_POR_CHAMADA = 50
+type LinhaTextoLote = { linhaOriginal: number; texto: string }
+
+function separarSublotesLinks(texto: string): LinhaTextoLote[][] {
+  if (texto.length > 100_000) throw new Error('O texto do lote excede o limite de 100.000 caracteres.')
+  const linhas = texto.split(/\r?\n/).map((conteudo, indice) => ({ texto: conteudo.trim(), linhaOriginal: indice + 1 }))
+    .filter((item) => item.texto)
+  const sublotes: LinhaTextoLote[][] = []
+  for (let indice = 0; indice < linhas.length; indice += MAX_LINHAS_LINKS_POR_CHAMADA) {
+    sublotes.push(linhas.slice(indice, indice + MAX_LINHAS_LINKS_POR_CHAMADA))
+  }
+  return sublotes
+}
+
+function lerLinhaEntrada(texto: string) {
+  const partes = texto.split('|')
+  return { mercado_livre_id: partes[0]?.trim() || null,
+    link_novo: partes.length === 2 ? partes[1].trim() || null : null }
+}
+
+function linhaComFalha(linha: LinhaTextoLote, motivo: string): LinhaPreviaLink {
+  return { linha: linha.linhaOriginal, ...lerLinhaEntrada(linha.texto), titulo: null, link_anterior: null, motivo }
 }
 
 export async function preverLinksLote(texto: string, token: string, enviar: typeof fetch = fetch): Promise<PreviaLinksLote> {
-  const resultado = await requisitar('/api/valio/produtos/links-afiliados/previa', token, 'POST', { texto }, enviar)
-  if (!Number.isInteger(resultado.solicitadas) || !Array.isArray(resultado.linhas)
-    || resultado.linhas.length !== resultado.solicitadas) throw new Error('Resposta inválida da prévia.')
-  return resultado as PreviaLinksLote
+  const sublotes = separarSublotesLinks(texto)
+  if (!sublotes.length) {
+    const resultado = await requisitar('/api/valio/produtos/links-afiliados/previa', token, 'POST', { texto }, enviar)
+    if (!Number.isInteger(resultado.solicitadas) || !Array.isArray(resultado.linhas)
+      || resultado.linhas.length !== resultado.solicitadas) throw new Error('Resposta inv\u00e1lida da pr\u00e9via.')
+    return resultado as PreviaLinksLote
+  }
+
+  const frequenciaIds = new Map<string, number>()
+  for (const linha of sublotes.flat()) {
+    const id = lerLinhaEntrada(linha.texto).mercado_livre_id
+    if (id && /^MLB\d+$/.test(id)) frequenciaIds.set(id, (frequenciaIds.get(id) ?? 0) + 1)
+  }
+  const linhas: LinhaPreviaLink[] = []
+  const falhasSublotes: FalhaSubloteLinks[] = []
+  for (let indice = 0; indice < sublotes.length; indice++) {
+    const sublote = sublotes[indice]
+    const duplicados = sublote.filter((linha) => {
+      const id = lerLinhaEntrada(linha.texto).mercado_livre_id
+      return Boolean(id && /^MLB\d+$/.test(id) && frequenciaIds.get(id)! > 1)
+    })
+    const solicitaveis = sublote.filter((linha) => !duplicados.includes(linha))
+    linhas.push(...duplicados.map((linha) => linhaComFalha(linha, 'ITEM_ID duplicado neste lote.')))
+    if (!solicitaveis.length) continue
+    try {
+      const resultado = await requisitar('/api/valio/produtos/links-afiliados/previa', token, 'POST',
+        { texto: solicitaveis.map((linha) => linha.texto).join('\n') }, enviar)
+      if (!Number.isInteger(resultado.solicitadas) || resultado.solicitadas !== solicitaveis.length
+        || !Array.isArray(resultado.linhas) || resultado.linhas.length !== solicitaveis.length) {
+        throw new Error('Resposta inv\u00e1lida da pr\u00e9via.')
+      }
+      const recebidas = new Set<number>()
+      const mapeadas: LinhaPreviaLink[] = []
+      for (const valor of resultado.linhas as LinhaPreviaLink[]) {
+        if (!valor || !Number.isInteger(valor.linha) || valor.linha < 1
+          || valor.linha > solicitaveis.length || recebidas.has(valor.linha)) {
+          throw new Error('Resposta inv\u00e1lida da pr\u00e9via: posi\u00e7\u00e3o ausente ou duplicada.')
+        }
+        const origem = solicitaveis[valor.linha - 1]
+        const esperado = lerLinhaEntrada(origem.texto)
+        if (valor.mercado_livre_id !== esperado.mercado_livre_id || valor.link_novo !== esperado.link_novo) {
+          throw new Error('Resposta inv\u00e1lida da pr\u00e9via: ITEM_ID ou link fora de posi\u00e7\u00e3o.')
+        }
+        recebidas.add(valor.linha)
+        mapeadas.push({ ...valor, linha: origem.linhaOriginal })
+      }
+      if (recebidas.size !== solicitaveis.length) throw new Error('Resposta inv\u00e1lida da pr\u00e9via: posi\u00e7\u00e3o ausente ou duplicada.')
+      linhas.push(...mapeadas)
+    } catch (falha) {
+      const motivo = falha instanceof Error ? falha.message : 'Falha desconhecida na pr\u00e9via.'
+      falhasSublotes.push({ sublote: indice + 1, totalSublotes: sublotes.length, etapa: 'pr\u00e9via', motivo })
+      linhas.push(...solicitaveis.map((linha) => linhaComFalha(linha,
+        `Falha na pr\u00e9via do sublote ${indice + 1} de ${sublotes.length}: ${motivo}`)))
+    }
+  }
+  linhas.sort((a, b) => a.linha - b.linha)
+  return { solicitadas: sublotes.reduce((total, sublote) => total + sublote.length, 0), linhas,
+    ...(falhasSublotes.length ? { falhasSublotes } : {}) }
 }
 
 export async function confirmarLinksLote(texto: string, previa: PreviaLinksLote, token: string,
   enviar: typeof fetch = fetch): Promise<ResultadoLinksLote> {
-  const confirmacoes = previa.linhas.filter((item) => !item.motivo && item.mercado_livre_id && item.link_anterior)
-    .map((item) => ({ linha: item.linha, mercado_livre_id: item.mercado_livre_id, link_anterior: item.link_anterior }))
-  if (!confirmacoes.length) throw new Error('Nenhuma linha válida para confirmar.')
-  const resultado = await requisitar('/api/valio/produtos/links-afiliados', token, 'PATCH',
-    { texto, confirmacoes }, enviar)
-  if (resultado.solicitadas !== previa.solicitadas || !Number.isInteger(resultado.atualizadas)
-    || !Number.isInteger(resultado.erros) || !Array.isArray(resultado.idsAtualizados)
-    || !Array.isArray(resultado.falhas)) throw new Error('Resposta inválida da atualização em lote.')
-  return resultado as ResultadoLinksLote
+  if (previa.falhasSublotes?.length) throw new Error('A pr\u00e9via est\u00e1 incompleta; consulte novamente os sublotes com falha antes de confirmar.')
+  const sublotes = separarSublotesLinks(texto)
+  if (!sublotes.length || previa.solicitadas !== sublotes.reduce((total, sublote) => total + sublote.length, 0)
+    || previa.linhas.length !== previa.solicitadas) throw new Error('Pr\u00e9via inv\u00e1lida para confirma\u00e7\u00e3o.')
+  const linhasPrevias = new Map(previa.linhas.map((linha) => [linha.linha, linha]))
+  const idsEsperados = new Set(previa.linhas.filter((item) => !item.motivo && item.mercado_livre_id && item.link_anterior)
+    .map((item) => item.mercado_livre_id!))
+  if (!idsEsperados.size) throw new Error('Nenhuma linha v\u00e1lida para confirmar.')
+  const idsAtualizados: string[] = []
+  const falhas: ResultadoLinksLote['falhas'] = []
+  const falhasSublotes: FalhaSubloteLinks[] = []
+  let solicitadas = 0
+  for (let indice = 0; indice < sublotes.length; indice++) {
+    const sublote = sublotes[indice]
+    const confirmacoes = sublote.flatMap((linha, local) => {
+      const previaLinha = linhasPrevias.get(linha.linhaOriginal)
+      return previaLinha && !previaLinha.motivo && previaLinha.mercado_livre_id && previaLinha.link_anterior
+        ? [{ linha: local + 1, mercado_livre_id: previaLinha.mercado_livre_id, link_anterior: previaLinha.link_anterior }]
+        : []
+    })
+    solicitadas += sublote.length
+    try {
+      const resultado = await requisitar('/api/valio/produtos/links-afiliados', token, 'PATCH',
+        { texto: sublote.map((linha) => linha.texto).join('\n'), confirmacoes }, enviar)
+      if (resultado.solicitadas !== sublote.length || !Number.isInteger(resultado.atualizadas)
+        || !Number.isInteger(resultado.erros) || !Array.isArray(resultado.idsAtualizados)
+        || !Array.isArray(resultado.falhas) || resultado.atualizadas !== resultado.idsAtualizados.length
+        || resultado.erros !== resultado.falhas.length || resultado.atualizadas + resultado.erros !== sublote.length
+        || resultado.idsAtualizados.some((id) => typeof id !== 'string' || !confirmacoes.some((item) => item.mercado_livre_id === id))) {
+        throw new Error('Resposta inv\u00e1lida da atualiza\u00e7\u00e3o em lote.')
+      }
+      idsAtualizados.push(...resultado.idsAtualizados as string[])
+      for (const item of resultado.falhas as ResultadoLinksLote['falhas']) {
+        if (!Number.isInteger(item.linha) || item.linha < 1 || item.linha > sublote.length
+          || item.mercado_livre_id !== lerLinhaEntrada(sublote[item.linha - 1].texto).mercado_livre_id) {
+          throw new Error('Resposta inv\u00e1lida da atualiza\u00e7\u00e3o: posi\u00e7\u00e3o fora de ordem.')
+        }
+        falhas.push({ ...item, linha: sublote[item.linha - 1].linhaOriginal })
+      }
+    } catch (falha) {
+      const motivo = falha instanceof Error ? falha.message : 'Falha desconhecida na atualiza\u00e7\u00e3o.'
+      falhasSublotes.push({ sublote: indice + 1, totalSublotes: sublotes.length, etapa: 'atualiza\u00e7\u00e3o', motivo })
+      for (const linha of sublote) falhas.push({ linha: linha.linhaOriginal,
+        mercado_livre_id: lerLinhaEntrada(linha.texto).mercado_livre_id,
+        motivo: `Falha na atualiza\u00e7\u00e3o do sublote ${indice + 1} de ${sublotes.length}: ${motivo}` })
+    }
+  }
+  return { solicitadas, atualizadas: idsAtualizados.length, erros: falhas.length, idsAtualizados, falhas,
+    ...(falhasSublotes.length ? { falhasSublotes } : {}) }
 }

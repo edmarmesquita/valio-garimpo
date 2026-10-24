@@ -30,6 +30,11 @@ export type ResultadoRetornoGerador = {
 
 const semAcentos = (valor: string) => valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 
+function normalizarMensagemRecusa(valor: string): string {
+  const corrigida = valor.replace(/\u00C3\u00A3/g, 'ã')
+  return semAcentos(corrigida)
+}
+
 function classificarLinha(original: string): LinhaRetornoGerador | null {
   const texto = original.trim()
   if (!texto) return null
@@ -39,7 +44,7 @@ function classificarLinha(original: string): LinhaRetornoGerador | null {
   if (/^https:\/\/meli\.la\/[a-z0-9_-]+\/?$/i.test(texto)) {
     return { tipo: 'LINK', original: texto, link: texto }
   }
-  if (normalizado.includes('este produto nao cumpre com os requisitos do programa')) {
+  if (normalizarMensagemRecusa(texto).includes('este produto nao cumpre com os requisitos do programa')) {
     return { tipo: 'RECUSADO', original: texto, link: null }
   }
   if (normalizado.includes('este url corresponde a um produto pausado')) {

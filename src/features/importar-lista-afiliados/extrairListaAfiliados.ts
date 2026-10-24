@@ -23,6 +23,14 @@ export type ResultadoListaAfiliados = {
   duplicados: number
   produtos: ProdutoListaAfiliados[]
   urlsParaGerador: string
+  lotes?: ProdutoListaAfiliados[][]
+}
+
+export function dividirProdutosEmLotes(produtos: readonly ProdutoListaAfiliados[], tamanho = 30): ProdutoListaAfiliados[][] {
+  if (!Number.isInteger(tamanho) || tamanho <= 0) throw new Error('O tamanho do lote deve ser um inteiro positivo.')
+  const lotes: ProdutoListaAfiliados[][] = []
+  for (let inicio = 0; inicio < produtos.length; inicio += tamanho) lotes.push(produtos.slice(inicio, inicio + tamanho))
+  return lotes
 }
 
 type Registro = Record<string, unknown>
@@ -156,5 +164,6 @@ export function extrairListaAfiliados(html: string): ResultadoListaAfiliados {
     duplicados,
     produtos,
     urlsParaGerador: produtos.flatMap((produto) => produto.urlNormalizada ? [produto.urlNormalizada] : []).join('\n'),
+    lotes: dividirProdutosEmLotes(produtos.filter((produto) => produto.urlNormalizada !== null)),
   }
 }

@@ -45,7 +45,7 @@ test('Manutenção mostra prévia sem gravar e só atualiza após confirmação 
       campo.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
     })
     const botao = (prefixo) => [...document.querySelectorAll('button')].find((item) => item.textContent.startsWith(prefixo))
-    assert.match(document.querySelector('.vitrine-lote-links').textContent, /Até 50 produtos por vez/)
+    assert.match(document.querySelector('.vitrine-lote-links').textContent, /processa automaticamente todos os itens em sublotes de até 50/)
     await act(async () => botao('Ver prévia').click())
     assert.equal(escritas, 0)
     assert.equal(chamadas[0].url, '/api/valio/produtos/links-afiliados/previa')

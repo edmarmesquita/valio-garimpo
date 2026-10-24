@@ -81,3 +81,33 @@ test('lote real de cinco produtos gera o bloco esperado', () => {
     'https://meli.la/1awFBvU\nhttps://meli.la/24nHxaZ\nhttps://meli.la/2rU1UqJ\nhttps://meli.la/2VXGnoM\nhttps://meli.la/1cRtVTR')
   assert.equal(resultado.blocoAtualizador, 'MLB5735296442 | https://meli.la/1awFBvU\nMLB2147851885 | https://meli.la/24nHxaZ\nMLB4208012055 | https://meli.la/2rU1UqJ\nMLB6797156948 | https://meli.la/2VXGnoM\nMLB3902982959 | https://meli.la/1cRtVTR')
 })
+
+test('recusa normal, mojibake e texto desconhecido', () => {
+  const normal = processarRetornoGerador(produtos('MLB1'), '⚠️ Este produto não cumpre com os requisitos do Programa.')
+  const mojibake = processarRetornoGerador(produtos('MLB1'), 'âš ï¸ Este produto nÃ£o cumpre com os requisitos do Programa.')
+  const desconhecida = processarRetornoGerador(produtos('MLB1'), 'Mensagem desconhecida')
+  assert.equal(normal.pareamentos[0].retorno.tipo, 'RECUSADO')
+  assert.equal(mojibake.pareamentos[0].retorno.tipo, 'RECUSADO')
+  assert.equal(desconhecida.pareamentos[0].retorno.tipo, 'REVISAR')
+})
+
+test('caso real de 30 produtos: 29 links e recusa mantêm as posições', () => {
+  const lote30 = produtos(...Array.from({ length: 30 }, (_, indice) => `MLB${indice + 1}`))
+  const linhas = Array.from({ length: 30 }, (_, indice) => indice === 14
+    ? 'âš ï¸ Este produto nÃ£o cumpre com os requisitos do Programa.'
+    : `https://meli.la/link-${indice + 1}`)
+  const resultado = processarRetornoGerador(lote30, linhas.join('\n'))
+  assert.equal(resultado.totalProdutos, 30)
+  assert.equal(resultado.totalResultados, 30)
+  assert.equal(resultado.linksValidos, 29)
+  assert.equal(resultado.recusados, 1)
+  assert.equal(resultado.revisar, 0)
+  assert.equal(resultado.consistente, true)
+  assert.equal(resultado.pareamentos[13].retorno.link, 'https://meli.la/link-14')
+  assert.equal(resultado.pareamentos[14].produto.itemId, 'MLB15')
+  assert.equal(resultado.pareamentos[14].retorno.tipo, 'RECUSADO')
+  assert.equal(resultado.pareamentos[14].retorno.link, null)
+  assert.equal(resultado.pareamentos[15].produto.itemId, 'MLB16')
+  assert.equal(resultado.pareamentos[15].retorno.link, 'https://meli.la/link-16')
+  assert.equal(resultado.pareamentos[29].retorno.link, 'https://meli.la/link-30')
+})

@@ -62,6 +62,10 @@
 .garimpo-shell .lista-afiliados-snapshot-troca, .garimpo-shell .lista-afiliados-snapshot-aviso { margin-top: 16px; padding: 14px; border: 1px solid var(--yellow-border); border-radius: var(--radius-sm); }
 .garimpo-shell .lista-afiliados-snapshot-troca button, .garimpo-shell .lista-afiliados-snapshot-aviso button { margin: 8px 8px 0 0; }
 .garimpo-shell .lista-afiliados-snapshot-tabela { margin: 18px 0; }
+.garimpo-shell .lista-afiliados-lotes { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.garimpo-shell .lista-afiliados-lotes-gerador { margin-top: 18px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.garimpo-shell .lista-afiliados-lote-gerador { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.garimpo-shell .lista-afiliados-lote-gerador h4 { margin: 0; }
 .garimpo-shell .lista-afiliados-urls > button { margin-top: 12px; }
 @media (max-width: 620px) {
   .garimpo-shell .lista-afiliados-acoes-lista button { width: 100%; }
