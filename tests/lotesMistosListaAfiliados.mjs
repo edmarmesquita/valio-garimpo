@@ -63,7 +63,7 @@ test('mensagem desconhecida preserva texto e bloqueia bloco e publicação', () 
   assert.equal(retorno.pareamentos[1].situacao, 'REVISAR')
   assert.equal(retorno.consistente, false)
   assert.equal(retorno.blocoAtualizador, '')
-  assert.deepEqual(prepararPublicacaoNovos(retorno, { solicitadas: 0, linhas: [] }, new Map()), { existentes: [], novos: [] })
+  assert.deepEqual(prepararPublicacaoNovos(retorno, { solicitadas: 0, linhas: [] }, new Map()), { existentes: [], novos: [], erros: [] })
 })
 
 test('quatro resultados para cinco produtos bloqueiam bloco e publicação', () => {
@@ -116,7 +116,7 @@ test('somente dois recusados e dois pausados não geram ação', () => {
   assert.deepEqual([retorno.linksValidos, retorno.recusados, retorno.pausados], [0, 2, 2])
   assert.equal(retorno.consistente, true)
   assert.equal(retorno.blocoAtualizador, '')
-  assert.deepEqual(prepararPublicacaoNovos(retorno, { solicitadas: 0, linhas: [] }, new Map()), { existentes: [], novos: [] })
+  assert.deepEqual(prepararPublicacaoNovos(retorno, { solicitadas: 0, linhas: [] }, new Map()), { existentes: [], novos: [], erros: [] })
 })
 
 test('dez links válidos geram dez pares na ordem original', () => {

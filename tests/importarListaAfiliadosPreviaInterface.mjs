@@ -75,11 +75,11 @@ test('envia apenas LINK para prévia sem gravar e confirma explicitamente só pr
     assert.equal(chamadas[0].options.headers.Authorization, 'Bearer token-de-teste')
     assert.equal(JSON.parse(chamadas[0].options.body).texto, 'MLB11 | https://meli.la/primeiro\nMLB44 | https://meli.la/quarto')
     const previa = document.querySelector('.lista-afiliados-previa')
-    assert.match(previa.textContent, /Solicitados/)
-    assert.match(previa.textContent, /Prontos/)
+    assert.match(previa.textContent, /Analisados/)
+    assert.match(previa.textContent, /Novos/)
     assert.match(previa.textContent, /Erros/)
-    assert.match(previa.textContent, /Produto ainda não existe no Valiô/)
-    assert.match(previa.textContent, /Produto existente/)
+    assert.match(previa.textContent, /Novo/)
+    assert.match(previa.textContent, /Já existe no Valiô/)
     assert.match(previa.textContent, /https:\/\/meli.la\/primeiro/)
     assert.equal(chamadas.length, 1)
     await act(async () => botao('Confirmar atualização dos links válidos').click())
@@ -600,5 +600,65 @@ test('61 new products across 30+30+9 lots keep independent clickable categories 
         link_anterior: existente ? 'https://meli.la/old-' + numero : null, link_novo,
         motivo: existente ? null : 'Produto n\u00e3o encontrado; nenhum cadastro ser\u00e1 criado.' }
     }) }) }
+  })
+})
+
+test('32 analyzed products classify 1 existing, 31 new, and publish only new IDs', async () => {
+  const published = []
+  const makeCard = (id) => ({ unique_id: 'card-' + id, metadata: { id, url: 'www.mercadolivre.com.br/' + id },
+    pictures: [{ id: 'image-' + id }], components: [
+      { id: 'title', title: { text: 'Product ' + id } },
+      { id: 'price', price: { current_price: { value: 49.9, currency: 'BRL' } } },
+    ] })
+  await montar(async ({ chamadas, botao, preencher, processar, dom }) => {
+    await preencher('html-lista-afiliados', JSON.stringify({ polycard_context: {
+      picture_template: 'https://http2.mlstatic.com/D_{id}-O.webp',
+    }, polycards: Array.from({ length: 32 }, (_, indice) => makeCard('MLB' + (indice + 1))) }))
+    await act(async () => botao('Extrair produtos da lista').click())
+    await act(async () => botao('Preparar lote para o Gerador').click())
+    await processar(Array.from({ length: 30 }, (_, indice) => 'https://meli.la/item' + (indice + 1)).join('\n'))
+    await act(async () => botao('Copiar URLs do lote 2').click())
+    await processar('https://meli.la/item31\nhttps://meli.la/item32')
+    await act(async () => botao('Enviar válidos para prévia').click())
+
+    const previa = document.querySelector('.lista-afiliados-previa')
+    const counts = [...previa.querySelectorAll('.lista-afiliados-contadores-retorno strong')].map((item) => Number(item.textContent))
+    assert.deepEqual(counts, [32, 1, 31, 0])
+    const linhas = [...previa.querySelector('.lista-afiliados-tabela tbody').querySelectorAll('tr')]
+    assert.equal(linhas.length, 32)
+    assert.match(linhas[0].cells[5].textContent, /J\u00e1 existe no Vali\u00f4/)
+    assert.match(linhas[1].cells[5].textContent, /Novo/)
+    assert.equal(linhas[1].classList.contains('lista-afiliados-revisar'), false)
+    assert.ok(previa.textContent.includes('1 produto(s) existente(s)'))
+    assert.equal(document.querySelectorAll('.lista-afiliados-novos tbody tr').length, 31)
+    assert.equal(document.querySelector('[aria-label="Categoria de MLB1"]'), null)
+
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLSelectElement.prototype, 'value').set
+    for (let indice = 2; indice <= 32; indice++) {
+      const select = document.querySelector('[aria-label="Categoria de MLB' + indice + '"]')
+      assert.ok(select && !select.disabled)
+      await act(async () => { setter.call(select, 'Achados para Casa'); select.dispatchEvent(new dom.window.Event('change', { bubbles: true })) })
+    }
+    await act(async () => botao('Publicar novos no Valiô').click())
+    await act(async () => botao('Confirmar publicação dos novos').click())
+    const chamadasPublicacao = chamadas.filter((call) => call.url === '/api/valio/produtos')
+    published.push(...chamadasPublicacao.map((call) => JSON.parse(call.options.body).mercadoLivreId))
+    assert.equal(published.length, 31)
+    assert.deepEqual(published, Array.from({ length: 31 }, (_, indice) => 'MLB' + (indice + 2)))
+    assert.equal(chamadas.filter((call) => call.url === '/api/valio/produtos/verificar').length, 1)
+  }, async (url, options) => {
+    if (url.endsWith('/previa')) {
+      const lines = JSON.parse(options.body).texto.split('\n')
+      return { ok: true, json: async () => ({ ok: true, solicitadas: lines.length, linhas: lines.map((line, index) => {
+        const [mercado_livre_id, link_novo] = line.split(' | ')
+        const existente = mercado_livre_id === 'MLB1'
+        return { linha: index + 1, mercado_livre_id, titulo: existente ? 'Existing product' : null,
+          link_anterior: existente ? 'https://meli.la/old' : null, link_novo,
+          motivo: existente ? null : 'Produto n\u00e3o encontrado; nenhum cadastro ser\u00e1 criado.' }
+      }) }) }
+    }
+    if (url.endsWith('/verificar')) return { ok: true, json: async () => ({ ok: true, existentes: [] }) }
+    if (url === '/api/valio/produtos') return { ok: true, json: async () => ({ ok: true, acao: 'criado' }) }
+    throw Error('Unexpected request ' + url)
   })
 })

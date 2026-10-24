@@ -80,10 +80,12 @@ export default function ImportarListaAfiliadosPanel() {
   const urlsGerador = snapshot?.urlsParaGerador ?? resultado?.urlsParaGerador ?? ''
   const previaAtual = previa?.token === token && previa.texto === retornoAtual?.blocoAtualizador ? previa : null
   const prontos = previaAtual?.dados.linhas.filter((item) => !item.motivo).length ?? 0
-  const errosPrevia = previaAtual?.dados.linhas.filter((item) => item.motivo).length ?? 0
   const previaTemFalhas = Boolean(previaAtual?.dados.falhasSublotes?.length)
   const classificacao = previaAtual && retornoAtual
-    ? prepararPublicacaoNovos(retornoAtual, previaAtual.dados, categoriasNovos) : { existentes: [], novos: [] }
+    ? prepararPublicacaoNovos(retornoAtual, previaAtual.dados, categoriasNovos) : { existentes: [], novos: [], erros: [] }
+  const analisadosPrevia = previaAtual?.dados.solicitadas ?? 0
+  const errosPrevia = previaAtual ? classificacao.erros.length + Math.max(0,
+    analisadosPrevia - classificacao.existentes.length - classificacao.novos.length - classificacao.erros.length) : 0
   const novosProntos = (previaTemFalhas ? [] : classificacao.novos).filter((item) => item.situacao === 'PRONTO PARA PUBLICAR'
     && !novosJaExistentes.has(item.produto.itemId) && !registros.some((lote) => lote.novosConcluidos.includes(item.produto.itemId)))
 
@@ -406,15 +408,20 @@ export default function ImportarListaAfiliadosPanel() {
             {previaAtual && <div className="lista-afiliados-previa">
               <h3>{confirmacao ? 'Prévia consultada — atualização de links concluída' : 'Prévia — nenhuma alteração feita'}</h3>
               <div className="lista-afiliados-contadores lista-afiliados-contadores-retorno" role="status">
-                <div><strong>{previaAtual.dados.solicitadas}</strong><span>Solicitados</span></div>
-                <div><strong>{prontos}</strong><span>Prontos</span></div>
+                <div><strong>{analisadosPrevia}</strong><span>Analisados</span></div>
+                <div><strong>{classificacao.existentes.length}</strong><span>Já existe</span></div>
+                <div><strong>{classificacao.novos.length}</strong><span>Novos</span></div>
                 <div><strong>{errosPrevia}</strong><span>Erros</span></div>
               </div>
               <div className="lista-afiliados-tabela"><table><thead><tr><th>Linha</th><th>ITEM_ID</th><th>Produto</th><th>Link atual</th><th>Link novo</th><th>Situação</th></tr></thead>
-                <tbody>{previaAtual.dados.linhas.map((item) => <tr key={item.linha} className={item.motivo ? 'lista-afiliados-revisar' : ''}>
+                <tbody>{previaAtual.dados.linhas.map((item) => <tr key={item.linha} className={classificacao.erros.some((erro) => erro.linha === item.linha) ? 'lista-afiliados-revisar' : ''}>
                   <td>{item.linha}</td><td>{item.mercado_livre_id ?? '—'}</td><td>{item.titulo ?? '—'}</td>
                   <td>{item.link_anterior ?? '—'}</td><td>{item.link_novo ?? '—'}</td>
-                  <td>{item.motivo?.toLowerCase().includes('produto não encontrado') ? 'Produto ainda não existe no Valiô' : item.motivo ?? 'Pronto'}</td>
+                  <td>{classificacao.erros.find((erro) => erro.linha === item.linha)?.motivo
+                    ?? (item.mercado_livre_id && classificacao.existentes.includes(item.mercado_livre_id)
+                      ? 'Já existe no Valiô — não será republicado'
+                      : item.mercado_livre_id && classificacao.novos.some((novo) => novo.produto.itemId === item.mercado_livre_id)
+                        ? 'Novo — pronto para categorização' : item.motivo ?? 'Resultado da prévia não classificado.')}</td>
                 </tr>)}</tbody></table></div>
               <button type="button" className="lista-afiliados-confirmar" disabled={!prontos || previaTemFalhas || !!confirmacao || confirmando || publicando}
                 onClick={() => void confirmar()}>{confirmando ? 'Atualizando...' : 'Confirmar atualização dos links válidos'}</button>

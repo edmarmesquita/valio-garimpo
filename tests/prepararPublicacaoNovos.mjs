@@ -71,3 +71,34 @@ test('resposta da prévia trocada não classifica produto novo', () => {
   const resultado = prepararPublicacaoNovos(retorno, { solicitadas: 1, linhas: [linha(0, 'MLB999', 'https://meli.la/abc')] }, new Map())
   assert.equal(resultado.novos.length, 0)
 })
+
+test('32 items classify existing and new without treating missing as errors', () => {
+  const produtos = Array.from({ length: 32 }, (_, indice) => 'MLB' + (indice + 1)).map((id) => produto(id))
+  const texto = Array.from({ length: 32 }, (_, indice) => 'MLB' + (indice + 1)).map((_, indice) => `https://meli.la/l${indice + 1}`).join('\n')
+  const retorno = processarRetornoGerador(produtos, texto)
+  const links = retorno.pareamentos.filter((par) => par.retorno?.tipo === 'LINK')
+  const previa = { solicitadas: 32, linhas: links.map(({ produto: p, retorno: r }, indice) =>
+    linha(indice, p.itemId, r.link, p.itemId === 'MLB1')) }
+  const resultado = prepararPublicacaoNovos(retorno, previa, new Map())
+  assert.equal(previa.solicitadas, 32)
+  assert.deepEqual(resultado.existentes, ['MLB1'])
+  assert.equal(resultado.novos.length, 31)
+  assert.ok(resultado.novos.every((item) => item.situacao === 'SEM CATEGORIA'))
+  assert.equal(resultado.erros.length, 0)
+  assert.ok(resultado.novos.every((item) => item.produto.itemId !== 'MLB1'))
+})
+
+test('32 items keep one real preview failure separate from one existing and 30 new', () => {
+  const produtos = Array.from({ length: 32 }, (_, indice) => 'MLB' + (indice + 1)).map((id) => produto(id))
+  const texto = Array.from({ length: 32 }, (_, indice) => 'MLB' + (indice + 1)).map((_, indice) => `https://meli.la/l${indice + 1}`).join('\n')
+  const retorno = processarRetornoGerador(produtos, texto)
+  const links = retorno.pareamentos.filter((par) => par.retorno?.tipo === 'LINK')
+  const previa = { solicitadas: 32, linhas: links.map(({ produto: p, retorno: r }, indice) => ({
+    ...linha(indice, p.itemId, r.link, p.itemId === 'MLB1'),
+    ...(p.itemId === 'MLB32' ? { motivo: 'Mais de um produto corresponde ao ITEM_ID.' } : {}),
+  })) }
+  const resultado = prepararPublicacaoNovos(retorno, previa, new Map())
+  assert.deepEqual(resultado.existentes, ['MLB1'])
+  assert.equal(resultado.novos.length, 30)
+  assert.deepEqual(resultado.erros, [{ linha: 32, itemId: 'MLB32', motivo: 'Mais de um produto corresponde ao ITEM_ID.' }])
+})
