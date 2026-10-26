@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { extrairProdutosAfiliados } from '../lib/extrairProdutosAfiliados'
 import { extrairPrecosHtml } from '../lib/extrairPrecosHtml'
 import type { ProdutoCatalogo } from '../lib/manutencaoVitrine'
@@ -8,6 +8,36 @@ import './FilaRevisaoPrecos.css'
 
 const moeda = (valor: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(valor)
 type Props = { catalogo: ProdutoCatalogo[]; token: string; onResultados: (resultados: ResultadoPreco[], entradas: EntradaPreco[]) => void }
+
+declare global {
+  interface Window { __debugPrecosLotes?: () => unknown }
+}
+
+function debugPrecosPermitido(dev: boolean, hostname: string): boolean {
+  const host = hostname.toLowerCase()
+  const previewDaBranch = /^valio-garimpo-git-teste-oauth-precos(?:-[a-z0-9-]+)?\.vercel\.app$/
+  return dev || previewDaBranch.test(host)
+}
+
+const idsDiagnostico = [
+  'MLB6706221784', 'MLB7686410708', 'MLB3792661639', 'MLB4260565867', 'MLB5852505024',
+  'MLB7069530788', 'MLB4439306401', 'MLB545503335', 'MLB4090804305', 'MLB3859058729',
+  'MLB3581573489', 'MLB2204326406', 'MLB5936189330', 'MLB5774790960',
+]
+
+function normalizarDiagnostico(texto: string | null | undefined): string {
+  return (texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]/g, '')
+}
+
+function distanciaIds(a: string, b: string): number {
+  const anterior = Array.from({ length: b.length + 1 }, (_, indice) => indice)
+  for (let i = 1; i <= a.length; i++) {
+    const atual = [i]
+    for (let j = 1; j <= b.length; j++) atual[j] = Math.min(atual[j - 1] + 1, anterior[j] + 1, anterior[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))
+    for (let j = 0; j <= b.length; j++) anterior[j] = atual[j]
+  }
+  return anterior[b.length]
+}
 
 export default function FilaRevisaoPrecos({ catalogo, token, onResultados }: Props) {
   const [texto, setTexto] = useState('')
@@ -36,6 +66,91 @@ export default function FilaRevisaoPrecos({ catalogo, token, onResultados }: Pro
   const selecionadosIguais = fila.filter((item) => selecionados.has(item.produto.mercadoLivreId) && item.diferencaCentavos === 0)
   const comPreco = [...lotes.produtos.values()].filter((item) => item.precoAtual !== null && item.precoAtual > 0).length
   const paraRevisar = lotes.produtos.size - comPreco + lotes.semId
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !debugPrecosPermitido(import.meta.env.DEV, window.location.hostname)) return
+    const filaAtual = montarFila(catalogo, lotes, incluirAtualizados)
+    const diagnosticar = () => {
+      const extraidos = [...lotes.produtos.entries()].map(([itemId, item]) => ({
+        itemId,
+        titulo: item.titulo,
+        preco: item.precoAtual,
+        moeda: item.moeda,
+        productId: item.productId,
+        userProductId: item.userProductId,
+        variationId: item.variationId,
+        linkOriginal: item.linkOriginal,
+        fonte: lotes.fontes.get(itemId) ?? null,
+        urlProduto: lotes.urls.get(itemId) ?? null,
+        problema: lotes.problemas.get(itemId) ?? null,
+        numeroLote: null,
+        observacaoLote: 'O estado atual não guarda o número nem a URL de origem do lote por ITEM_ID.',
+      }))
+      const naoEncontrados = filaAtual.filter((item) => !item.extraido).map((item) => ({
+        itemId: item.produto.mercadoLivreId,
+        titulo: item.produto.titulo,
+        categoria: item.produto.categoria,
+        precoCatalogo: item.produto.preco,
+      }))
+      const alvos = idsDiagnostico.map((itemId) => {
+        const catalogoItem = catalogo.find((item) => item.mercadoLivreId === itemId)
+        const filaItem = filaAtual.find((item) => item.produto.mercadoLivreId === itemId)
+        const tituloAlvo = normalizarDiagnostico(catalogoItem?.titulo)
+        const digitosAlvo = itemId.replace(/^MLB/, '')
+        const candidatos = extraidos.flatMap((item) => {
+          const digitos = item.itemId.replace(/^MLB/, '')
+          const camposId = [item.productId, item.userProductId, item.variationId].filter((id): id is string => Boolean(id))
+          const camposIdCorrespondentes = camposId.filter((id) => id.toUpperCase() === itemId || id.replace(/\D/g, '') === digitosAlvo)
+          const mesmaSequencia = digitos.includes(digitosAlvo) || digitosAlvo.includes(digitos)
+          const idParecido = mesmaSequencia || distanciaIds(digitos, digitosAlvo) <= 2
+          const tituloExtraido = normalizarDiagnostico(item.titulo)
+          const mesmoTitulo = Boolean(tituloAlvo && tituloExtraido && (tituloAlvo === tituloExtraido
+            || tituloAlvo.includes(tituloExtraido) || tituloExtraido.includes(tituloAlvo)))
+          const linkIgual = Boolean((item.linkOriginal && item.linkOriginal === catalogoItem?.linkAfiliado)
+            || (lotes.urls.get(item.itemId) && lotes.urls.get(item.itemId) === catalogoItem?.linkAfiliado))
+          return idParecido || mesmoTitulo || camposIdCorrespondentes.length > 0 || linkIgual ? [{
+            ...item,
+            mesmaSequenciaNumerica: mesmaSequencia,
+            distanciaNumerica: distanciaIds(digitos, digitosAlvo),
+            mesmoTitulo,
+            camposIdCorrespondentes,
+            linkAfiliadoIgualAoCatalogo: linkIgual,
+          }] : []
+        })
+        return {
+          itemId,
+          existeNoCatalogoCarregado: Boolean(catalogoItem),
+          ativo: catalogoItem?.ativo ?? null,
+          tituloCatalogo: catalogoItem?.titulo ?? null,
+          precoCatalogo: catalogoItem?.preco ?? null,
+          naoEncontradoNaFila: filaItem ? !filaItem.extraido : null,
+          correspondenciaExataNoMapa: lotes.produtos.has(itemId),
+          extraidoExato: lotes.produtos.get(itemId) ? {
+            itemId: lotes.produtos.get(itemId)!.itemId,
+            titulo: lotes.produtos.get(itemId)!.titulo,
+            preco: lotes.produtos.get(itemId)!.precoAtual,
+            productId: lotes.produtos.get(itemId)!.productId,
+            userProductId: lotes.produtos.get(itemId)!.userProductId,
+            variationId: lotes.produtos.get(itemId)!.variationId,
+            fonte: lotes.fontes.get(itemId) ?? null,
+            urlProduto: lotes.urls.get(itemId) ?? null,
+          } : null,
+          candidatosParecidos: candidatos,
+        }
+      })
+      const diagnostico = { lotesNaSessao: lotes.lotes, totalNoMapa: lotes.produtos.size, extraidos, naoEncontrados, alvos }
+      console.groupCollapsed(`[diagnóstico /precos] ${extraidos.length} ITEM_IDs; ${naoEncontrados.length} não encontrados; ${alvos.length} alvos`)
+      console.table(extraidos.map(({ itemId, titulo, preco, moeda, fonte, urlProduto, problema }) => ({ itemId, titulo, preco, moeda, fonte, urlProduto, problema })))
+      console.table(naoEncontrados)
+      console.table(alvos.map(({ itemId, correspondenciaExataNoMapa, naoEncontradoNaFila, candidatosParecidos }) => ({ itemId, correspondenciaExataNoMapa, naoEncontradoNaFila, candidatos: candidatosParecidos.length })))
+      console.log(diagnostico)
+      console.groupEnd()
+      return diagnostico
+    }
+    window.__debugPrecosLotes = diagnosticar
+    console.info('[debug-precos] __debugPrecosLotes registrado')
+    return () => { if (window.__debugPrecosLotes === diagnosticar) delete window.__debugPrecosLotes }
+  }, [catalogo, lotes, incluirAtualizados])
 
   function adicionar() {
     setErro(''); setResultado(null)
