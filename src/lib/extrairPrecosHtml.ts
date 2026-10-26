@@ -1,5 +1,4 @@
 import { extrairProdutosAfiliados, type ProdutoAfiliado } from './extrairProdutosAfiliados'
-import { dadosNordic } from '../features/ofertas-relampago/extrairOfertas'
 
 type Registro = Record<string, unknown>
 const objeto = (valor: unknown): Registro | null => valor !== null && typeof valor === 'object' && !Array.isArray(valor) ? valor as Registro : null
@@ -72,7 +71,8 @@ function dadosJsonLd(html: string): Registro {
       const components = ofertas.map(objeto).filter((item): item is Registro => item !== null).map((oferta) => {
         const valor = typeof oferta.price === 'string' && /^\d+(?:\.\d{1,2})?$/.test(oferta.price)
           ? Number(oferta.price) : oferta.price
-        return { id: 'price_v2', price: { current_price: { value: oferta.priceCurrency === 'BRL' ? valor : null } } }
+        return { id: 'price_v2', price: { current_price: { value: oferta.priceCurrency === 'BRL' ? valor : null,
+          currency: oferta.priceCurrency } } }
       })
       items.push({ card: { unique_id: produto.sku, metadata: { id: produto.sku, url: produto.url },
         pictures: { pictures: [] }, components: [{ id: 'title', title: { text: produto.name } }, ...components] } })
@@ -82,9 +82,60 @@ function dadosJsonLd(html: string): Registro {
   return { items, polycardContext: {} }
 }
 
+function jsonBalanceado(texto: string, inicio: number): string | null {
+  if (texto[inicio] !== '{') return null
+  let nivel = 0, aspas = false, escape = false
+  for (let indice = inicio; indice < texto.length; indice++) {
+    const caractere = texto[indice]
+    if (aspas) {
+      if (escape) escape = false
+      else if (caractere === '\\') escape = true
+      else if (caractere === '"') aspas = false
+    } else if (caractere === '"') aspas = true
+    else if (caractere === '{') nivel++
+    else if (caractere === '}' && --nivel === 0) return texto.slice(inicio, indice + 1)
+  }
+  return null
+}
+
+function dadosNordicPrecos(html: string): { items: unknown[]; polycardContext: Registro } {
+  const script = /<script\b(?=[^>]*\bid=["']__NORDIC_RENDERING_CTX__["'])[^>]*>([\s\S]*?)<\/script\s*>/i.exec(html)
+  const atribuicao = script && /_n\.ctx\.r\s*=\s*(\{)/.exec(script[1])
+  const json = script && atribuicao
+    ? jsonBalanceado(script[1], atribuicao.index + atribuicao[0].length - 1) : null
+  if (!json) throw new Error('O HTML não contém estado Nordic estruturado reconhecido.')
+  let contexto: unknown
+  try { contexto = JSON.parse(json) } catch { throw new Error('O estado Nordic do HTML é inválido.') }
+  const raiz = objeto(contexto)
+  const dados = objeto(objeto(objeto(raiz?.appProps)?.pageProps)?.data)
+  if (Array.isArray(dados?.items)) return { items: dados.items, polycardContext: objeto(dados.polycardContext) ?? {} }
+
+  const items: { card: Registro }[] = []
+  const encontrados = new WeakSet<object>()
+  function coletar(valor: unknown): void {
+    const registro = objeto(valor)
+    if (!registro) {
+      if (Array.isArray(valor)) valor.forEach(coletar)
+      return
+    }
+    if (Array.isArray(registro.polycards)) for (const item of registro.polycards) {
+      const cardDireto = objeto(item)
+      const card = objeto(cardDireto?.card) ?? cardDireto
+      if (card && objeto(card.metadata) && Array.isArray(card.components) && !encontrados.has(card)) {
+        encontrados.add(card)
+        items.push({ card })
+      }
+    }
+    for (const filho of Object.values(registro)) coletar(filho)
+  }
+  coletar(raiz)
+  if (!items.length) throw new Error('O estado Nordic não contém cards de produtos estruturados.')
+  return { items, polycardContext: {} }
+}
+
 export function extrairPrecosHtml(html: string, origem = ''): ExtracaoPrecosHtml {
   if (!html.trim() || html.length > 10_000_000) throw new Error('Cole um HTML de até 10 MB.')
-  const dados = /<script\b(?=[^>]*\bid=["']__NORDIC_RENDERING_CTX__["'])/i.test(html) ? dadosNordic(html) : dadosJsonLd(html)
+  const dados = /<script\b(?=[^>]*\bid=["']__NORDIC_RENDERING_CTX__["'])/i.test(html) ? dadosNordicPrecos(html) : dadosJsonLd(html)
   const produtos = new Map<string, ProdutoAfiliado>()
   const problemas = new Map<string, string>()
   const urls = new Map<string, string>()
@@ -109,12 +160,15 @@ export function extrairPrecosHtml(html: string, origem = ''): ExtracaoPrecosHtml
     const atuais: number[] = []
     const anteriores: number[] = []
     const descontos: string[] = []
+    const moedasAtuais: (string | null)[] = []
     let camposAtuais = 0
     for (const componente of [...componentes(card, 'price_v2'), ...componentes(card, 'price')]) {
       const price = objeto(componente.price) ?? componente
       if ('current_price' in price) {
         camposAtuais++
-        const valor = preco(objeto(price.current_price)?.value)
+        const atual = objeto(price.current_price)
+        const valor = preco(atual?.value)
+        moedasAtuais.push(typeof atual?.currency === 'string' ? atual.currency.toUpperCase() : null)
         if (valor !== null) atuais.push(valor)
       }
       anteriores.push(...valoresAnteriores(price))
@@ -126,6 +180,8 @@ export function extrairPrecosHtml(html: string, origem = ''): ExtracaoPrecosHtml
     let motivo: string | null = null
     if ([...auxiliares].some((outro) => outro !== id)) motivo = 'ITEM_ID conflitante entre metadata e URL do card.'
     else if (!camposAtuais || !atuais.length) motivo = 'PREÇO NÃO CONFIÁVEL: preço atual estruturado ausente.'
+    else if (moedasAtuais.length !== camposAtuais || moedasAtuais.some((moeda) => moeda !== 'BRL'))
+      motivo = 'PREÇO NÃO CONFIÁVEL: moeda atual ausente ou diferente de BRL.'
     else if (atuais.length !== camposAtuais || new Set(atuais.map((valor) => Math.round(valor * 100))).size !== 1)
       motivo = 'PREÇO NÃO CONFIÁVEL: valores atuais ambíguos no mesmo card.'
     else if (new Set(anteriores.map((valor) => Math.round(valor * 100))).size > 1)

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test, { after } from 'node:test'
 import express from 'express'
 import { createServer } from 'vite'
+import { htmlListaPrecosMercadoLivre, polycardsListaPrecosMercadoLivre } from './fixtures/mercadoLivreListaPrecos.mjs'
 
 const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
 const fila = await vite.ssrLoadModule('/src/lib/revisaoPrecosLote.ts')
@@ -184,7 +185,8 @@ const cardHtml = (id, atual, opcoes = {}) => ({ position: opcoes.position ?? 1, 
   metadata: { id, url: `https://produto.mercadolivre.com.br/${id}-produto`, ...(opcoes.metadata ?? {}) },
   pictures: { pictures: [{ id: 'imagem' }] },
   components: [{ id: 'title', title: { text: `Produto ${id}` } },
-    { id: 'price_v2', price: { ...(atual === null ? {} : { current_price: { value: atual } }),
+    { id: 'price_v2', price: { ...(atual === null ? {} : { current_price: { value: atual,
+      currency: Object.hasOwn(opcoes, 'moeda') ? opcoes.moeda : 'BRL' } }),
       ...(opcoes.anterior ? { price_labels: [{ values: [{ key: 'previous_price', price: { value: opcoes.anterior } }] }] } : {}),
       ...(opcoes.desconto ? { discount_polylabel: { values: [{ pill: { text: opcoes.desconto } }] } } : {}) } },
     ...(opcoes.outroAtual ? [{ id: 'price', price: { current_price: { value: opcoes.outroAtual } } }] : [])],
@@ -354,4 +356,32 @@ test('rota valida lote e só atualiza produto existente; confirmação conserva 
     assert.deepEqual([parcial.json.atualizados, parcial.json.erros], [1, 1])
     assert.equal(linhas.get('MLB1').preco, 80)
   } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
+test('HTML real da lista de afiliados extrai polycards com ITEM_ID e preço BRL do mesmo card', () => {
+  const extraidos = extrairPrecosHtml(htmlListaPrecosMercadoLivre)
+  assert.equal(extraidos.encontrados, 18)
+  assert.equal(extraidos.produtos.length, 18)
+  assert.equal(extraidos.semId, 0)
+  for (const card of polycardsListaPrecosMercadoLivre) {
+    const produto = extraidos.produtos.find((item) => item.itemId === card.metadata.id)
+    const precoCard = card.components.find((item) => item.id === 'price').price
+    assert.ok(produto, `ITEM_ID ${card.metadata.id} foi extraído`)
+    assert.equal(produto.precoAtual, precoCard.current_price.value)
+    assert.equal(produto.moeda, 'BRL')
+    assert.equal(produto.precoAnterior, precoCard.previous_price.value)
+    assert.equal(produto.desconto, precoCard.discount_label.text)
+  }
+  const lote = fila.adicionarLote(fila.lotesVazios(), extraidos.produtos, { fonte: 'html', problemas: extraidos.problemas })
+  const revisao = fila.montarFila([salvo('MLB7607105104', 900)], lote, true, new Date(2026, 9, 26))
+  assert.deepEqual(revisao.map((item) => item.produto.mercadoLivreId), ['MLB7607105104'])
+  assert.equal(revisao[0].extraido.precoAtual, 869.55)
+})
+
+test('HTML de preços exige moeda BRL explícita no preço atual', () => {
+  for (const { id, moeda } of [{ id: 'MLB2', moeda: 'USD' }, { id: 'MLB3', moeda: undefined }]) {
+    const extraido = extrairPrecosHtml(htmlPrecos(cardHtml(id, 50, { moeda })))
+    assert.equal(extraido.produtos[0].precoAtual, null)
+    assert.match(extraido.problemas.get(id), /moeda atual ausente ou diferente de BRL/)
+  }
 })
