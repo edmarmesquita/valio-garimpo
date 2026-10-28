@@ -1,0 +1,24 @@
+{
+  "operacao": "correcao_link_afiliado_autorizada",
+  "id": 774,
+  "mercado_livre_id": "MLB3784146413",
+  "titulo": "Conjunto Mesa Pérola 1,20  4 Cadeiras Rubi Mel Linho Bege",
+  "preco": 2948,
+  "link_anterior": "https://meli.la/1pJuu6t",
+  "link_corrigido": "https://meli.la/18tT2n1",
+  "updated_at_anterior": "2026-10-28T01:24:32.903+00:00",
+  "updated_at_posterior": "2026-10-28T02:31:01.333925+00:00",
+  "campos_alterados_na_comparacao_integral": ["link_afiliado", "updated_at"],
+  "ativo_antes": true,
+  "ativo_depois": true,
+  "condicoes_da_escrita": ["id", "mercado_livre_id", "titulo", "link_afiliado_anterior", "updated_at_anterior"],
+  "campos_enviados_no_patch": ["link_afiliado"],
+  "verificacao_publica": {
+    "site": "https://www.valioachados.com.br/",
+    "bundle": "/assets/index-jhxc0aak.js",
+    "metodo": "leitura do bundle publicado e consulta à Data API com a configuração pública extraída desse bundle",
+    "mapeamento": "link_afiliado -> affiliateUrl -> href do botão",
+    "href": "https://meli.la/18tT2n1",
+    "observacao": "Não foi realizada interação visual em navegador. A verificação comprova os dados públicos e o mapeamento no código publicado."
+  }
+}

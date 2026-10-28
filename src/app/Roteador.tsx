@@ -5,12 +5,13 @@ import ExtrairAfiliados from '../pages/ExtrairAfiliados'
 import ManutencaoPage from '../pages/ManutencaoPage'
 import LinksAfiliadosPage from '../pages/LinksAfiliadosPage'
 import PrecosPage from '../pages/PrecosPage'
+import RecuperarInativosPage from '../pages/RecuperarInativosPage'
 import DiagnosticoPage from '../pages/DiagnosticoPage'
 import OfertasRelampagoPage from '../pages/OfertasRelampagoPage'
 import Navegacao from './Navegacao'
 
 const caminhoAtual = () => window.location.pathname.replace(/\/$/, '') || '/'
-const rotasInternas = new Set(['/', '/importar-produtos', '/extrair-afiliados', '/ofertas-relampago', '/manutencao', '/links-afiliados', '/precos', '/diagnostico'])
+const rotasInternas = new Set(['/', '/importar-produtos', '/extrair-afiliados', '/ofertas-relampago', '/manutencao', '/links-afiliados', '/precos', '/recuperar-inativos', '/diagnostico'])
 
 export default function Roteador() {
   const [caminho, setCaminho] = useState(caminhoAtual)
@@ -44,6 +45,7 @@ export default function Roteador() {
       : caminho === '/manutencao' ? <ManutencaoPage />
         : caminho === '/links-afiliados' ? <LinksAfiliadosPage />
           : caminho === '/precos' ? <PrecosPage />
+            : caminho === '/recuperar-inativos' ? <RecuperarInativosPage />
             : caminho === '/diagnostico' ? <DiagnosticoPage /> : <App />
   const areaAtual = caminho === '/importar-produtos' ? 'Importar produtos'
     : caminho === '/extrair-afiliados' ? 'Importação / Publicação'
@@ -51,6 +53,7 @@ export default function Roteador() {
       : caminho === '/manutencao' ? 'Manutenção'
         : caminho === '/links-afiliados' ? 'Links afiliados'
           : caminho === '/precos' ? 'Preços'
+            : caminho === '/recuperar-inativos' ? 'Recuperar inativos'
             : caminho === '/diagnostico' ? 'Diagnóstico' : 'Início'
   return <div className="garimpo-shell">
     <Navegacao caminho={caminho} navegar={navegar} />

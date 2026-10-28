@@ -33,7 +33,7 @@ export async function enviarSelecionadosValio(
   produtos: ProdutoAfiliado[], selecionados: ReadonlySet<number>,
   categorias: ReadonlyMap<number, CategoriaValio>, token: string,
   enviar: typeof fetch = fetch,
-  opcoes: { somenteCriar?: boolean } = {},
+  opcoes: { somenteCriar?: boolean; origemLink?: 'importacao-html' | 'importacao-json' | 'gerador-lote' } = {},
 ): Promise<ResumoEnvio> {
   if (!token.trim()) throw new Error('Informe o token de publicação.')
   if (!selecionadosPublicaveis(produtos, selecionados, categorias)) {
@@ -50,7 +50,8 @@ export async function enviarSelecionadosValio(
       let resposta: Response
       try { resposta = await enviar('/api/valio/produtos', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token.trim()}` },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token.trim()}`,
+          ...(opcoes.origemLink ? { 'X-Valio-Origem-Link': opcoes.origemLink } : {}) },
         body: JSON.stringify(montarPayloadPublicacao(produto, opcoes.somenteCriar === true)),
         cache: 'no-store',
       }) }

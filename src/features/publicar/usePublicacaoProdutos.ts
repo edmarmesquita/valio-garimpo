@@ -90,7 +90,8 @@ export function usePublicacaoProdutos({ produtos, selecionados, categorias, orig
     if (!indices.size) return
     setEnviando(true); setResumoEnvio(null); setErroEnvio('')
     try {
-      const resumo = await enviarSelecionadosValio(produtos, indices, categorias, tokenPublicacao)
+      const resumo = await enviarSelecionadosValio(produtos, indices, categorias, tokenPublicacao, fetch,
+        { origemLink: origemHtml ? 'importacao-html' : 'importacao-json' })
       setResumoEnvio(resumo)
       if (resumo.enviados > 0) {
         setEstadoVerificacao('consultando')

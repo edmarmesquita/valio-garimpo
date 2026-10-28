@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { validarDestinoAfiliado, type ValidarDestino } from './validarDestinoAfiliado.js'
 import { CATEGORIAS_VALIO, validarProdutoPublicacao } from './valioProduto.js'
 import { mapearProdutoParaRow } from './services/supabase.js'
 
@@ -277,7 +278,7 @@ function camposTecnicosSeguros(erro: unknown, segredos: readonly string[]) {
 }
 
 export async function confirmarPreviaOfertas(preview: PreviaOfertas, gateway: OfertaGateway,
-  agora = new Date(), segredos: readonly string[] = []): Promise<ResultadoOfertas> {
+  agora = new Date(), segredos: readonly string[] = [], validar: ValidarDestino = validarDestinoAfiliado): Promise<ResultadoOfertas> {
   const resumo: ResultadoOfertas = { criadas: 0, ativadas: 0, atualizadas: 0, desativadas: 0,
     semAlteracao: 0, conflitos: 0, erros: 0, itens: [] }
   if (preview.modo === 'SUBSTITUIR') {
@@ -312,6 +313,7 @@ export async function confirmarPreviaOfertas(preview: PreviaOfertas, gateway: Of
         const produto = validarProdutoPublicacao({ mercadoLivreId: op.itemId, titulo: d.titulo,
           descricao: '', preco: d.preco, dataPreco, linkAfiliado: d.linkAfiliado,
           categoria: d.categoria, rating: null, imagem: d.imagem })
+        await validar(produto.mercadoLivreId, produto.linkAfiliado, 'ofertas:novo-produto')
         await gateway.inserir({ ...mapearProdutoParaRow(produto, agora),
           ...alteracao({ tipo: op.tipo, dados: d }, preview.modo) } as NovoProdutoOferta)
         resumo.criadas++; resumo.itens.push({ itemId: op.itemId, resultado: 'CRIADA' }); continue

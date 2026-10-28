@@ -162,7 +162,8 @@ export default function ImportarListaAfiliadosPanel() {
       if (!livres.length) { setErroPublicacao('Os produtos já existem no Valiô. Atualize a prévia antes de tentar novamente.'); return }
       const dados = livres.map((item) => item.dados!)
       const categorias = new Map(livres.map((item, indice) => [indice, categoriasNovos.get(item.produto.itemId)!]))
-      const resumo = await enviarSelecionadosValio(dados, new Set(dados.map((_, indice) => indice)), categorias, token, fetch, { somenteCriar: true })
+      const resumo = await enviarSelecionadosValio(dados, new Set(dados.map((_, indice) => indice)), categorias, token, fetch,
+        { somenteCriar: true, origemLink: 'gerador-lote' })
       if (pedido === versao.current && tokenAtual.current === token) {
         setResultadoPublicacao(resumo); setPreparadaPublicacao(false)
         const falhas = new Set(resumo.erros.map((item) => item.id))
@@ -359,6 +360,7 @@ export default function ImportarListaAfiliadosPanel() {
       </div>
       <div className="lista-afiliados-retorno">
         <h3>Retorno do Gerador Mercado Livre</h3>
+        <p role="status">Pareamento por posição é provisório: os links ainda não estão validados. A prévia verifica o ITEM_ID do destino e bloqueia divergências. Links não validados exigem conferência e nova validação antes de publicar.</p>
         <label htmlFor="retorno-gerador-lista">Cole aqui exatamente o retorno do Gerador, incluindo links e avisos.</label>
         <textarea id="retorno-gerador-lista" value={retornoTexto} disabled={confirmando || publicando || !snapshot || registro?.status === 'FINALIZADO'} onChange={(evento) => {
           setRetornoTexto(evento.target.value); setRetornoProcessado(null); setMensagemBloco(''); invalidarPrevia()
@@ -388,7 +390,7 @@ export default function ImportarListaAfiliadosPanel() {
               <tbody>{retornoAtual.pareamentos.map(({ produto, retorno, situacao }) => <tr key={produto.itemId} className={!retorno || retorno.tipo === 'REVISAR' ? 'lista-afiliados-revisar' : ''}>
                 <td>{produto.ordem}</td><td>{produto.itemId}</td><td>{produto.titulo ?? '—'}</td>
                 <td>{retorno?.tipo ?? 'SEM RESULTADO'}{retorno?.tipo === 'REVISAR' && <small>{retorno.original}</small>}</td>
-                <td>{retorno?.link ?? '—'}</td><td>{situacao}</td>
+                <td>{retorno?.link ?? '—'}</td><td>{retorno?.tipo === 'LINK' ? 'NÃO VALIDADO — consulte a prévia' : situacao}</td>
               </tr>)}</tbody></table>
           </div>
           {retornoAtual.excedentes.length > 0 && <div className="lista-afiliados-excedentes" role="alert"><strong>Resultados sem produto correspondente:</strong>

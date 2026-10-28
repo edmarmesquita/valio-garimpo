@@ -3,6 +3,7 @@ import { criarLinkAfiliadoGateway } from '../services/supabase.js'
 import { ehLinkOficialParaAtualizacao } from '../../src/lib/linksAfiliados.js'
 import { confirmarLinksLote, criarPreviaLinks } from '../linksAfiliadosLote.js'
 import type { ContextoRotas } from './contexto.js'
+import { ErroDestinoAfiliado, validarDestinoAfiliado } from '../validarDestinoAfiliado.js'
 
 export function registrarLinksAfiliados(router: Router, { deps, autorizar }: ContextoRotas) {
 
@@ -24,6 +25,7 @@ export function registrarLinksAfiliados(router: Router, { deps, autorizar }: Con
       if (!encontrados.length) { res.status(404).json({ ok: false, erro: 'Produto não encontrado.' }); return }
       if (encontrados.length !== 1) { res.status(409).json({ ok: false, erro: 'Mais de um produto corresponde ao ITEM_ID.' }); return }
       const anterior = encontrados[0]
+      await (deps.validarDestino ?? validarDestinoAfiliado)(entrada.mercado_livre_id, entrada.link_afiliado, 'atualizacao:individual')
       const atualizados = await gateway.atualizar(entrada.mercado_livre_id, anterior.link_afiliado, entrada.link_afiliado)
       if (atualizados.length !== 1 || atualizados[0].mercado_livre_id !== entrada.mercado_livre_id
         || atualizados[0].link_afiliado !== entrada.link_afiliado) {
@@ -32,7 +34,10 @@ export function registrarLinksAfiliados(router: Router, { deps, autorizar }: Con
       }
       res.json({ ok: true, produto: anterior.titulo, mercado_livre_id: entrada.mercado_livre_id,
         link_anterior: anterior.link_afiliado, link_afiliado: atualizados[0].link_afiliado })
-    } catch {
+    } catch (erro) {
+      if (erro instanceof ErroDestinoAfiliado) {
+        res.status(erro.status).json({ ok: false, erro: erro.message }); return
+      }
       res.status(502).json({ ok: false, erro: 'Não foi possível atualizar o link afiliado.' })
     }
   })
@@ -45,7 +50,7 @@ export function registrarLinksAfiliados(router: Router, { deps, autorizar }: Con
       res.status(400).json({ ok: false, erro: 'Envie somente texto com até 50 linhas.' }); return
     }
     try {
-      const previa = await criarPreviaLinks(req.body.texto, (deps.linkAfiliado ?? criarLinkAfiliadoGateway)(config))
+      const previa = await criarPreviaLinks(req.body.texto, (deps.linkAfiliado ?? criarLinkAfiliadoGateway)(config), deps.validarDestino)
       res.json({ ok: true, ...previa })
     } catch (erro) {
       res.status(400).json({ ok: false, erro: erro instanceof Error ? erro.message : 'Lote inválido.' })
@@ -62,7 +67,7 @@ export function registrarLinksAfiliados(router: Router, { deps, autorizar }: Con
     }
     try {
       const resultado = await confirmarLinksLote(req.body.texto, req.body.confirmacoes,
-        (deps.linkAfiliado ?? criarLinkAfiliadoGateway)(config))
+        (deps.linkAfiliado ?? criarLinkAfiliadoGateway)(config), deps.validarDestino)
       res.json({ ok: true, ...resultado })
     } catch (erro) {
       res.status(400).json({ ok: false, erro: erro instanceof Error ? erro.message : 'Lote inválido.' })

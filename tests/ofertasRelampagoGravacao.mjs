@@ -6,8 +6,11 @@ import { createServer } from 'vite'
 import { PGlite } from '@electric-sql/pglite'
 
 const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
-const { criarPreviaOfertas, criarPreviaLimpezaExpiradas, confirmarPreviaOfertas, validarPedidoOfertas, assinarPrevia, validarAssinatura } =
+const { criarPreviaOfertas, criarPreviaLimpezaExpiradas, confirmarPreviaOfertas: confirmarComValidacao, validarPedidoOfertas, assinarPrevia, validarAssinatura } =
   await vite.ssrLoadModule('/server/ofertasRelampagoLote.ts')
+// As regressões de ofertas simulam a verificação externa; validarDestinoAfiliado.mjs testa o bloqueio real.
+const confirmarPreviaOfertas = (previa, gateway, agora, segredos) =>
+  confirmarComValidacao(previa, gateway, agora, segredos, async () => {})
 const { criarRotaValioProdutos } = await vite.ssrLoadModule('/server/valioProdutos.ts')
 const { mapearProdutoParaRow, criarOfertasGateway } = await vite.ssrLoadModule('/server/services/supabase.ts')
 test.after(async () => vite.close())

@@ -1,5 +1,6 @@
 import { ehLinkOficialParaAtualizacao } from '../src/lib/linksAfiliados.js'
 import type { LinkAfiliadoGateway } from './services/supabase.js'
+import { ErroDestinoAfiliado, validarDestinoAfiliado, type ValidarDestino } from './validarDestinoAfiliado.js'
 
 export type LinhaPreviaLink = {
   linha: number
@@ -39,19 +40,20 @@ export function analisarLinhasLinks(texto: unknown): LinhaEntrada[] {
     ? { ...item, motivo: 'ITEM_ID duplicado neste lote.' } : item)
 }
 
-export async function criarPreviaLinks(texto: unknown, gateway: LinkAfiliadoGateway) {
+export async function criarPreviaLinks(texto: unknown, gateway: LinkAfiliadoGateway, validar: ValidarDestino = validarDestinoAfiliado) {
   const entradas = analisarLinhasLinks(texto)
   const linhas: LinhaPreviaLink[] = await Promise.all(entradas.map(async (item) => {
     const base = { ...item, titulo: null, link_anterior: null }
     if (item.motivo || !item.mercado_livre_id) return base
     try {
+      await validar(item.mercado_livre_id, item.link_novo!, 'gerador-ou-links-lote:previa')
       const encontrados = await gateway.buscar(item.mercado_livre_id)
       if (!encontrados.length) return { ...base, motivo: 'Produto não encontrado; nenhum cadastro será criado.' }
       if (encontrados.length !== 1) return { ...base, motivo: 'Mais de um produto corresponde ao ITEM_ID.' }
       const encontrado = encontrados[0]
       return { ...base, titulo: encontrado.titulo, link_anterior: encontrado.link_afiliado,
         motivo: encontrado.link_afiliado === item.link_novo ? 'Este link já está salvo.' : null }
-    } catch { return { ...base, motivo: 'Não foi possível consultar este produto.' } }
+    } catch (erro) { return { ...base, motivo: erro instanceof ErroDestinoAfiliado ? erro.message : 'Não foi possível consultar este produto.' } }
   }))
   return { solicitadas: linhas.length, linhas }
 }
@@ -70,7 +72,8 @@ export function validarConfirmacoes(valor: unknown): ConfirmacaoLink[] {
   return valor as ConfirmacaoLink[]
 }
 
-export async function confirmarLinksLote(texto: unknown, confirmacoes: unknown, gateway: LinkAfiliadoGateway) {
+export async function confirmarLinksLote(texto: unknown, confirmacoes: unknown, gateway: LinkAfiliadoGateway,
+  validar: ValidarDestino = validarDestinoAfiliado) {
   const entradas = analisarLinhasLinks(texto)
   const porLinha = new Map(validarConfirmacoes(confirmacoes).map((item) => [item.linha, item]))
   const resultados = await Promise.all(entradas.map(async (item): Promise<{ id: string | null; falha: FalhaLink | null }> => {
@@ -85,11 +88,12 @@ export async function confirmarLinksLote(texto: unknown, confirmacoes: unknown, 
       if (encontrados.length !== 1) return falhar('Mais de um produto corresponde ao ITEM_ID.')
       if (encontrados[0].link_afiliado !== confirmacao.link_anterior) return falhar('O link mudou desde a prévia; revise novamente.')
       if (encontrados[0].link_afiliado === item.link_novo) return falhar('Este link já está salvo.')
+      await validar(id, item.link_novo, 'atualizacao:lote-confirmacao')
       const atualizados = await gateway.atualizar(id, confirmacao.link_anterior, item.link_novo)
       if (atualizados.length !== 1 || atualizados[0].mercado_livre_id !== id
         || atualizados[0].link_afiliado !== item.link_novo) return falhar('Atualização não confirmada; confira o cadastro.')
       return { id, falha: null }
-    } catch { return falhar('Não foi possível atualizar este produto.') }
+    } catch (erro) { return falhar(erro instanceof ErroDestinoAfiliado ? erro.message : 'Não foi possível atualizar este produto.') }
   }))
   const idsAtualizados = resultados.flatMap((item) => item.id ? [item.id] : [])
   const falhas = resultados.flatMap((item) => item.falha ? [item.falha] : [])

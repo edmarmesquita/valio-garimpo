@@ -395,7 +395,7 @@ test('interface mostra lote misto de dez e envia à prévia somente sete links',
     assert.deepEqual(linhas.map((linha) => linha.cells[3].textContent),
       ['LINK', 'LINK', 'RECUSADO', 'LINK', 'PAUSADO', 'LINK', 'LINK', 'RECUSADO', 'LINK', 'LINK'])
     assert.deepEqual(linhas.map((linha) => linha.cells[5].textContent),
-      ['PRONTO', 'PRONTO', 'NÃO PUBLICAR', 'PRONTO', 'NÃO PUBLICAR', 'PRONTO', 'PRONTO', 'NÃO PUBLICAR', 'PRONTO', 'PRONTO'])
+      ['NÃO VALIDADO — consulte a prévia', 'NÃO VALIDADO — consulte a prévia', 'NÃO PUBLICAR', 'NÃO VALIDADO — consulte a prévia', 'NÃO PUBLICAR', 'NÃO VALIDADO — consulte a prévia', 'NÃO VALIDADO — consulte a prévia', 'NÃO PUBLICAR', 'NÃO VALIDADO — consulte a prévia', 'NÃO VALIDADO — consulte a prévia'])
     assert.deepEqual(document.querySelector('[aria-label="Bloco ITEM_ID | link"]').value.split('\n'),
       validos.map((indice) => `MLB${indice} | https://meli.la/link${indice}`))
     assert.equal(botao('Enviar válidos para prévia').disabled, false)

@@ -1,17 +1,20 @@
 import { createHash, timingSafeEqual } from 'node:crypto'
 import type { Request, Response } from 'express'
 import { diagnosticarSupabaseEnv, getSupabaseConfig } from '../services/supabase.js'
-import type { CatalogoGateway, ConsultaProdutosGateway, LinkAfiliadoGateway, ProdutosGateway, SupabaseConfig } from '../services/supabase.js'
+import type { CatalogoGateway, ConsultaProdutosGateway, LinkAfiliadoGateway, ProdutosGateway, ReativacaoGateway, SupabaseConfig } from '../services/supabase.js'
 import type { CliquesGateway } from '../services/cliques.js'
 import type { OfertaGateway } from '../ofertasRelampagoLote.js'
 import type { PrecosHarGateway } from '../precosHar.js'
+import type { ValidarDestino } from '../validarDestinoAfiliado.js'
 
 export type Dependencias = {
+  validarDestino?: ValidarDestino
   precosHar?: (config: SupabaseConfig) => PrecosHarGateway
   config?: () => SupabaseConfig | null
   gateway?: (config: SupabaseConfig) => ProdutosGateway
   consulta?: (config: SupabaseConfig) => ConsultaProdutosGateway
   catalogo?: (config: SupabaseConfig) => CatalogoGateway
+  reativacao?: (config: SupabaseConfig) => ReativacaoGateway
   linkAfiliado?: (config: SupabaseConfig) => LinkAfiliadoGateway
   cliques?: (config: SupabaseConfig) => CliquesGateway
   ofertas?: (config: SupabaseConfig) => OfertaGateway

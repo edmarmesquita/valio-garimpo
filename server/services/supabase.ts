@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import { ehLinkMonetizado, ehLinkOficialParaAtualizacao } from '../../src/lib/linksAfiliados.js'
 import type { ProdutoPublicacao } from '../valioProduto.js'
 import type { OfertaGateway, OfertaRow } from '../ofertasRelampagoLote.js'
+import { validarDestinoAfiliado, type ValidarDestino } from '../validarDestinoAfiliado.js'
 
 export type SupabaseConfig = { url: string; serviceRoleKey: string }
 export type AcaoPublicacao = 'criado' | 'atualizado'
@@ -54,6 +55,33 @@ export type CatalogoGateway = {
   alterarStatus: (id: string, ativo: boolean) => Promise<boolean>
   alterarCategoria: (id: string, categoria: string) => Promise<boolean>
   atualizarPreco: (id: string, preco: number, dataPreco: string, updatedAt: string, confirmar: boolean, precoEsperado?: number) => Promise<boolean>
+}
+export type InativoParaReativar = { id: number; mercado_livre_id: string; ativo: boolean }
+export type ReativacaoGateway = {
+  buscar: (id: string) => Promise<InativoParaReativar | null>
+  reativar: (id: string, interno: number, preco: number, updatedAt: string) => Promise<boolean>
+}
+
+export function criarReativacaoGateway(config: SupabaseConfig): ReativacaoGateway {
+  const supabase = createClient(config.url, config.serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  return {
+    async buscar(id) {
+      const { data, error } = await supabase.from('produtos')
+        .select('id,mercado_livre_id,ativo').eq('mercado_livre_id', id).maybeSingle()
+      if (error) throw error
+      return data
+    },
+    async reativar(id, interno, preco, updatedAt) {
+      const { data, error } = await supabase.from('produtos')
+        .update({ ativo: true, preco, updated_at: updatedAt })
+        .eq('id', interno).eq('mercado_livre_id', id).eq('ativo', false)
+        .select('id,mercado_livre_id')
+      if (error) throw error
+      return data?.length === 1 && data[0].id === interno && data[0].mercado_livre_id === id
+    },
+  }
 }
 
 export function diagnosticarSupabaseEnv(env: NodeJS.ProcessEnv = process.env) {
@@ -248,7 +276,9 @@ export function criarCatalogoGateway(config: SupabaseConfig): CatalogoGateway {
   }
 }
 
-export async function publicarProduto(produto: ProdutoPublicacao, gateway: ProdutosGateway, somenteCriar = false): Promise<AcaoPublicacao> {
+export async function publicarProduto(produto: ProdutoPublicacao, gateway: ProdutosGateway, somenteCriar = false,
+  validar: ValidarDestino = validarDestinoAfiliado, origem = 'publicacao:recebido'): Promise<AcaoPublicacao> {
+  await validar(produto.mercadoLivreId, produto.linkAfiliado, origem)
   if (somenteCriar) {
     if (!ehLinkOficialParaAtualizacao(produto.linkAfiliado)) throw new Error('Produto novo sem link afiliado oficial.')
     if (!gateway.inserir) throw new Error('Criação exclusiva indisponível.')
@@ -258,6 +288,7 @@ export async function publicarProduto(produto: ProdutoPublicacao, gateway: Produ
   const linkExistente = await gateway.obterLinkAfiliado(produto.mercadoLivreId)
   const linkAfiliado = linkExistente && ehLinkMonetizado(linkExistente) && !ehLinkMonetizado(produto.linkAfiliado)
     ? linkExistente : produto.linkAfiliado
+  if (linkAfiliado !== produto.linkAfiliado) await validar(produto.mercadoLivreId, linkAfiliado, 'publicacao:preservado')
   await gateway.upsert({
     mercado_livre_id: produto.mercadoLivreId,
     titulo: produto.titulo,

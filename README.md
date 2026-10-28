@@ -34,6 +34,14 @@ A integração OAuth não consulta nem importa produtos.
 
 ## Publicação manual no Valiô (Fase 2A)
 
+### Validação do destino afiliado
+
+Antes de publicar ou trocar um link, o backend resolve o destino por HTTPS, com domínios permitidos, limite de redirecionamentos, timeout e limite de HTML. Em páginas sociais, procura o anúncio associado ao título principal (`og:title`), sem usar os IDs das recomendações. Em páginas de anúncio, exige uma URL canônica identificável. Destino ambíguo, bloqueio HTTP, CAPTCHA, catálogo sem anúncio ou falha de rede resultam em **não validado** e impedem a gravação. É necessário conferir o link e obter nova validação; não há bypass automático nem associação inventada.
+
+O pareamento por posição do Gerador é apenas uma proposta. A prévia resolve cada link e compara o ITEM_ID, inclusive para produtos ainda não cadastrados. Divergências são exibidas e bloqueadas, sem reordenar silenciosamente. A publicação e a confirmação de troca revalidam o destino antes de gravar. Novos produtos de ofertas passam pela mesma proteção. Destinos externos podem mudar depois da validação; ela comprova a resposta observada naquele momento.
+
+O log estruturado `[afiliado-validacao]` registra ITEM_ID esperado, link recebido (sem credenciais, query ou fragmento), origem, ITEM_ID resolvido, resultado e timestamp. Links simples `meli.la` permanecem completos. Headers de autenticação, cookies, HTML e mensagens internas de rede não são registrados. A origem da importação chega por header com valores permitidos, sem ampliar os campos de negócio do payload. `npm run test:afiliados-destino` executa os testes determinísticos do resolvedor e dos bloqueios de gravação.
+
 Execute manualmente [migrations/002_valio_produtos_supabase.sql](migrations/002_valio_produtos_supabase.sql) no SQL Editor do projeto Supabase do Valiô. O script cria `public.produtos` com `mercado_livre_id` único, RLS e leitura pública apenas para linhas `ativo = true`; não migra os produtos atuais do Valiô. Confira também se o schema `public` está exposto na Data API do projeto.
 
 Configure **somente no backend** (`.env` local e Environment Variables na Vercel):

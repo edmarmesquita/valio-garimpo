@@ -1111,7 +1111,7 @@ test('gerenciamento independente usa prévia/confirmação, mantém produto ativ
         }
         resposta = { ok: true, previa: await criarPreviaOfertas(body, gateway), assinatura: 'assinada-no-teste' }
       }
-      else if (url.endsWith('/confirmar')) resposta = { ok: true, ...await confirmarPreviaOfertas(body.previa, gateway) }
+      else if (url.endsWith('/confirmar')) resposta = { ok: true, ...await confirmarPreviaOfertas(body.previa, gateway, undefined, [], async () => {}) }
       else assert.fail(`Rota inesperada: ${url}`)
       return { ok: true, json: async () => resposta }
     } : dom.window[key] })
@@ -1309,7 +1309,7 @@ test('salvar/carregar lote preparado exige revalidação e nova prévia sem alte
       assert.ok(url.endsWith('/confirmar'))
       assert.equal(body.assinatura, 'nova-assinatura-preparada')
       assert.equal(body.previa.exigirPrazoValido, true)
-      return { ok: true, json: async () => ({ ok: true, ...await confirmarPreviaOfertas(body.previa, gateway) }) }
+      return { ok: true, json: async () => ({ ok: true, ...await confirmarPreviaOfertas(body.previa, gateway, undefined, [], async () => {}) }) }
     } : dom.window[key] })
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   let root
@@ -1539,7 +1539,7 @@ test('prévia mantém 2 de 20 selecionados, bloqueia controles em loading e reje
       assert.equal(backend.validarAssinatura(body.previa, body.assinatura, 'segredo-teste'), true)
       assert.equal(body.assinatura, assinaturaEmitida)
       confirmacoes++
-      return resposta(await backend.confirmarPreviaOfertas(body.previa, gateway))
+      return resposta(await backend.confirmarPreviaOfertas(body.previa, gateway, undefined, [], async () => {}))
     } : dom.window[k] })
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   let root

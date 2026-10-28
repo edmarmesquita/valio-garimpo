@@ -2,6 +2,7 @@ import type { Router } from 'express'
 import { criarCatalogoGateway, criarConsultaProdutosGateway, criarProdutosGateway, publicarProduto } from '../services/supabase.js'
 import { validarProdutoPublicacao } from '../valioProduto.js'
 import type { ContextoRotas } from './contexto.js'
+import { ErroDestinoAfiliado } from '../validarDestinoAfiliado.js'
 
 export function registrarCatalogo(router: Router, { deps, autorizar }: ContextoRotas) {
 
@@ -95,9 +96,15 @@ export function registrarPublicacao(router: Router, { deps, autorizar }: Context
     }
     try {
       const gateway = (deps.gateway ?? criarProdutosGateway)(config)
-      const acao = await publicarProduto(produto, gateway, somenteCriar)
+      const informada = req.get('x-valio-origem-link') ?? ''
+      const origem = ['importacao-html', 'importacao-json', 'gerador-lote'].includes(informada)
+        ? informada : 'publicacao:recebido'
+      const acao = await publicarProduto(produto, gateway, somenteCriar, deps.validarDestino, origem)
       res.json({ ok: true, acao })
     } catch (erro) {
+      if (erro instanceof ErroDestinoAfiliado) {
+        res.status(erro.status).json({ ok: false, erro: erro.message }); return
+      }
       if (somenteCriar && (erro as { code?: string })?.code === '23505') {
         res.status(409).json({ ok: false, erro: 'Produto já existe no Valiô; nenhuma alteração foi feita.' })
         return

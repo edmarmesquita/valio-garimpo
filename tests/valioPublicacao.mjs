@@ -29,7 +29,7 @@ test('valida produto completo e preserva link; recusa ID ausente e categoria inv
 async function servidor(deps, executar) {
   const app = express()
   app.use(express.json())
-  app.use('/api/valio', criarRotaValioProdutos(deps))
+  app.use('/api/valio', criarRotaValioProdutos({ validarDestino: async () => {}, ...deps }))
   const server = app.listen(0, '127.0.0.1')
   try {
     await new Promise((resolve) => server.once('listening', resolve))

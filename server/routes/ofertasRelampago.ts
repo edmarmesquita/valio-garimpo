@@ -73,7 +73,7 @@ export function registrarOfertasRelampago(router: Router, { deps, autorizar }: C
     }
     try {
       const resultado = await confirmarPreviaOfertas(entrada.previa, (deps.ofertas ?? criarOfertasGateway)(config),
-        deps.agora?.() ?? new Date(), [config.serviceRoleKey, req.headers.authorization ?? ''])
+        deps.agora?.() ?? new Date(), [config.serviceRoleKey, req.headers.authorization ?? ''], deps.validarDestino)
       res.json({ ok: true, ...resultado })
     } catch {
       res.status(502).json({ ok: false, erro: 'Não foi possível consultar o estado atual das ofertas.' })

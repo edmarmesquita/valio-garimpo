@@ -7,6 +7,7 @@ const destinos = [
   ['/manutencao', 'Manutenção'],
   ['/links-afiliados', 'Links afiliados'],
   ['/precos', 'Preços'],
+  ['/recuperar-inativos', 'Recuperar inativos'],
   ['/diagnostico', 'Diagnóstico'],
 ] as const
 

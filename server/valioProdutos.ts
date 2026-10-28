@@ -8,6 +8,7 @@ import { registrarPrecosHar } from './routes/precosHar.js'
 import { registrarManutencao } from './routes/manutencao.js'
 import { registrarLinksAfiliados } from './routes/linksAfiliados.js'
 import { registrarOfertasRelampago } from './routes/ofertasRelampago.js'
+import { registrarReativacaoInativos } from './routes/reativacaoInativos.js'
 
 export function criarRotaValioProdutos(deps: Dependencias = {}) {
   const router = Router()
@@ -17,6 +18,7 @@ export function criarRotaValioProdutos(deps: Dependencias = {}) {
   registrarPrecos(router, contexto)
   registrarPrecosHar(router, contexto)
   registrarManutencao(router, contexto)
+  registrarReativacaoInativos(router, contexto)
   registrarLinksAfiliados(router, contexto)
   registrarOfertasRelampago(router, contexto)
   registrarPublicacao(router, contexto)
