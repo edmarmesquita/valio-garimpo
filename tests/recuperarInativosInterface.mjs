@@ -41,7 +41,29 @@ test('interface seleciona EXATOS, exige confirmação e atualiza a lista após r
     await act(async () => root.render(createElement(ContextoSessao.Provider,
       { value: { token: 'token-de-teste', setToken() {}, diagnostico: null, setDiagnostico() {} } }, createElement(Page))))
     const botao = (texto) => [...document.querySelectorAll('button')].find((item) => item.textContent === texto)
+    const linhasSemCorrespondencia = () => {
+      const titulo = [...document.querySelectorAll('h2')].find((item) => item.textContent.includes('SEM CORRESP'))
+      const linhas = []; let atual = titulo?.nextElementSibling
+      while (atual?.tagName === 'P' && /^\s*MLB\d+/.test(atual.textContent)) { linhas.push(atual); atual = atual.nextElementSibling }
+      return linhas
+    }
     await act(async () => botao('Carregar catálogo de inativos').click())
+    assert.deepEqual([...document.querySelectorAll('.recuperar-inativos__resumo strong')].map((item) => item.textContent), ['3', '0', '0', '3'])
+    assert.equal(linhasSemCorrespondencia().length, 3)
+    assert.match(document.body.textContent, /3 de 3 exibidos/)
+    assert.equal(botao('Mostrar mais'), undefined)
+    catalogo.push(...Array.from({ length: 60 }, (_, indice) => ({ mercadoLivreId: `MLB${indice + 100}`,
+      titulo: `Inativo sem correspondencia ${indice + 100}`, preco: 50 + indice, categoria: 'Achados para Casa', ativo: false })))
+    await act(async () => botao('Carregar catálogo de inativos').click())
+    assert.equal(linhasSemCorrespondencia().length, 25)
+    assert.match(document.body.textContent, /25 de 63 exibidos/)
+    await act(async () => botao('Mostrar mais').click())
+    assert.equal(linhasSemCorrespondencia().length, 50)
+    assert.match(document.body.textContent, /50 de 63 exibidos/)
+    await act(async () => botao('Mostrar mais').click())
+    assert.equal(linhasSemCorrespondencia().length, 63)
+    assert.equal(botao('Mostrar mais'), undefined)
+    assert.match(document.body.textContent, /63 de 63 exibidos/)
     const html = (...produtos) => produtos.map(([id, titulo, preco]) => `<script type="application/ld+json">${JSON.stringify({
       '@type': 'Product', sku: id, name: titulo, offers: { price: preco, priceCurrency: 'BRL' },
     })}</script>`).join('\n')
@@ -51,6 +73,12 @@ test('interface seleciona EXATOS, exige confirmação e atualiza a lista após r
     const input = document.querySelector('input[type=file]')
     Object.defineProperty(input, 'files', { configurable: true, value: [arquivo] })
     await act(async () => input.dispatchEvent(new dom.window.Event('change', { bubbles: true })))
+    assert.deepEqual([...document.querySelectorAll('.recuperar-inativos__resumo strong')].map((item) => item.textContent), ['63', '2', '1', '60'])
+    assert.equal(linhasSemCorrespondencia().length, 25)
+    assert.match(document.body.textContent, /25 de 60 exibidos/)
+    assert.equal(botao('Mostrar mais')?.textContent, 'Mostrar mais')
+    assert.match(linhasSemCorrespondencia()[0].textContent, /^MLB100 · Inativo sem correspondencia 100 ·/)
+    assert.match(linhasSemCorrespondencia()[24].textContent, /^MLB124 · Inativo sem correspondencia 124 ·/)
     assert.equal(document.querySelectorAll('input[type=checkbox]').length, 2)
     assert.equal(botao('Reativar selecionados').disabled, true)
     await act(async () => document.querySelector('input[aria-label="Selecionar MLB1"]').click())

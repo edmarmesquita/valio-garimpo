@@ -10,6 +10,7 @@ import type { ResultadoReativacao } from '../lib/reativarInativos'
 import './RecuperarInativosPage.css'
 
 const reais = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+const LOTE_SEM_CORRESPONDENCIA = 25
 
 export default function RecuperarInativosPage() {
   const { token } = useSessaoOperacional()
@@ -21,6 +22,7 @@ export default function RecuperarInativosPage() {
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [confirmacao, setConfirmacao] = useState<ReturnType<typeof selecionarExatos> | null>(null)
   const [resultado, setResultado] = useState<ResultadoReativacao[] | null>(null)
+  const [limiteSemCorrespondencia, setLimiteSemCorrespondencia] = useState(LOTE_SEM_CORRESPONDENCIA)
   const diagnostico = catalogo ? classificarInativos(catalogo, capturas) : []
   const exatos = diagnostico.filter((item) => item.tipo === 'EXATO')
   const candidatos = diagnostico.filter((item) => item.tipo === 'CANDIDATO')
@@ -71,6 +73,7 @@ export default function RecuperarInativosPage() {
       }
       setCapturas((atual) => [...atual, ...novos])
       setArquivos((atual) => [...atual, ...Array.from(lista, (arquivo) => arquivo.name)])
+      setLimiteSemCorrespondencia(LOTE_SEM_CORRESPONDENCIA)
     } catch (falha) { setErro(falha instanceof Error ? falha.message : 'Não foi possível ler os arquivos.') }
     finally { setOcupado(false) }
   }
@@ -133,9 +136,14 @@ export default function RecuperarInativosPage() {
         </div>
       </article>)}
       <h2>SEM CORRESPONDÊNCIA</h2>
-      {semCorrespondencia.map(({ inativo }) => <p key={inativo.mercadoLivreId}>
+      {semCorrespondencia.slice(0, limiteSemCorrespondencia).map(({ inativo }) => <p key={inativo.mercadoLivreId}>
         {inativo.mercadoLivreId} · {inativo.titulo} · {reais(inativo.preco)}
       </p>)}
+      <p aria-live="polite">{Math.min(limiteSemCorrespondencia, semCorrespondencia.length)} de {semCorrespondencia.length} exibidos</p>
+      {limiteSemCorrespondencia < semCorrespondencia.length && <button type="button"
+        onClick={() => setLimiteSemCorrespondencia((atual) => Math.min(atual + LOTE_SEM_CORRESPONDENCIA, semCorrespondencia.length))}>
+        Mostrar mais
+      </button>}
     </section>
   </AreaOperacional>
 }
