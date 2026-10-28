@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { createServer } from 'vite'
 import { act, createElement } from 'react'
 
-async function montar(executar, responder = async () => { throw Error('Requisição inesperada') }) {
+async function montar(executar, responder = async () => { throw Error('Requisição inesperada') }, identificar) {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost/extrair-afiliados' })
   const original = { window: globalThis.window, document: globalThis.document, navigator: globalThis.navigator,
     HTMLElement: globalThis.HTMLElement, fetch: globalThis.fetch, actEnvironment: globalThis.IS_REACT_ACT_ENVIRONMENT }
@@ -14,7 +14,18 @@ async function montar(executar, responder = async () => { throw Error('Requisiç
     globalThis.window = dom.window; globalThis.document = dom.window.document
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator })
     globalThis.HTMLElement = dom.window.HTMLElement; globalThis.IS_REACT_ACT_ENVIRONMENT = true
-    globalThis.fetch = async (url, options) => { chamadas.push({ url, options }); return responder(url, options) }
+    globalThis.fetch = async (url, options) => {
+      if (url.endsWith('/links-afiliados/identificar')) {
+        const links = JSON.parse(options.body).links
+        const destinos = identificar ? identificar(links) : links.map((link) => {
+          const linha = [...document.querySelectorAll('.lista-afiliados-pareamento tbody tr')]
+            .find((item) => item.cells[4].textContent === link)
+          return linha?.cells[1].textContent ?? null
+        })
+        return { ok: true, json: async () => ({ ok: true, destinos }) }
+      }
+      chamadas.push({ url, options }); return responder(url, options)
+    }
     const { createRoot } = await import('react-dom/client')
     vite = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
     const { ContextoSessao } = await vite.ssrLoadModule('/src/app/sessaoOperacionalContext.ts')
@@ -97,6 +108,24 @@ test('envia apenas LINK para prévia sem gravar e confirma explicitamente só pr
     idsAtualizados: ['MLB11'], falhas: [{ linha: 2, mercado_livre_id: 'MLB44', motivo: 'Produto não encontrado.' }] }) })
 })
 
+test('lote fora de ordem envia à prévia os links associados pelo ITEM_ID resolvido', async () => {
+  await montar(async ({ chamadas, botao, extrair, processar }) => {
+    await extrair(['MLB11', 'MLB22'])
+    await processar('https://meli.la/segundo\nhttps://meli.la/primeiro')
+    await act(async () => botao('Enviar válidos para prévia').click())
+    assert.equal(chamadas.length, 1)
+    assert.equal(JSON.parse(chamadas[0].options.body).texto,
+      'MLB11 | https://meli.la/primeiro\nMLB22 | https://meli.la/segundo')
+    assert.equal(document.querySelector('[aria-label="Bloco ITEM_ID | link"]').value,
+      'MLB11 | https://meli.la/primeiro\nMLB22 | https://meli.la/segundo')
+  }, async () => ({ ok: true, json: async () => ({ ok: true, solicitadas: 2, linhas: [
+    { linha: 1, mercado_livre_id: 'MLB11', titulo: 'Primeiro', link_anterior: null,
+      link_novo: 'https://meli.la/primeiro', motivo: null },
+    { linha: 2, mercado_livre_id: 'MLB22', titulo: 'Segundo', link_anterior: null,
+      link_novo: 'https://meli.la/segundo', motivo: null },
+  ] }) }), () => ['MLB22', 'MLB11'])
+})
+
 test('lote processado não mostra alerta nem é contaminado pelo lote pendente', async () => {
   await montar(async ({ botao, extrair, processar }) => {
     await extrair(Array.from({ length: 32 }, (_, indice) => `MLB${indice + 1}`))
@@ -157,9 +186,11 @@ test('lista, retorno e prévia permanecem ao alternar áreas da sessão', async 
     globalThis.window = dom.window; globalThis.document = dom.window.document
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator })
     globalThis.HTMLElement = dom.window.HTMLElement; globalThis.IS_REACT_ACT_ENVIRONMENT = true
-    globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true, solicitadas: 1, linhas: [
-      { linha: 1, mercado_livre_id: 'MLB11', titulo: 'Produto', link_anterior: 'https://meli.la/antigo', link_novo: 'https://meli.la/novo', motivo: null },
-    ] }) })
+    globalThis.fetch = async (url) => ({ ok: true, json: async () => url.endsWith('/identificar')
+      ? { ok: true, destinos: ['MLB11'] }
+      : { ok: true, solicitadas: 1, linhas: [
+        { linha: 1, mercado_livre_id: 'MLB11', titulo: 'Produto', link_anterior: 'https://meli.la/antigo', link_novo: 'https://meli.la/novo', motivo: null },
+      ] } })
     const { createRoot } = await import('react-dom/client')
     vite = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
     const { ContextoSessao } = await vite.ssrLoadModule('/src/app/sessaoOperacionalContext.ts')

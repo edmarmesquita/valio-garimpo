@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test, { after } from 'node:test'
 import express from 'express'
 import { createServer } from 'vite'
+import { readFileSync } from 'node:fs'
 
 const vite = await createServer({ server: { middlewareMode: true }, appType: 'custom', logLevel: 'silent' })
 after(() => vite.close())
@@ -9,7 +10,8 @@ const { validarDestinoAfiliado, resolverItemId, extrairItemPrincipal } = await v
 const { publicarProduto } = await vite.ssrLoadModule('/server/services/supabase.ts')
 const { criarPreviaLinks, confirmarLinksLote } = await vite.ssrLoadModule('/server/linksAfiliadosLote.ts')
 const { criarRotaValioProdutos } = await vite.ssrLoadModule('/server/valioProdutos.ts')
-const { processarRetornoGerador } = await vite.ssrLoadModule('/src/features/importar-lista-afiliados/processarRetornoGerador.ts')
+const { processarRetornoGerador, associarLinksPorItemId } = await vite.ssrLoadModule('/src/features/importar-lista-afiliados/processarRetornoGerador.ts')
+const { identificarDestinosLote } = await vite.ssrLoadModule('/src/lib/manutencaoVitrine.ts')
 const { prepararPublicacaoNovos } = await vite.ssrLoadModule('/src/features/importar-lista-afiliados/prepararPublicacaoNovos.ts')
 const { criarPreviaOfertas, confirmarPreviaOfertas } = await vite.ssrLoadModule('/server/ofertasRelampagoLote.ts')
 const mesa = 'MLB3784146413', sutia = 'MLB6456132876'
@@ -44,16 +46,46 @@ test('auditoria registra entrada, origem, identidade, resultado e horário sem q
   assert.ok(!JSON.stringify(logs).includes('SEGREDO'))
 })
 
-const social = (id, nome = 'Mesa &amp; cadeiras') => `<meta property="og:title" content="${nome}">
+const social = (id, nome = 'Mesa &amp; cadeiras', titulo = nome) => `<meta property="og:title" content="${titulo}">
+  <section class="rl-card-featured"><section class="rl-list-single">
   <a href="https://www.mercadolivre.com.br/mesa/up/MLBU1459681541?pdp_filters=item_id%3A${id}&amp;x=1#&amp;wid=${id}">${nome}</a>
-  <a href="https://produto.mercadolivre.com.br/MLB-999-recomendacao-_JM">Outra recomendação</a>`
+  </section></section><section class="rl-carousel-by-type">
+  <a href="https://produto.mercadolivre.com.br/MLB-999-recomendacao-_JM">${nome}</a></section>`
 
-test('social extrai produto correspondente a og:title e ignora recomendações', () => {
+test('1wFhmcR: HTML com preço extra em og:title valida ITEM_ID técnico do produto principal', async () => {
+  const html = readFileSync(new URL('./fixtures/1wFhmcR-social.html', import.meta.url), 'utf8')
+  const pagina = 'https://www.mercadolivre.com.br/social/ee20260414070618?matt_word=valiosite'
+  assert.equal(extrairItemPrincipal(html, pagina), 'MLB3658105805')
+  assert.equal(await resolverItemId('https://meli.la/1wFhmcR', async (url) => url.includes('meli.la')
+    ? new Response(null, { status: 301, headers: { location: pagina } })
+    : new Response(html, { headers: { 'content-type': 'text/html; charset=utf-8' } })), 'MLB3658105805')
+})
+
+test('social usa IDs do destaque, não exige og:title e ignora recomendações', () => {
   assert.equal(extrairItemPrincipal(social(mesa), 'https://www.mercadolivre.com.br/social/perfil'), mesa)
   assert.equal(extrairItemPrincipal(social(sutia, 'Sutiã'), 'https://www.mercadolivre.com.br/social/perfil'), sutia)
   assert.equal(extrairItemPrincipal(social(mesa) + social(sutia), 'https://www.mercadolivre.com.br/social/perfil'), null)
   assert.equal(extrairItemPrincipal(social(mesa).replace(`wid=${mesa}`, `wid=${sutia}`), 'https://www.mercadolivre.com.br/social/perfil'), null)
   assert.equal(extrairItemPrincipal('<a href="https://produto.mercadolivre.com.br/MLB-999-rec-_JM">Recomendação</a>', 'https://www.mercadolivre.com.br/social/perfil'), null)
+  assert.equal(extrairItemPrincipal(social(mesa, 'Mesa', 'Sutiã promocional - R$ 10'), 'https://www.mercadolivre.com.br/social/perfil'), mesa)
+  assert.equal(extrairItemPrincipal(social(mesa).replace(/<meta[^>]*>/, ''), 'https://www.mercadolivre.com.br/social/perfil'), mesa)
+  assert.equal(extrairItemPrincipal('<section class="rl-card-featured"><a href="https://www.mercadolivre.com.br/social/perfil">Mesa</a></section>', 'https://www.mercadolivre.com.br/social/perfil'), null)
+  assert.equal(extrairItemPrincipal(social(mesa).replace(`wid=${mesa}`, `wid=${sutia}`), 'https://www.mercadolivre.com.br/social/perfil'), null)
+  assert.equal(extrairItemPrincipal(social(mesa).replace('MLBU1459681541', 'MLBU1451720997').replace(`wid=${mesa}`, `wid=${sutia}`), 'https://www.mercadolivre.com.br/social/perfil'), null)
+  assert.equal(extrairItemPrincipal(social(mesa).replace('<section class="rl-list-single">', `<section class="rl-list-single"><div data-item-id="${mesa}" data-other="x"></div>`), 'https://www.mercadolivre.com.br/social/perfil'), mesa)
+  assert.equal(extrairItemPrincipal(social(mesa).replace('<section class="rl-list-single">', `<section class="rl-list-single"><div data-item-id="${sutia}"></div>`), 'https://www.mercadolivre.com.br/social/perfil'), null)
+  assert.equal(extrairItemPrincipal('<section class="rl-card-featured"><script type="application/json">{"metadata":{"id":"MLB3784146413"},"userProductId":"MLBU1451720997"}</script></section>', 'https://www.mercadolivre.com.br/social/perfil'), mesa)
+  assert.equal(extrairItemPrincipal(`<section class="rl-card-featured"><script type="application/json">{"metadata":{"id":"${mesa}"},"itemId":"${sutia}"}</script></section>`, 'https://www.mercadolivre.com.br/social/perfil'), null)
+  assert.equal(extrairItemPrincipal(social(mesa).replace('<section class="rl-list-single">', '<section class="rl-list-single"><script type="application/json">{"userProductId":"MLBU999"}</script>'), 'https://www.mercadolivre.com.br/social/perfil'), null)
+})
+
+test('título igual ou parecido não autoriza ITEM_ID diferente; título diferente não bloqueia ITEM_ID igual', async () => {
+  const pagina = 'https://www.mercadolivre.com.br/social/perfil'
+  await validarDestinoAfiliado(mesa, correto, 'teste', async () => extrairItemPrincipal(social(mesa, 'Mesa A', 'Outro título com preço'), pagina), () => {})
+  for (const titulo of ['Mesa A', 'Mesa A ligeiramente diferente']) {
+    await assert.rejects(() => validarDestinoAfiliado(mesa, errado, 'teste',
+      async () => extrairItemPrincipal(social(sutia, 'Mesa A', titulo), pagina), () => {}), new RegExp(`${sutia}.*${mesa}`))
+  }
 })
 
 test('PDP exige canonical de anúncio compatível; catálogo e HTML ambíguo não comprovam ID', () => {
@@ -112,6 +144,54 @@ test('lote do Gerador com links trocados: prévia detecta os dois e impede class
   const previa = await criarPreviaLinks(retorno.blocoAtualizador, { buscar: async () => [] }, validar)
   assert.ok(previa.linhas.every((r) => r.motivo.includes('incompatível')))
   assert.equal(prepararPublicacaoNovos(retorno, previa, new Map()).novos.length, 0)
+})
+
+test('lote fora de ordem associa pelo ITEM_ID técnico, não pela posição', async () => {
+  const bruto = processarRetornoGerador([{ itemId: mesa }, { itemId: sutia }], `${errado}\n${correto}`)
+  const associado = associarLinksPorItemId(bruto, [sutia, mesa])
+  assert.equal(associado.blocoAtualizador, `${mesa} | ${correto}\n${sutia} | ${errado}`)
+  assert.deepEqual(associado.pareamentos.map((p) => p.retorno.link), [correto, errado])
+  const previa = await criarPreviaLinks(associado.blocoAtualizador, { buscar: async () => [] }, validar)
+  assert.ok(previa.linhas.every((linha) => /Produto não encontrado/.test(linha.motivo)))
+  assert.throws(() => associarLinksPorItemId(bruto, [null, mesa]), /não validado/)
+  assert.throws(() => associarLinksPorItemId(bruto, [mesa, mesa]), /mais de um link/)
+  assert.throws(() => associarLinksPorItemId(bruto, ['MLB999', mesa]), /ausente/)
+})
+
+test('identificação em lotes consulta blocos de até 50 e conserva posição da resposta', async () => {
+  const chamadas = []
+  const links = Array.from({ length: 51 }, (_, indice) => `https://meli.la/${indice + 100}`)
+  const ids = await identificarDestinosLote(links, 'token-de-teste', async (_url, options) => {
+    const bloco = JSON.parse(options.body).links
+    chamadas.push(bloco)
+    return { ok: true, json: async () => ({ ok: true, destinos: bloco.map((link) => `MLB${new URL(link).pathname.slice(1)}`) }) }
+  })
+  assert.deepEqual(chamadas.map((bloco) => bloco.length), [50, 1])
+  assert.deepEqual(ids, links.map((link) => `MLB${new URL(link).pathname.slice(1)}`))
+})
+
+test('API de identificação responde por link, falha fechada e não grava', async () => {
+  let escritas = 0
+  const token = 'token-de-teste-longo-com-mais-de-32-caracteres'
+  const app = express(); app.use(express.json())
+  app.use('/api/valio', criarRotaValioProdutos({
+    token: () => token, config: () => ({ url: 'https://teste.supabase.co', serviceRoleKey: 'segredo-falso' }),
+    resolverDestino: async (link) => link === correto ? mesa : link === errado ? sutia : null,
+    linkAfiliado: () => ({ buscar: async () => [], atualizar: async () => { escritas++ } }),
+  }))
+  const server = app.listen(0, '127.0.0.1')
+  await new Promise((resolve) => server.once('listening', resolve))
+  try {
+    const url = `http://127.0.0.1:${server.address().port}/api/valio/produtos/links-afiliados/identificar`
+    const headers = { authorization: `Bearer ${token}`, 'content-type': 'application/json' }
+    const resposta = await fetch(url, { method: 'POST', headers,
+      body: JSON.stringify({ links: [correto, errado, 'https://meli.la/desconhecido'] }) })
+    assert.equal(resposta.status, 200)
+    assert.deepEqual((await resposta.json()).destinos, [mesa, sutia, null])
+    assert.equal((await fetch(url, { method: 'POST', headers,
+      body: JSON.stringify({ links: ['https://example.com/fora'] }) })).status, 400)
+    assert.equal(escritas, 0)
+  } finally { await new Promise((resolve) => server.close(resolve)) }
 })
 
 test('prévia valida também novos; link não validado não se torna produto novo', async () => {

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useSessaoOperacional } from '../../app/sessaoOperacionalContext'
-import { confirmarLinksLote, preverLinksLote } from '../../lib/manutencaoVitrine'
+import { confirmarLinksLote, identificarDestinosLote, preverLinksLote } from '../../lib/manutencaoVitrine'
 import type { PreviaLinksLote, ResultadoLinksLote } from '../../lib/manutencaoVitrine'
 import { enviarSelecionadosValio } from '../../lib/publicarProdutosValio'
 import type { ResumoEnvio } from '../../lib/publicarProdutosValio'
@@ -9,7 +9,7 @@ import { CATEGORIAS_VALIO } from '../../lib/produtosGarimpados'
 import type { CategoriaValio } from '../../lib/produtosGarimpados'
 import { extrairListaAfiliados } from './extrairListaAfiliados'
 import type { ResultadoListaAfiliados } from './extrairListaAfiliados'
-import { processarRetornoGerador } from './processarRetornoGerador'
+import { associarLinksPorItemId, processarRetornoGerador } from './processarRetornoGerador'
 import type { ResultadoRetornoGerador } from './processarRetornoGerador'
 import { prepararPublicacaoNovos } from './prepararPublicacaoNovos'
 import { atualizarStatusSnapshot, criarRegistrosSnapshot, lerRegistrosSnapshot, removerRegistroSnapshot, salvarRegistrosSnapshot } from './snapshotLoteAfiliados'
@@ -40,6 +40,7 @@ export default function ImportarListaAfiliadosPanel() {
   })
   const [mensagemBloco, setMensagemBloco] = useState('')
   const [previa, setPrevia] = useState<{ dados: PreviaLinksLote; texto: string; token: string } | null>(null)
+  const [pareamentoValidado, setPareamentoValidado] = useState<{ chave: string; resultado: ResultadoRetornoGerador } | null>(null)
   const [confirmacao, setConfirmacao] = useState<ResultadoLinksLote | null>(null)
   const [erroLote, setErroLote] = useState('')
   const [carregandoPrevia, setCarregandoPrevia] = useState(false)
@@ -75,7 +76,9 @@ export default function ImportarListaAfiliadosPanel() {
   const retornoConsolidado = retornoConsolidadoBase && pendentes > 0
     ? { ...retornoConsolidadoBase, revisar: retornoConsolidadoBase.revisar + pendentes, errosQuantidade: retornoConsolidadoBase.errosQuantidade + pendentes, consistente: false }
     : retornoConsolidadoBase
-  const retornoAtual = registros.length > 1 ? retornoConsolidado : retornoProcessado
+  const retornoBruto = registros.length > 1 ? retornoConsolidado : retornoProcessado
+  const retornoAtual = pareamentoValidado && retornoBruto && pareamentoValidado.chave === retornoBruto.blocoAtualizador
+    ? pareamentoValidado.resultado : retornoBruto
   const retornoLoteAtivo = retornoProcessado
   const urlsGerador = snapshot?.urlsParaGerador ?? resultado?.urlsParaGerador ?? ''
   const previaAtual = previa?.token === token && previa.texto === retornoAtual?.blocoAtualizador ? previa : null
@@ -118,7 +121,7 @@ export default function ImportarListaAfiliadosPanel() {
 
   function limparDerivados() {
     versao.current++
-    setPrevia(null); setConfirmacao(null); setErroLote(''); setCarregandoPrevia(false)
+    setPrevia(null); setPareamentoValidado(null); setConfirmacao(null); setErroLote(''); setCarregandoPrevia(false)
     setPreparadaPublicacao(false); setResultadoPublicacao(null); setErroPublicacao(''); setIgnoradosPublicacao([])
     setNovosJaExistentes(new Set()); setRetornoTexto(''); setRetornoProcessado(null); setCategoriasNovos(new Map())
   }
@@ -142,7 +145,7 @@ export default function ImportarListaAfiliadosPanel() {
 
   function invalidarPrevia() {
     versao.current++
-    setPrevia(null); setConfirmacao(null); setErroLote(''); setCarregandoPrevia(false)
+    setPrevia(null); setPareamentoValidado(null); setConfirmacao(null); setErroLote(''); setCarregandoPrevia(false)
     setPreparadaPublicacao(false); setResultadoPublicacao(null); setErroPublicacao(''); setIgnoradosPublicacao([])
     setNovosJaExistentes(new Set())
   }
@@ -179,18 +182,23 @@ export default function ImportarListaAfiliadosPanel() {
   }
 
   async function enviarParaPrevia() {
-    const texto = retornoAtual?.blocoAtualizador
-    if (!registro || !texto || !token.trim() || carregandoPrevia || confirmando || publicando) return
+    if (!registro || !retornoBruto?.blocoAtualizador || !token.trim() || carregandoPrevia || confirmando || publicando) return
     const pedido = ++versao.current
     setCarregandoPrevia(true); setPrevia(null); setConfirmacao(null); setErroLote('')
     try {
+      const links = retornoBruto.pareamentos.flatMap((item) => item.retorno?.tipo === 'LINK' && item.retorno.link ? [item.retorno.link] : [])
+      const destinos = await identificarDestinosLote(links, token)
+      if (pedido !== versao.current || tokenAtual.current !== token) return
+      const validado = associarLinksPorItemId(retornoBruto, destinos)
+      const texto = validado.blocoAtualizador
       const dados = await preverLinksLote(texto, token)
       if (pedido === versao.current && tokenAtual.current === token) {
+        setPareamentoValidado({ chave: retornoBruto.blocoAtualizador, resultado: validado })
         setPrevia({ dados, texto, token })
         setErroLote(dados.falhasSublotes?.map((falha) =>
           `Falha no sublote ${falha.sublote} de ${falha.totalSublotes}: ${falha.motivo}`).join(' ') ?? '')
         const jaSalvos = dados.linhas.filter((item) => item.motivo === 'Este link já está salvo.'
-          && item.mercado_livre_id && item.link_novo === retornoAtual?.pareamentos
+          && item.mercado_livre_id && item.link_novo === validado.pareamentos
             .filter((par) => par.retorno?.tipo === 'LINK')[item.linha - 1]?.retorno?.link)
           .map((item) => item.mercado_livre_id!)
         if (jaSalvos.length) persistirIdsEmTodos('linksConcluidos', jaSalvos)

@@ -87,3 +87,22 @@ export function processarRetornoGerador(produtos: readonly ProdutoListaAfiliados
       retorno?.link ? [`${produto.itemId} | ${retorno.link}`] : []).join('\n') : '',
   }
 }
+
+export function associarLinksPorItemId(retorno: ResultadoRetornoGerador, destinos: readonly (string | null)[]): ResultadoRetornoGerador {
+  if (!retorno.consistente) throw new Error('O retorno do Gerador está inconsistente; revise o lote.')
+  const comLink = retorno.pareamentos.filter((item) => item.retorno?.tipo === 'LINK')
+  if (destinos.length !== comLink.length) throw new Error('A quantidade de destinos identificados não corresponde aos links do lote.')
+  const esperados = new Set(comLink.map((item) => item.produto.itemId))
+  const porId = new Map<string, LinhaRetornoGerador>()
+  comLink.forEach(({ retorno: linha }, indice) => {
+    const id = destinos[indice]
+    if (!id) throw new Error(`Link afiliado não validado: ${linha!.link}. Confira antes de publicar.`)
+    if (!esperados.has(id)) throw new Error(`Link afiliado incompatível: ${linha!.link} pertence ao ITEM_ID ${id}, ausente entre os produtos com link neste lote.`)
+    if (porId.has(id)) throw new Error(`O ITEM_ID ${id} aparece em mais de um link do retorno. Revise o lote.`)
+    porId.set(id, linha!)
+  })
+  const pareamentos = retorno.pareamentos.map((item) => item.retorno?.tipo === 'LINK'
+    ? { ...item, retorno: porId.get(item.produto.itemId)! } : item)
+  return { ...retorno, pareamentos, blocoAtualizador: pareamentos.flatMap(({ produto, retorno: linha }) =>
+    linha?.tipo === 'LINK' && linha.link ? [`${produto.itemId} | ${linha.link}`] : []).join('\n') }
+}

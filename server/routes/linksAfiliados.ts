@@ -3,9 +3,27 @@ import { criarLinkAfiliadoGateway } from '../services/supabase.js'
 import { ehLinkOficialParaAtualizacao } from '../../src/lib/linksAfiliados.js'
 import { confirmarLinksLote, criarPreviaLinks } from '../linksAfiliadosLote.js'
 import type { ContextoRotas } from './contexto.js'
-import { ErroDestinoAfiliado, validarDestinoAfiliado } from '../validarDestinoAfiliado.js'
+import { ErroDestinoAfiliado, resolverItemId, validarDestinoAfiliado } from '../validarDestinoAfiliado.js'
 
 export function registrarLinksAfiliados(router: Router, { deps, autorizar }: ContextoRotas) {
+
+  router.post('/produtos/links-afiliados/identificar', async (req, res) => {
+    res.set('Cache-Control', 'no-store')
+    const config = autorizar(req, res)
+    if (!config) return
+    const entrada = req.body
+    if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada)
+      || Object.keys(entrada).length !== 1 || !Array.isArray(entrada.links)
+      || entrada.links.length < 1 || entrada.links.length > 50
+      || entrada.links.some((link: unknown) => typeof link !== 'string' || !ehLinkOficialParaAtualizacao(link))) {
+      res.status(400).json({ ok: false, erro: 'Envie de 1 a 50 links oficiais para identificar.' }); return
+    }
+    const resolver = deps.resolverDestino ?? resolverItemId
+    const destinos = await Promise.all(entrada.links.map(async (link: string) => {
+      try { return await resolver(link) } catch { return null }
+    }))
+    res.json({ ok: true, destinos: destinos.map((itemId) => /^MLB\d+$/.test(itemId ?? '') ? itemId : null) })
+  })
 
   router.patch('/produtos/link-afiliado', async (req, res) => {
     const config = autorizar(req, res)

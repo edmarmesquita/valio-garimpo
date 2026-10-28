@@ -5,10 +5,11 @@ import type { CatalogoGateway, ConsultaProdutosGateway, LinkAfiliadoGateway, Pro
 import type { CliquesGateway } from '../services/cliques.js'
 import type { OfertaGateway } from '../ofertasRelampagoLote.js'
 import type { PrecosHarGateway } from '../precosHar.js'
-import type { ValidarDestino } from '../validarDestinoAfiliado.js'
+import type { ResolverDestino, ValidarDestino } from '../validarDestinoAfiliado.js'
 
 export type Dependencias = {
   validarDestino?: ValidarDestino
+  resolverDestino?: ResolverDestino
   precosHar?: (config: SupabaseConfig) => PrecosHarGateway
   config?: () => SupabaseConfig | null
   gateway?: (config: SupabaseConfig) => ProdutosGateway

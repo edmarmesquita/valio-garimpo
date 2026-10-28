@@ -47,43 +47,74 @@ function idsUrl(url: URL): Set<string> {
   return ids
 }
 
-function identidadeUrl(url: URL): string | null {
-  const ids = idsUrl(url)
-  return ids.size === 1 ? [...ids][0] : null
+function secaoEmDestaque(html: string): string | null {
+  const aberturas = [...html.matchAll(/<section\b[^>]*>/gi)]
+    .filter(([tag]) => /(?:\s|^)class\s*=\s*(["'])[^"']*\brl-card-featured\b[^"']*\1/i.test(tag))
+  if (aberturas.length !== 1) return null
+  const inicio = aberturas[0].index!
+  const tags = /<\/?section\b[^>]*>/gi
+  tags.lastIndex = inicio
+  let nivel = 0
+  let tag: RegExpExecArray | null
+  while ((tag = tags.exec(html)) !== null) {
+    nivel += /^<\/section/i.test(tag[0]) ? -1 : 1
+    if (nivel === 0) return html.slice(inicio, tags.lastIndex)
+  }
+  return null
 }
 
-// Nunca procurar o primeiro MLB no documento: recomendações contêm outros anúncios.
+function idsEstruturados(bloco: string): Set<string> {
+  const ids = new Set<string>()
+  for (const match of bloco.matchAll(/\bdata-(?:item-id|mercado-livre-id|wid)\s*=\s*(["'])(MLB-?\d+)\1/gi)) {
+    ids.add(match[2].replace('-', '').toUpperCase())
+  }
+  for (const match of bloco.matchAll(/["']metadata["']\s*:\s*\{[^{}]{0,2000}?["']id["']\s*:\s*["'](MLB-?\d+)["']/gi)) {
+    ids.add(match[1].replace('-', '').toUpperCase())
+  }
+  for (const match of bloco.matchAll(/["'](?:itemId|item_id|mercado_livre_id|wid)["']\s*:\s*["'](MLB-?\d+)["']/gi)) {
+    ids.add(match[1].replace('-', '').toUpperCase())
+  }
+  return ids
+}
+
+// O anúncio principal fica na seção destacada. IDs das recomendações fora dela não são prova.
 export function extrairItemPrincipal(html: string, pagina: string): string | null {
   const url = urlPermitida(pagina)
   if (url.pathname.startsWith('/social/')) {
-    const titulos = [...html.matchAll(/<meta\b[^>]*>/gi)].flatMap(([tag]) =>
-      atributo(tag, 'property') === 'og:title' ? [decodificar(atributo(tag, 'content') ?? '')] : [])
-    if (titulos.length !== 1 || !titulos[0]) return null
-    const normalizar = (s: string) => decodificar(s.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim()
-    const ids = new Set<string>()
-    for (const [tag, conteudo] of [...html.matchAll(/<a\b[^>]*>([\s\S]*?)<\/a>/gi)].map((m) => [m[0].slice(0, m[0].indexOf('>') + 1), m[1]])) {
-      if (normalizar(conteudo) !== normalizar(titulos[0])) continue
+    const destaque = secaoEmDestaque(html)
+    if (!destaque) return null
+    const ids = idsEstruturados(destaque)
+    const userProducts = new Set<string>()
+    for (const [tag] of destaque.matchAll(/<a\b[^>]*>/gi)) {
       const href = atributo(tag, 'href')
       if (!href) continue
       try {
         const destino = urlPermitida(new URL(decodificar(href), url).href)
-        const id = identidadeUrl(destino)
-        if (!id) return null
-        ids.add(id)
-      } catch { return null }
+        const idsLink = idsUrl(destino)
+        for (const id of idsLink) ids.add(id)
+        const userProduct = /\/up\/(MLBU\d+)(?:\/|$)/i.exec(destino.pathname)?.[1]
+        if (userProduct && idsLink.size) userProducts.add(userProduct.toUpperCase())
+      } catch { /* link auxiliar não identifica produto */ }
     }
-    return ids.size === 1 ? [...ids][0] : null
+    for (const match of destaque.matchAll(/["'](?:userProductId|user_product_id|productId|product_id)["']\s*:\s*["'](MLBU\d+)["']/gi)) {
+      userProducts.add(match[1].toUpperCase())
+    }
+    return ids.size === 1 && userProducts.size <= 1 ? [...ids][0] : null
   }
+  const idsPagina = idsUrl(url)
+  if (idsPagina.size > 1) return null
   const canonicos = [...html.matchAll(/<link\b[^>]*>/gi)].map(([tag]) => tag)
     .filter((tag) => atributo(tag, 'rel') === 'canonical')
-  if (canonicos.length !== 1) return null
+  if (canonicos.length > 1) return null
+  if (!canonicos.length) return idsPagina.size === 1 ? [...idsPagina][0] : null
   try {
     const href = atributo(canonicos[0], 'href')
     if (!href) return null
     const canonico = urlPermitida(new URL(decodificar(href), url).href)
-    const id = identidadeUrl(canonico)
-    const idsPagina = idsUrl(url)
-    return id && (!idsPagina.size || idsPagina.size === 1 && idsPagina.has(id)) ? id : null
+    const idsCanonicos = idsUrl(canonico)
+    if (idsCanonicos.size > 1) return null
+    const ids = new Set([...idsPagina, ...idsCanonicos])
+    return ids.size === 1 ? [...ids][0] : null
   } catch { return null }
 }
 

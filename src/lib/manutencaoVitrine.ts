@@ -149,6 +149,20 @@ export type LinhaPreviaLink = {
   titulo: string | null; link_anterior: string | null; motivo: string | null
 }
 export type FalhaSubloteLinks = { sublote: number; totalSublotes: number; etapa: 'pr\u00e9via' | 'atualiza\u00e7\u00e3o'; motivo: string }
+export async function identificarDestinosLote(links: string[], token: string, enviar: typeof fetch = fetch): Promise<(string | null)[]> {
+  const destinos: (string | null)[] = []
+  for (let inicio = 0; inicio < links.length; inicio += 50) {
+    const trecho = links.slice(inicio, inicio + 50)
+    const resposta = await requisitar('/api/valio/produtos/links-afiliados/identificar', token, 'POST', { links: trecho }, enviar)
+    if (!Array.isArray(resposta.destinos) || resposta.destinos.length !== trecho.length
+      || resposta.destinos.some((id: unknown) => id !== null && (typeof id !== 'string' || !/^MLB\d+$/.test(id)))) {
+      throw new Error('Identificação de destinos respondeu com dados inválidos.')
+    }
+    destinos.push(...resposta.destinos as (string | null)[])
+  }
+  return destinos
+}
+
 export type PreviaLinksLote = { solicitadas: number; linhas: LinhaPreviaLink[]; falhasSublotes?: FalhaSubloteLinks[] }
 export type ResultadoLinksLote = {
   solicitadas: number; atualizadas: number; erros: number; idsAtualizados: string[]
