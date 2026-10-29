@@ -3,8 +3,8 @@ import AreaOperacional from '../components/AreaOperacional'
 import { useSessaoOperacional } from '../app/sessaoOperacionalContext'
 import { carregarCatalogo } from '../lib/manutencaoVitrine'
 import type { ProdutoCatalogo } from '../lib/manutencaoVitrine'
-import { classificarInativos, extrairArquivoInativos } from '../lib/recuperarInativos'
-import type { CapturaInativo } from '../lib/recuperarInativos'
+import { analisarArquivoInativos, classificarInativos } from '../lib/recuperarInativos'
+import type { CapturaInativo, ResultadoArquivoInativos } from '../lib/recuperarInativos'
 import { pedidosDosExatos, reativarExatos, selecionarExatos } from '../lib/reativarInativos'
 import type { ResultadoReativacao } from '../lib/reativarInativos'
 import './RecuperarInativosPage.css'
@@ -17,6 +17,10 @@ export default function RecuperarInativosPage() {
   const [catalogo, setCatalogo] = useState<ProdutoCatalogo[] | null>(null)
   const [capturas, setCapturas] = useState<CapturaInativo[]>([])
   const [arquivos, setArquivos] = useState<string[]>([])
+  const [arquivosProcessados, setArquivosProcessados] = useState(0)
+  const [cardsBrutos, setCardsBrutos] = useState(0)
+  const [duplicadosNaOrigem, setDuplicadosNaOrigem] = useState(0)
+  const [naoReconhecidos, setNaoReconhecidos] = useState<string[]>([])
   const [ocupado, setOcupado] = useState(false)
   const [erro, setErro] = useState('')
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
@@ -27,6 +31,9 @@ export default function RecuperarInativosPage() {
   const exatos = diagnostico.filter((item) => item.tipo === 'EXATO')
   const candidatos = diagnostico.filter((item) => item.tipo === 'CANDIDATO')
   const semCorrespondencia = diagnostico.filter((item) => item.tipo === 'SEM CORRESPONDÊNCIA')
+  const conflitosPreco = diagnostico.filter((item) => item.conflitoPreco)
+  const idsCapturados = new Set(capturas.map((item) => item.itemId))
+  const duplicadosCapturados = duplicadosNaOrigem + Math.max(0, capturas.length - idsCapturados.size)
   const selecionadosExatos = selecionarExatos(exatos, selecionados)
 
   function alternar(id: string) {
@@ -65,14 +72,22 @@ export default function RecuperarInativosPage() {
     setOcupado(true); setErro('')
     setConfirmacao(null)
     try {
-      const novos: CapturaInativo[] = []
+      const resultados: ResultadoArquivoInativos[] = []
       for (const arquivo of Array.from(lista)) {
         if (!/\.(har|json|html?|html?\.txt)$/i.test(arquivo.name)) throw new Error(`Formato não aceito: ${arquivo.name}`)
         if (arquivo.size > 50 * 1024 * 1024) throw new Error(`Arquivo maior que 50 MB: ${arquivo.name}`)
-        novos.push(...extrairArquivoInativos(await arquivo.text(), arquivo.name))
+        resultados.push(analisarArquivoInativos(await arquivo.text(), arquivo.name))
       }
+      const novos = resultados.flatMap((resultado) => resultado.capturas)
+      const rejeitados = Array.from(lista).filter((_, indice) => !resultados[indice]?.reconhecido).map((arquivo) => arquivo.name)
       setCapturas((atual) => [...atual, ...novos])
       setArquivos((atual) => [...atual, ...Array.from(lista, (arquivo) => arquivo.name)])
+      setArquivosProcessados((atual) => atual + lista.length)
+      setCardsBrutos((atual) => atual + resultados.reduce((total, resultado) => total + resultado.cardsBrutos, 0))
+      setDuplicadosNaOrigem((atual) => atual + resultados.reduce((total, resultado) =>
+        total + (resultado.formato === 'OFERTAS_NORDIC' ? 0 : resultado.duplicados), 0))
+      setNaoReconhecidos((atual) => [...atual, ...rejeitados])
+      if (rejeitados.length) setErro(`Não foi possível reconhecer ${rejeitados.length} arquivo(s): ${rejeitados.join(', ')}. Envie HTML de produtos do Mercado Livre, lista estruturada ou HAR válido.`)
       setLimiteSemCorrespondencia(LOTE_SEM_CORRESPONDENCIA)
     } catch (falha) { setErro(falha instanceof Error ? falha.message : 'Não foi possível ler os arquivos.') }
     finally { setOcupado(false) }
@@ -88,6 +103,8 @@ export default function RecuperarInativosPage() {
         <input type="file" multiple accept=".html,.htm,.txt,.json,.har" disabled={ocupado}
           onChange={(evento) => { void adicionarArquivos(evento.currentTarget.files); evento.currentTarget.value = '' }} />
       </label>
+      {arquivosProcessados > 0 && <p aria-label="Resumo dos arquivos">Arquivos processados: {arquivosProcessados} · Cards lidos: {cardsBrutos} · ITEM_IDs únicos: {idsCapturados.size} · Duplicados: {duplicadosCapturados} · Não reconhecidos: {naoReconhecidos.length}</p>}
+      {naoReconhecidos.length > 0 && <p>Arquivos não reconhecidos: {naoReconhecidos.join(', ')}</p>}
       {arquivos.length > 0 && <p>Arquivos analisados: {arquivos.join(', ')}</p>}
       {erro && <p role="alert" className="extrair-erro">{erro}</p>}
       <div className="recuperar-inativos__resumo" aria-label="Resumo do diagnóstico">
@@ -96,6 +113,7 @@ export default function RecuperarInativosPage() {
         <p>Candidatos à substituição: <strong>{candidatos.length}</strong></p>
         <p>Sem correspondência: <strong>{semCorrespondencia.length}</strong></p>
       </div>
+      {conflitosPreco.length > 0 && <p role="status">Conflitos de preço que exigem revisão: <strong>{conflitosPreco.length}</strong></p>}
       <p>Candidatos por título são apenas sugestões para conferência manual.</p>
       <h2>EXATO — mesmo ITEM_ID</h2>
       <div className="recuperar-inativos__acoes">
@@ -110,7 +128,7 @@ export default function RecuperarInativosPage() {
           onChange={() => alternar(inativo.mercadoLivreId)} /> Selecionar para reativação</label>
         <h3>{inativo.titulo}</h3>
         <p>ITEM_ID: {inativo.mercadoLivreId} · Categoria: {inativo.categoria}</p>
-        <p>Preço no Valiô: {reais(inativo.preco)} · Preço no HTML: {reais(exato!.preco)} · Origem: {exato!.origem}</p>
+        <p>Preço no Valiô: {reais(inativo.preco)} · Preço no HTML: {reais(exato!.preco)} · Origem: {(exato!.origens ?? [exato!.origem]).join(', ')}</p>
       </article>)}
       {confirmacao && <section className="recuperar-inativos__confirmacao" aria-label="Confirmar reativação">
         <h3>Você está prestes a reativar {confirmacao.length} {confirmacao.length === 1 ? 'produto' : 'produtos'}.</h3>
@@ -136,8 +154,9 @@ export default function RecuperarInativosPage() {
         </div>
       </article>)}
       <h2>SEM CORRESPONDÊNCIA</h2>
-      {semCorrespondencia.slice(0, limiteSemCorrespondencia).map(({ inativo }) => <p key={inativo.mercadoLivreId}>
+      {semCorrespondencia.slice(0, limiteSemCorrespondencia).map(({ inativo, conflitoPreco }) => <p key={inativo.mercadoLivreId}>
         {inativo.mercadoLivreId} · {inativo.titulo} · {reais(inativo.preco)}
+        {conflitoPreco && <strong> · Conflito de preço: {conflitoPreco.precos.map(reais).join(' / ')} · origem: {conflitoPreco.origens.join(', ')}</strong>}
       </p>)}
       <p aria-live="polite">{Math.min(limiteSemCorrespondencia, semCorrespondencia.length)} de {semCorrespondencia.length} exibidos</p>
       {limiteSemCorrespondencia < semCorrespondencia.length && <button type="button"

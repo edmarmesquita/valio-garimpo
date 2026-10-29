@@ -1,0 +1,25 @@
+{
+  "page": 2,
+  "limit": 48,
+  "paging": { "limit": 48, "offset": 48, "total": 1248, "primaryResults": 1000 },
+  "polycardContext": {},
+  "items": [
+    {
+      "position": 49,
+      "card": {
+        "metadata": {
+          "id": "MLB1234567890",
+          "product_id": "MLB98765432",
+          "user_product_id": "MLBU1234567890",
+          "url": "www.mercadolivre.com.br/produto-teste/up/MLBU1234567890",
+          "url_fragments": "#polycard_client=offers&wid=MLB1234567890&sid=offers",
+          "url_params": "?pdp_filters=deal%3AMLB555-1"
+        },
+        "components": [
+          { "id": "title", "title": { "text": "Produto de teste da vitrine" } },
+          { "id": "price_v2", "price": { "current_price": { "value": 67.5, "currency": "BRL" } } }
+        ]
+      }
+    }
+  ]
+}

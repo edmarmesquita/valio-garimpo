@@ -74,6 +74,8 @@ test('interface seleciona EXATOS, exige confirmação e atualiza a lista após r
     Object.defineProperty(input, 'files', { configurable: true, value: [arquivo] })
     await act(async () => input.dispatchEvent(new dom.window.Event('change', { bubbles: true })))
     assert.deepEqual([...document.querySelectorAll('.recuperar-inativos__resumo strong')].map((item) => item.textContent), ['63', '2', '1', '60'])
+    assert.match(document.querySelector('[aria-label="Resumo dos arquivos"]').textContent,
+      /Arquivos processados: 1 · Cards lidos: 3 · ITEM_IDs únicos: 3 · Duplicados: 0 · Não reconhecidos: 0/)
     assert.equal(linhasSemCorrespondencia().length, 25)
     assert.match(document.body.textContent, /25 de 60 exibidos/)
     assert.equal(botao('Mostrar mais')?.textContent, 'Mostrar mais')
