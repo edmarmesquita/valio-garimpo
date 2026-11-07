@@ -59,6 +59,9 @@ export default function ExtrairAfiliados({ visivel = true }: { visivel?: boolean
       <AcessoPublicacaoPanel publicacao={publicacao} />
       <ImportarLinksAfiliadosPanel />
     </>}
+    <details className="extrair-card extrair-modo-avancado">
+      <summary>Modo avançado: importação por HTML, JSON e listas</summary>
+      <p>Use estes formatos como fallback, diagnóstico ou para fluxos operacionais que ainda dependem da Central de Afiliados.</p>
     <ImportacaoProdutosPanel visivel={visivel} produtos={produtos} selecionados={selecionados} categorias={categorias}
       origemHtml={origemHtml} existentes={publicacao.existentes} estadoVerificacao={publicacao.estadoVerificacao}
       totalCadastrados={publicacao.totalCadastrados} mensagem={mensagem} erro={erro}
@@ -70,5 +73,6 @@ export default function ExtrairAfiliados({ visivel = true }: { visivel?: boolean
       onDesmarcarTodos={() => { setSelecionados(new Set()); publicacao.invalidarResultado() }}
       renderCategoria={(indice) => <CategoriaPublicacao valor={categorias.get(indice)} onChange={(valor) => categoria(indice, valor)} />}
       onLinkOficial={atualizarLinkOficial} onCopiar={(conteudo) => void publicacao.copiar(conteudo)} />
+    </details>
   </main>
 }

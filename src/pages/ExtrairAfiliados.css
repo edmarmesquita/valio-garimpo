@@ -45,3 +45,7 @@
 @media (max-width: 900px) { .metricas-resumo { grid-template-columns: repeat(3, minmax(0, 1fr)); } .metricas-listas { grid-template-columns: 1fr; } }
 @media (max-width: 620px) { .metricas-resumo { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .extrair-afiliados header h1, .extrair-afiliados .extrair-card h2 { color: #5b4037; }
+.extrair-modo-avancado { border-color: #ead8d0; background: #fffdfc; }
+.extrair-modo-avancado > summary { cursor: pointer; color: #795548; font-weight: 700; }
+.extrair-modo-avancado > summary::marker { color: #a3432b; }
+.extrair-modo-avancado > p { margin-bottom: 0; }
