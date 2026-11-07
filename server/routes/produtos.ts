@@ -97,7 +97,7 @@ export function registrarPublicacao(router: Router, { deps, autorizar }: Context
     try {
       const gateway = (deps.gateway ?? criarProdutosGateway)(config)
       const informada = req.get('x-valio-origem-link') ?? ''
-      const origem = ['importacao-html', 'importacao-json', 'gerador-lote'].includes(informada)
+      const origem = ['importacao-html', 'importacao-json', 'gerador-lote', 'importacao-meli-la'].includes(informada)
         ? informada : 'publicacao:recebido'
       const acao = await publicarProduto(produto, gateway, somenteCriar, deps.validarDestino, origem)
       res.json({ ok: true, acao })

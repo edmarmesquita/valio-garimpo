@@ -33,7 +33,7 @@ export async function enviarSelecionadosValio(
   produtos: ProdutoAfiliado[], selecionados: ReadonlySet<number>,
   categorias: ReadonlyMap<number, CategoriaValio>, token: string,
   enviar: typeof fetch = fetch,
-  opcoes: { somenteCriar?: boolean; origemLink?: 'importacao-html' | 'importacao-json' | 'gerador-lote' } = {},
+  opcoes: { somenteCriar?: boolean; origemLink?: 'importacao-html' | 'importacao-json' | 'gerador-lote' | 'importacao-meli-la' } = {},
 ): Promise<ResumoEnvio> {
   if (!token.trim()) throw new Error('Informe o token de publicação.')
   if (!selecionadosPublicaveis(produtos, selecionados, categorias)) {

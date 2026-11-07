@@ -61,6 +61,46 @@ export type ReativacaoGateway = {
   buscar: (id: string) => Promise<InativoParaReativar | null>
   reativar: (id: string, interno: number, preco: number, updatedAt: string) => Promise<boolean>
 }
+export type ProdutoParaSubstituir = { id: number; mercado_livre_id: string; ativo: boolean; titulo: string;
+  descricao: string; preco: number; categoria: string; link_afiliado: string; imagem: string }
+export type SubstituicaoGateway = {
+  buscarPorId: (id: number) => Promise<ProdutoParaSubstituir | null>
+  existeOutro: (itemId: string, idInterno: number) => Promise<boolean>
+  substituir: (dados: { id: number; itemIdAnterior: string; itemIdNovo: string; titulo: string;
+    descricao: string; preco: number; dataPreco: string; linkAfiliado: string; imagem: string; categoria: string; updatedAt: string }) => Promise<boolean>
+}
+
+export function criarSubstituicaoGateway(config: SupabaseConfig): SubstituicaoGateway {
+  const supabase = createClient(config.url, config.serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  })
+  return {
+    async buscarPorId(id) {
+      const { data, error } = await supabase.from('produtos')
+        .select('id,mercado_livre_id,ativo,titulo,descricao,preco,categoria,link_afiliado,imagem')
+        .eq('id', id).maybeSingle()
+      if (error) throw error
+      return data
+    },
+    async existeOutro(itemId, idInterno) {
+      const { data, error } = await supabase.from('produtos').select('id')
+        .eq('mercado_livre_id', itemId).neq('id', idInterno).limit(1)
+      if (error) throw error
+      return Boolean(data?.length)
+    },
+    async substituir(dados) {
+      const { data, error } = await supabase.from('produtos').update({
+        mercado_livre_id: dados.itemIdNovo, titulo: dados.titulo, descricao: dados.descricao,
+        preco: dados.preco, link_afiliado: dados.linkAfiliado, imagem: dados.imagem,
+        data_preco: dados.dataPreco,
+        categoria: dados.categoria, ativo: true, updated_at: dados.updatedAt,
+      }).eq('id', dados.id).eq('mercado_livre_id', dados.itemIdAnterior).eq('ativo', false)
+        .select('id,mercado_livre_id')
+      if (error) throw error
+      return data?.length === 1 && data[0].id === dados.id && data[0].mercado_livre_id === dados.itemIdNovo
+    },
+  }
+}
 
 export function criarReativacaoGateway(config: SupabaseConfig): ReativacaoGateway {
   const supabase = createClient(config.url, config.serviceRoleKey, {
@@ -239,13 +279,14 @@ export function criarCatalogoGateway(config: SupabaseConfig): CatalogoGateway {
       const tamanho = 500
       for (let inicio = 0; ; inicio += tamanho) {
         const { data, error, status } = await supabase.from('produtos')
-          .select('mercado_livre_id,titulo,preco,data_preco,categoria,link_afiliado,imagem,rating,ativo,updated_at,oferta_relampago,oferta_inicio,oferta_fim')
+          .select('id,mercado_livre_id,titulo,descricao,preco,data_preco,categoria,link_afiliado,imagem,rating,ativo,updated_at,oferta_relampago,oferta_inicio,oferta_fim')
           .order('id', { ascending: true }).range(inicio, inicio + tamanho - 1)
         if (error) throw Object.assign(error, { status })
         produtos.push(...(data ?? []).map((row) => ({
           mercadoLivreId: row.mercado_livre_id, titulo: row.titulo, preco: row.preco,
           dataPreco: row.data_preco, categoria: row.categoria, linkAfiliado: row.link_afiliado,
           imagem: row.imagem, rating: row.rating, ativo: row.ativo, updatedAt: row.updated_at,
+          id: row.id, descricao: row.descricao,
           ofertaRelampago: row.oferta_relampago, ofertaInicio: row.oferta_inicio, ofertaFim: row.oferta_fim,
         })))
         if (!data || data.length < tamanho) return produtos

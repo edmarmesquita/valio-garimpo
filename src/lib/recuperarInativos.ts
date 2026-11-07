@@ -6,6 +6,7 @@ import { analisarDocumentoLista, analisarHar } from './harAfiliadosParser'
 export type CapturaInativo = {
   itemId: string; titulo: string; preco: number; productId: string | null
   userProductId: string | null; origem: string; origens?: string[]; moeda?: string | null; url?: string | null
+  imagem?: string | null
 }
 export type CandidatoInativo = { produto: CapturaInativo; confianca: 'ALTA' | 'MÉDIA'; motivo: string }
 export type ConflitoPrecoInativo = { precos: number[]; origens: string[] }
@@ -32,7 +33,7 @@ function capturarResultadoHar(conteudo: string, nome: string): ResultadoArquivoI
     && item.capturas[0]?.moeda === 'BRL' && item.capturas[0]?.titulo?.trim()
     ? [{ itemId: item.itemId, titulo: item.capturas[0].titulo!, preco: item.precoAtual!,
       productId: item.capturas[0].productId, userProductId: item.capturas[0].userProductId,
-      origem: nome, origens: [nome], moeda: 'BRL', url: item.capturas[0].url }] : [])
+      origem: nome, origens: [nome], moeda: 'BRL', url: item.capturas[0].url, imagem: null }] : [])
   return { capturas, reconhecido: true, formato: 'HAR', cardsBrutos: resultado.ocorrencias, duplicados: resultado.duplicados }
 }
 
@@ -42,7 +43,8 @@ function capturarResultadoLista(conteudo: string, nome: string): ResultadoArquiv
     && item.capturas[0]?.moeda === 'BRL' && item.capturas[0]?.titulo?.trim()
     ? [{ itemId: item.itemId, titulo: item.capturas[0].titulo!, preco: item.precoAtual!,
       productId: item.capturas[0].productId, userProductId: item.capturas[0].userProductId,
-      origem: nome, origens: [nome], moeda: 'BRL', url: item.capturas[0].url }] : [])
+      origem: nome, origens: [nome], moeda: 'BRL', url: item.capturas[0].url,
+      imagem: null }] : [])
   return { capturas, reconhecido: true, formato: 'LISTA', cardsBrutos: resultado.ocorrencias, duplicados: resultado.duplicados }
 }
 
@@ -72,7 +74,7 @@ export function analisarArquivoInativos(conteudo: string, nome: string): Resulta
         && precoValido(item.precoAtual) && item.titulo?.trim()
         ? [{ itemId: item.itemId, titulo: item.titulo, preco: item.precoAtual!, productId: item.productId,
           userProductId: item.userProductId, origem: nome, origens: [nome], moeda: 'BRL',
-          url: resultado.urls.get(item.itemId) ?? null }] : [])
+          url: resultado.urls.get(item.itemId) ?? null, imagem: item.imagemUrl }] : [])
       const leituraHtml: ResultadoArquivoInativos = { capturas, reconhecido: true, formato: 'HTML',
         cardsBrutos: resultado.encontrados,
         duplicados: Math.max(0, resultado.encontrados - resultado.semId - resultado.produtos.length) }

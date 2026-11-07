@@ -3,14 +3,18 @@ import AreaOperacional from '../components/AreaOperacional'
 import { useSessaoOperacional } from '../app/sessaoOperacionalContext'
 import { carregarCatalogo } from '../lib/manutencaoVitrine'
 import type { ProdutoCatalogo } from '../lib/manutencaoVitrine'
+import { CATEGORIAS_VALIO } from '../lib/produtosGarimpados'
+import type { CategoriaValio } from '../lib/produtosGarimpados'
 import { analisarArquivoInativos, classificarInativos } from '../lib/recuperarInativos'
 import type { CapturaInativo, ResultadoArquivoInativos } from '../lib/recuperarInativos'
-import { pedidosDosExatos, reativarExatos, selecionarExatos } from '../lib/reativarInativos'
+import { pedidosDosExatos, reativarExatos, selecionarExatos, substituirInativo } from '../lib/reativarInativos'
 import type { ResultadoReativacao } from '../lib/reativarInativos'
 import './RecuperarInativosPage.css'
 
 const reais = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const LOTE_SEM_CORRESPONDENCIA = 25
+type SubstituicaoSelecionada = { inativo: ProdutoCatalogo; candidato: CapturaInativo }
+type FormularioSubstituicao = { link: string; categoria: CategoriaValio; descricao: string }
 
 export default function RecuperarInativosPage() {
   const { token } = useSessaoOperacional()
@@ -26,6 +30,10 @@ export default function RecuperarInativosPage() {
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [confirmacao, setConfirmacao] = useState<ReturnType<typeof selecionarExatos> | null>(null)
   const [resultado, setResultado] = useState<ResultadoReativacao[] | null>(null)
+  const [candidatosSelecionados, setCandidatosSelecionados] = useState<Map<string, SubstituicaoSelecionada>>(new Map())
+  const [previaSubstituicoes, setPreviaSubstituicoes] = useState<SubstituicaoSelecionada[] | null>(null)
+  const [formulariosSubstituicao, setFormulariosSubstituicao] = useState<Map<string, FormularioSubstituicao>>(new Map())
+  const [resultadoSubstituicoes, setResultadoSubstituicoes] = useState<{ id: string; ok: boolean; motivo?: string }[] | null>(null)
   const [limiteSemCorrespondencia, setLimiteSemCorrespondencia] = useState(LOTE_SEM_CORRESPONDENCIA)
   const diagnostico = catalogo ? classificarInativos(catalogo, capturas) : []
   const exatos = diagnostico.filter((item) => item.tipo === 'EXATO')
@@ -62,7 +70,7 @@ export default function RecuperarInativosPage() {
   async function consultarCatalogo() {
     setOcupado(true); setErro('')
     setConfirmacao(null)
-    try { setCatalogo(await carregarCatalogo(token)) }
+    try { setCatalogo(await carregarCatalogo(token)); setCandidatosSelecionados(new Map()); setPreviaSubstituicoes(null) }
     catch (falha) { setErro(falha instanceof Error ? falha.message : 'Não foi possível consultar o catálogo.') }
     finally { setOcupado(false) }
   }
@@ -71,6 +79,7 @@ export default function RecuperarInativosPage() {
     if (!lista?.length) return
     setOcupado(true); setErro('')
     setConfirmacao(null)
+    setPreviaSubstituicoes(null); setCandidatosSelecionados(new Map())
     try {
       const resultados: ResultadoArquivoInativos[] = []
       for (const arquivo of Array.from(lista)) {
@@ -93,9 +102,58 @@ export default function RecuperarInativosPage() {
     finally { setOcupado(false) }
   }
 
+  const chaveSubstituicao = (item: SubstituicaoSelecionada) => `${item.inativo.mercadoLivreId}:${item.candidato.itemId}`
+  function alternarCandidato(inativo: ProdutoCatalogo, candidato: CapturaInativo) {
+    setCandidatosSelecionados((atuais) => {
+      const novos = new Map(atuais)
+      if (novos.get(inativo.mercadoLivreId)?.candidato.itemId === candidato.itemId) novos.delete(inativo.mercadoLivreId)
+      else novos.set(inativo.mercadoLivreId, { inativo, candidato })
+      return novos
+    })
+  }
+  function revisarSubstituicoes() {
+    const itens = [...candidatosSelecionados.values()]
+    setPreviaSubstituicoes(itens)
+    setResultadoSubstituicoes(null)
+    setFormulariosSubstituicao(new Map(itens.map((item) => [chaveSubstituicao(item), {
+      link: '', categoria: item.inativo.categoria, descricao: '',
+    }])))
+  }
+  async function confirmarSubstituicoes() {
+    if (!previaSubstituicoes?.length || ocupado) return
+    setOcupado(true); setErro(''); setResultadoSubstituicoes(null)
+    const resultados: { id: string; ok: boolean; motivo?: string }[] = []
+    for (const item of previaSubstituicoes) {
+      const form = formulariosSubstituicao.get(chaveSubstituicao(item))!
+      try {
+        if (!item.inativo.id) throw new Error('ID interno indisponível; recarregue o catálogo.')
+        if (!item.candidato.imagem) throw new Error('Imagem do candidato não disponível; não é seguro preservar a imagem antiga.')
+        await substituirInativo(token, {
+          id_interno: item.inativo.id, item_id_anterior: item.inativo.mercadoLivreId,
+          mercado_livre_id: item.candidato.itemId, titulo: item.candidato.titulo,
+          descricao: form.descricao, preco: item.candidato.preco, moeda: 'BRL',
+          imagem: item.candidato.imagem, link_afiliado: form.link.trim(), categoria: form.categoria,
+        })
+        resultados.push({ id: item.candidato.itemId, ok: true })
+      } catch (falha) {
+        resultados.push({ id: item.candidato.itemId, ok: false,
+          motivo: falha instanceof Error ? falha.message : 'Falha ao substituir produto.' })
+      }
+    }
+    setResultadoSubstituicoes(resultados)
+    const idsSucesso = new Set(resultados.filter((item) => item.ok).map((item) => item.id))
+    if (idsSucesso.size) {
+      setCandidatosSelecionados((atuais) => new Map([...atuais].filter(([, item]) => !idsSucesso.has(item.candidato.itemId))))
+      setPreviaSubstituicoes((atuais) => atuais?.filter((item) => !idsSucesso.has(item.candidato.itemId)) ?? null)
+      try { setCatalogo(await carregarCatalogo(token)) }
+      catch { setErro('Substituição concluída, mas não foi possível recarregar o catálogo.') }
+    }
+    setOcupado(false)
+  }
+
   return <AreaOperacional titulo="Recuperar inativos" descricao="Prévia de correspondências entre produtos inativos e capturas do Mercado Livre.">
     <section className="extrair-card recuperar-inativos" aria-label="Diagnóstico de produtos inativos">
-      <p>Reativação disponível somente para correspondências EXATAS, após seleção e confirmação explícita.</p>
+      <p>EXATOS podem ser reativados pelo mesmo ITEM_ID. CANDIDATOS só podem ser substituídos manualmente após revisão e confirmação explícita.</p>
       <button type="button" disabled={!token.trim() || ocupado} onClick={() => void consultarCatalogo()}>
         {ocupado ? 'Aguarde...' : 'Carregar catálogo de inativos'}
       </button>
@@ -141,18 +199,72 @@ export default function RecuperarInativosPage() {
         {resultado.filter((item) => item.status === 'ERRO').map((item, indice) => <p key={`${item.mercado_livre_id}-${indice}`}>{item.mercado_livre_id}: {item.motivo}</p>)}
       </section>}
       <h2>CANDIDATO — outro ITEM_ID</h2>
+      <div className="recuperar-inativos__acoes">
+        <span>{candidatosSelecionados.size} selecionado(s) para substituição</span>
+        <button type="button" disabled={ocupado || !candidatosSelecionados.size} onClick={revisarSubstituicoes}>Revisar substituições selecionadas</button>
+      </div>
       {candidatos.length === 0 && <p>Nenhum candidato conservador.</p>}
       {candidatos.map(({ inativo, candidatos: opcoes }) => <article key={inativo.mercadoLivreId} className="recuperar-inativos__item">
         <div className="recuperar-inativos__comparacao">
-          <div><h3>Produto inativo</h3><p>{inativo.mercadoLivreId}</p><p>{inativo.titulo}</p>
-            <p>{reais(inativo.preco)} · {inativo.categoria}</p></div>
+          <div><h3>Produto inativo</h3>{inativo.imagem && <img className="recuperar-inativos__imagem" src={inativo.imagem} alt={`Imagem atual de ${inativo.titulo}`} />}
+            <p>ID interno: {inativo.id ?? 'indisponível'} · ITEM_ID: {inativo.mercadoLivreId}</p><p>{inativo.titulo}</p>
+            <p>{reais(inativo.preco)} · {inativo.categoria}</p><p>Link afiliado: {inativo.linkAfiliado}</p></div>
           <div><h3>Candidato</h3>{opcoes.map(({ produto, confianca, motivo }) => <div key={produto.itemId}>
+            {produto.imagem && <img className="recuperar-inativos__imagem" src={produto.imagem} alt={`Imagem candidata de ${produto.titulo}`} />}
             <p>{produto.itemId} · {produto.titulo}</p><p>{reais(produto.preco)} · Origem: {produto.origem}</p>
             <p>productId: {produto.productId ?? '—'} · userProductId: {produto.userProductId ?? '—'}</p>
+            <p>URL do anúncio: {produto.url ?? 'não disponível'}</p>
             <p>Confiança: {confianca} · {motivo}</p>
+            <button type="button" disabled={ocupado} onClick={() => alternarCandidato(inativo, produto)}>
+              {candidatosSelecionados.get(inativo.mercadoLivreId)?.candidato.itemId === produto.itemId ? 'Remover seleção' : 'Selecionar para substituição'}
+            </button>
           </div>)}</div>
         </div>
       </article>)}
+      {previaSubstituicoes && previaSubstituicoes.length > 0 && <section className="recuperar-inativos__confirmacao" aria-label="Revisar substituições">
+        <h3>Revise cada substituição</h3>
+        <p role="alert">Esta ação substituirá o produto antigo por outro produto no mesmo registro.</p>
+        {previaSubstituicoes.map((item) => {
+          const chave = chaveSubstituicao(item); const form = formulariosSubstituicao.get(chave)!
+          return <article key={chave} className="recuperar-inativos__item recuperar-inativos__comparacao">
+            <div><h4>ANTES</h4>{item.inativo.imagem && <img className="recuperar-inativos__imagem" src={item.inativo.imagem} alt="Imagem antiga" />}
+              <p>ID interno: {item.inativo.id ?? 'indisponível'}</p><p>ITEM_ID: {item.inativo.mercadoLivreId}</p><p>{item.inativo.titulo}</p>
+              <p>{reais(item.inativo.preco)} · {item.inativo.categoria}</p><p>{item.inativo.linkAfiliado}</p></div>
+            <div><h4>DEPOIS</h4>{item.candidato.imagem && <img className="recuperar-inativos__imagem" src={item.candidato.imagem} alt="Imagem nova" />}
+              <p>ITEM_ID: {item.candidato.itemId}</p><p>{item.candidato.titulo}</p><p>{reais(item.candidato.preco)} · BRL</p>
+              <p>productId: {item.candidato.productId ?? '—'} · userProductId: {item.candidato.userProductId ?? '—'}</p>
+              <p>URL do anúncio: {item.candidato.url ?? 'não disponível'}</p>
+              <label>Link afiliado novo (meli.la)
+                <input aria-label={`Link afiliado para ${item.candidato.itemId}`} value={form.link}
+                  onChange={(evento) => setFormulariosSubstituicao((atuais) => new Map(atuais).set(chave, { ...form, link: evento.target.value }))} />
+              </label>
+              <p>Link afiliado necessário. O servidor resolverá o destino e só permitirá a substituição se pertencer ao ITEM_ID do candidato.</p>
+              <label>Descrição do produto (opcional)
+                <textarea aria-label={`Descrição para ${item.candidato.itemId}`} value={form.descricao}
+                  onChange={(evento) => setFormulariosSubstituicao((atuais) => new Map(atuais).set(chave, { ...form, descricao: evento.target.value }))} />
+              </label>
+              <label>Categoria a salvar
+                <select aria-label={`Categoria para ${item.candidato.itemId}`} value={form.categoria}
+                  onChange={(evento) => setFormulariosSubstituicao((atuais) => new Map(atuais).set(chave, { ...form, categoria: evento.target.value as CategoriaValio }))}>
+                  {CATEGORIAS_VALIO.map((categoria) => <option key={categoria} value={categoria}>{categoria}</option>)}
+                </select>
+              </label>
+            </div>
+          </article>
+        })}
+        <button type="button" disabled={ocupado} onClick={() => setPreviaSubstituicoes(null)}>Cancelar</button>
+        <button type="button" disabled={ocupado || previaSubstituicoes.some((item) => {
+          const form = formulariosSubstituicao.get(chaveSubstituicao(item))
+          return !item.inativo.id || !item.candidato.imagem || !form?.link.trim()
+        })} onClick={() => void confirmarSubstituicoes()}>
+          {ocupado ? 'Validando e substituindo…' : 'Confirmar substituição e reativação'}
+        </button>
+      </section>}
+      {resultadoSubstituicoes && <section aria-label="Resultado das substituições">
+        {resultadoSubstituicoes.map((item, indice) => <p key={`${item.id}-${indice}`} role={item.ok ? 'status' : 'alert'}>
+          {item.id}: {item.ok ? 'substituído e reativado' : item.motivo}
+        </p>)}
+      </section>}
       <h2>SEM CORRESPONDÊNCIA</h2>
       {semCorrespondencia.slice(0, limiteSemCorrespondencia).map(({ inativo, conflitoPreco }) => <p key={inativo.mercadoLivreId}>
         {inativo.mercadoLivreId} · {inativo.titulo} · {reais(inativo.preco)}

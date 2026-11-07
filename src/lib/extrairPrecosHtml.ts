@@ -4,6 +4,16 @@ type Registro = Record<string, unknown>
 const objeto = (valor: unknown): Registro | null => valor !== null && typeof valor === 'object' && !Array.isArray(valor) ? valor as Registro : null
 const preco = (valor: unknown): number | null => typeof valor === 'number' && Number.isFinite(valor) && valor > 0 ? valor : null
 const idValido = (valor: unknown): valor is string => typeof valor === 'string' && /^MLB\d+$/.test(valor)
+function urlImagemSegura(valor: unknown): string | null {
+  const bruto = typeof valor === 'string' ? valor : Array.isArray(valor) ? valor.find((item) => typeof item === 'string') : null
+  if (typeof bruto !== 'string') return null
+  try {
+    const url = new URL(bruto)
+    return url.protocol === 'https:' && !url.username && !url.password
+      && (url.hostname === 'mlstatic.com' || url.hostname.endsWith('.mlstatic.com')) ? url.href : null
+  }
+  catch { return null }
+}
 
 export type ExtracaoPrecosHtml = {
   encontrados: number
@@ -74,7 +84,7 @@ function dadosJsonLd(html: string): Registro {
         return { id: 'price_v2', price: { current_price: { value: oferta.priceCurrency === 'BRL' ? valor : null,
           currency: oferta.priceCurrency } } }
       })
-      items.push({ card: { unique_id: produto.sku, metadata: { id: produto.sku, url: produto.url },
+      items.push({ card: { unique_id: produto.sku, image: produto.image, metadata: { id: produto.sku, url: produto.url },
         pictures: { pictures: [] }, components: [{ id: 'title', title: { text: produto.name } }, ...components] } })
     }
   }
@@ -195,7 +205,7 @@ export function extrairPrecosHtml(html: string, origem = ''): ExtracaoPrecosHtml
       parcelas: base?.parcelas ?? null, valorParcela: base?.valorParcela ?? null,
       semJuros: base?.semJuros ?? null, avaliacao: null, vendidosTexto: null,
       comissaoTexto: null, comissaoPercentual: null, destaque: null,
-      imagemId: null, imagemUrl: null, linkOriginal: null,
+      imagemId: base?.imagemId ?? null, imagemUrl: base?.imagemUrl ?? urlImagemSegura(card.image), linkOriginal: null,
       extraCommission: null, brandCommission: null, tipoOrigem: null,
     }
     const anterior = produtos.get(id)

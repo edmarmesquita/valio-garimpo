@@ -7,4 +7,8 @@
 .recuperar-inativos__acoes { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
 .recuperar-inativos__confirmacao { border: 2px solid var(--border, #d5cbc5); border-radius: 10px; padding: 16px; margin: 20px 0; }
 .recuperar-inativos__comparacao { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.recuperar-inativos__imagem { display: block; width: 120px; height: 120px; object-fit: contain; border-radius: 8px; }
+.recuperar-inativos__confirmacao label { display: grid; gap: 6px; margin: 12px 0; }
+.recuperar-inativos__confirmacao input, .recuperar-inativos__confirmacao textarea,
+.recuperar-inativos__confirmacao select { max-width: 100%; padding: 8px; }
 @media (max-width: 700px) { .recuperar-inativos__comparacao { grid-template-columns: 1fr; } }

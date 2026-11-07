@@ -1,4 +1,5 @@
 import { lerEstadoNordic } from './lerEstadoNordic'
+import { extrairProdutosAfiliados } from './extrairProdutosAfiliados'
 
 type Registro = Record<string, unknown>
 export type ProdutoPaginaOfertas = {
@@ -8,6 +9,7 @@ export type ProdutoPaginaOfertas = {
   moeda: string
   productId: string | null
   userProductId: string | null
+  imagem: string | null
   url: string | null
   origem: string
 }
@@ -76,12 +78,20 @@ export function extrairProdutosPaginaOfertas(html: string, origem: string): Extr
   const pageProps = objeto(appProps?.pageProps)
   const data = objeto(pageProps?.data)
   if (!data || !Array.isArray(data.items)) throw new Error('O estado Nordic não contém data.items de uma página de produtos.')
+  const itens = data.items as unknown[]
+  const imagensPorId = new Map(extrairProdutosAfiliados(estado).flatMap((produto) => {
+    const cardComId = itens.some((valor) => {
+      const card = objeto(objeto(valor)?.card)
+      return card && objeto(card.metadata)?.id === produto.itemId
+    })
+    return produto.itemId && produto.imagemUrl && cardComId ? [[produto.itemId, produto.imagemUrl] as const] : []
+  }))
 
   const resultado: ExtracaoPaginaOfertas = {
     produtos: [], cardsBrutos: 0, semItemId: 0, semTitulo: 0, semPreco: 0, widDivergente: 0,
     pagina: pagina(data),
   }
-  for (const itemValor of data.items) {
+  for (const itemValor of itens) {
     const item = objeto(itemValor)
     const card = objeto(item?.card)
     if (!card) continue
@@ -119,6 +129,7 @@ export function extrairProdutosPaginaOfertas(html: string, origem: string): Extr
 
     resultado.produtos.push({ itemId: id, titulo: titulos[0], preco: precos[0], moeda: 'BRL',
       productId: idProduct(metadata?.product_id), userProductId: idUserProduct(metadata?.user_product_id),
+      imagem: imagensPorId.get(id) ?? null,
       url: urlProduto([metadata?.url, metadata?.permalink, card.href, card.url, item?.url, item?.href]), origem })
   }
   return resultado

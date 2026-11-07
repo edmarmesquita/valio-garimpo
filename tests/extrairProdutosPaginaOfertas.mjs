@@ -38,10 +38,20 @@ test('fixture Nordic de página geral extrai ITEM_ID, IDs auxiliares, título, p
   assert.deepEqual(resultado.produtos[0], {
     itemId: 'MLB1234567890', titulo: 'Produto de teste da vitrine', preco: 67.5, moeda: 'BRL',
     productId: 'MLB98765432', userProductId: 'MLBU1234567890',
+    imagem: null,
     url: 'https://www.mercadolivre.com.br/produto-teste/up/MLBU1234567890', origem: 'ofertas.html',
   })
   assert.deepEqual(resultado.pagina, { page: 2, offset: 48, limit: 48, total: 1248 })
   assert.equal(resultado.produtos.length, 1, 'paging.total não cria produtos ausentes do HTML')
+})
+
+test('imagem Nordic é associada somente quando metadata.id e ITEM_ID normalizado concordam', () => {
+  const produto = card(49)
+  produto.card.unique_id = produto.card.metadata.id
+  produto.card.pictures = { pictures: [{ id: 'foto-49' }] }
+  produto.card.polycard_context = { picture_template: 'https://http2.mlstatic.com/{id}.webp' }
+  const resultado = extrairProdutosPaginaOfertas(html(pagina(produto)), 'imagem.html')
+  assert.equal(resultado.produtos[0].imagem, 'https://http2.mlstatic.com/foto-49.webp')
 })
 
 test('página com 48 cards extrai 48 ITEM_IDs distintos com título e preço', () => {

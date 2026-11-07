@@ -1,0 +1,8 @@
+.importar-links textarea { display: block; width: 100%; margin: 8px 0 16px; }
+.importar-links-lista { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: 14px; margin: 16px 0; }
+.importar-links-card { border: 1px solid #e4c8b9; border-radius: 12px; padding: 14px; overflow-wrap: anywhere; }
+.importar-links-card img { display: block; width: 130px; height: 130px; object-fit: contain; margin: 10px 0; }
+.importar-links-card h3 { margin: 8px 0; }
+.importar-links-card p { font-size: 14px; }
+.importar-links-card label { display: block; margin: 8px 0; }
+.importar-links-card select { display: block; }

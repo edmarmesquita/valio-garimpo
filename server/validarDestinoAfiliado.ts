@@ -47,7 +47,7 @@ function idsUrl(url: URL): Set<string> {
   return ids
 }
 
-function secaoEmDestaque(html: string): string | null {
+export function secaoEmDestaque(html: string): string | null {
   const aberturas = [...html.matchAll(/<section\b[^>]*>/gi)]
     .filter(([tag]) => /(?:\s|^)class\s*=\s*(["'])[^"']*\brl-card-featured\b[^"']*\1/i.test(tag))
   if (aberturas.length !== 1) return null

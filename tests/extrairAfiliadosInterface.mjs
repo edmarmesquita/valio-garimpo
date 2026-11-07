@@ -52,7 +52,7 @@ test('a interface gera e mostra JSON para o Valiô com dois selecionados e erro 
       setter.call(textarea, entrada)
       textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
     })
-    await act(async () => document.querySelector('button').click())
+    await act(async () => [...document.querySelectorAll('button')].find((button) => button.textContent === 'Extrair produtos').click())
     assert.equal(document.querySelectorAll('.extrair-produto').length, 3)
     assert.equal(document.querySelector('#json-valio-titulo'), null)
 

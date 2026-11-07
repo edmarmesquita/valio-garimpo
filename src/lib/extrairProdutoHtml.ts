@@ -1,4 +1,4 @@
-import type { ProdutoAfiliado } from './extrairProdutosAfiliados'
+import type { ProdutoAfiliado } from './extrairProdutosAfiliados.js'
 
 export const LIMITE_HTML_PRODUTO = 10_000_000
 type Registro = Record<string, unknown>
@@ -212,7 +212,7 @@ export function validarLinkHtml(link: string): void {
     throw new Error('Domínio do link afiliado não permitido.')
   }
 }
-export function extrairProdutoHtml(html: string, linkAfiliado: string, urlPagina: string): ProdutoAfiliado {
+export function extrairProdutoHtml(html: string, linkAfiliado: string, urlPagina: string, exigirImagemEstruturada = false): ProdutoAfiliado {
   validarLinkHtml(linkAfiliado)
   const itemId = extrairIdUrlPagina(urlPagina)
   if (!html.trim()) throw new Error('Cole o HTML da página do produto.')
@@ -235,7 +235,7 @@ export function extrairProdutoHtml(html: string, linkAfiliado: string, urlPagina
   const imagensSchema = ligados.filter((c) => c.schema && (c.titulo === titulo || c.id === itemId || canonico === itemId && !c.titulo)).map((c) => c.imagem).filter((v): v is string => !!v)
   const imagensOg = metadados(html, 'og:image').map(imagemHttps).filter((v): v is string => !!v)
   const imagensPdp = ligados.filter((c) => c.imagem && (c.titulo === titulo || c.id === itemId || c.principal && !c.titulo)).map((c) => c.imagem).filter((v): v is string => !!v)
-  const imagem = unico(imagensSchema, 'imagem') ?? unico(imagensOg, 'imagem') ?? unico(imagensPdp, 'imagem')
+  const imagem = unico(imagensSchema, 'imagem') ?? (exigirImagemEstruturada ? null : unico(imagensOg, 'imagem')) ?? unico(imagensPdp, 'imagem')
   if (!imagem) throw new Error('ITEM_ID ok, título/preço ok, imagem principal não encontrada no HTML.')
   const ratings = ligados.filter((c) => c.titulo === titulo && c.preco === valor).map((c) => c.rating).filter((v): v is number => v !== null)
   const rating = ratings[0] ?? null

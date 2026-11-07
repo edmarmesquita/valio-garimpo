@@ -7,6 +7,7 @@ import type { CategoriaValio } from '../lib/produtosGarimpados'
 import ImportacaoProdutosPanel from '../features/importar/ImportacaoProdutosPanel'
 import PublicacaoProdutosPanel, { AcessoPublicacaoPanel, CategoriaPublicacao, ResumoPublicacaoPanel } from '../features/publicar/PublicacaoProdutosPanel'
 import { usePublicacaoProdutos } from '../features/publicar/usePublicacaoProdutos'
+import ImportarLinksAfiliadosPanel from '../features/importar-links/ImportarLinksAfiliadosPanel'
 
 export default function ExtrairAfiliados({ visivel = true }: { visivel?: boolean }) {
   const [produtos, setProdutos] = useState<ProdutoAfiliado[] | null>(null)
@@ -56,6 +57,7 @@ export default function ExtrairAfiliados({ visivel = true }: { visivel?: boolean
       <a href="/">← Voltar ao Valiô Garimpo</a>
       <header><p className="extrair-marca">VALIÔ GARIMPO</p><h1>Produtos garimpados</h1><p>Cole o JSON da Central de Afiliados, revise os produtos e prepare uma lista para o Valiô.</p></header>
       <AcessoPublicacaoPanel publicacao={publicacao} />
+      <ImportarLinksAfiliadosPanel />
     </>}
     <ImportacaoProdutosPanel visivel={visivel} produtos={produtos} selecionados={selecionados} categorias={categorias}
       origemHtml={origemHtml} existentes={publicacao.existentes} estadoVerificacao={publicacao.estadoVerificacao}

@@ -11,17 +11,25 @@ test('interface seleciona EXATOS, exige confirmação e atualiza a lista após r
     actEnvironment: globalThis.IS_REACT_ACT_ENVIRONMENT }
   let root; let vite
   const catalogo = [
-    { mercadoLivreId: 'MLB1', titulo: 'Produto um', preco: 100, categoria: 'Achados para Casa', ativo: false },
-    { mercadoLivreId: 'MLB2', titulo: 'Produto dois', preco: 90, categoria: 'Achados para Casa', ativo: false },
-    { mercadoLivreId: 'MLB3', titulo: 'Produto candidato', preco: 80, categoria: 'Achados para Casa', ativo: false },
+    { id: 101, mercadoLivreId: 'MLB1', titulo: 'Produto um', preco: 100, categoria: 'Achados para Casa', ativo: false, imagem: 'https://http2.mlstatic.com/old.webp', linkAfiliado: 'https://meli.la/old' },
+    { id: 102, mercadoLivreId: 'MLB2', titulo: 'Produto dois', preco: 90, categoria: 'Achados para Casa', ativo: false, imagem: 'https://http2.mlstatic.com/old2.webp', linkAfiliado: 'https://meli.la/old2' },
+    { id: 103, mercadoLivreId: 'MLB3', titulo: 'Produto candidato modelo especial alfa', preco: 80, categoria: 'Achados para Casa', ativo: false, imagem: 'https://http2.mlstatic.com/old3.webp', linkAfiliado: 'https://meli.la/old3' },
   ]
   const postagens = []
+  const substituicoes = []
   try {
     globalThis.window = dom.window; globalThis.document = dom.window.document
     Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator })
     globalThis.HTMLElement = dom.window.HTMLElement; globalThis.File = dom.window.File
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     globalThis.fetch = async (url, options = {}) => {
+      if (options.method === 'POST' && url === '/api/valio/produtos/substituir-inativo') {
+        const body = JSON.parse(options.body); substituicoes.push(body)
+        const salvo = catalogo.find((linha) => linha.id === body.id_interno)
+        Object.assign(salvo, { mercadoLivreId: body.mercado_livre_id, titulo: body.titulo, preco: body.preco,
+          imagem: body.imagem, linkAfiliado: body.link_afiliado, categoria: body.categoria, ativo: true })
+        return { ok: true, json: async () => ({ ok: true, id_interno: body.id_interno, mercado_livre_id: body.mercado_livre_id }) }
+      }
       if (options.method === 'POST') {
         const body = JSON.parse(options.body); postagens.push(body)
         for (const item of body.produtos) {
@@ -65,11 +73,11 @@ test('interface seleciona EXATOS, exige confirmação e atualiza a lista após r
     assert.equal(botao('Mostrar mais'), undefined)
     assert.match(document.body.textContent, /63 de 63 exibidos/)
     const html = (...produtos) => produtos.map(([id, titulo, preco]) => `<script type="application/ld+json">${JSON.stringify({
-      '@type': 'Product', sku: id, name: titulo, offers: { price: preco, priceCurrency: 'BRL' },
+      '@type': 'Product', sku: id, name: titulo, image: `https://http2.mlstatic.com/${id}.webp`, offers: { price: preco, priceCurrency: 'BRL' },
     })}</script>`).join('\n')
     const arquivo = new dom.window.File([html(['MLB1', 'Produto um', 125], ['MLB2', 'Produto dois', 110],
-      ['MLB9', 'Produto candidato', 80])], 'ofertas.html', { type: 'text/html' })
-    arquivo.text = async () => html(['MLB1', 'Produto um', 125], ['MLB2', 'Produto dois', 110], ['MLB9', 'Produto candidato', 80])
+      ['MLB9', 'Produto candidato modelo especial alfa diferente', 80])], 'ofertas.html', { type: 'text/html' })
+    arquivo.text = async () => html(['MLB1', 'Produto um', 125], ['MLB2', 'Produto dois', 110], ['MLB9', 'Produto candidato modelo especial alfa diferente', 80])
     const input = document.querySelector('input[type=file]')
     Object.defineProperty(input, 'files', { configurable: true, value: [arquivo] })
     await act(async () => input.dispatchEvent(new dom.window.Event('change', { bubbles: true })))
@@ -83,6 +91,28 @@ test('interface seleciona EXATOS, exige confirmação e atualiza a lista após r
     assert.match(linhasSemCorrespondencia()[24].textContent, /^MLB124 · Inativo sem correspondencia 124 ·/)
     assert.equal(document.querySelectorAll('input[type=checkbox]').length, 2)
     assert.equal(botao('Reativar selecionados').disabled, true)
+    let selecionarCandidato = [...document.querySelectorAll('button')].find((item) => item.textContent === 'Selecionar para substituição')
+    await act(async () => selecionarCandidato.click())
+    assert.equal(document.body.textContent.includes('M\u00c9DIA'), true)
+    await act(async () => botao('Revisar substituições selecionadas').click())
+    assert.match(document.querySelector('[aria-label="Revisar substituições"]').textContent, /Esta ação substituirá o produto antigo/)
+    assert.match(document.querySelector('[aria-label="Revisar substituições"]').textContent, /Link afiliado necessário/)
+    assert.equal(botao('Confirmar substituição e reativação').disabled, true)
+    await act(async () => botao('Cancelar').click())
+    assert.equal(substituicoes.length, 0, 'cancelar a prévia não escreve')
+    await act(async () => botao('Revisar substituições selecionadas').click())
+    const inputLink = document.querySelector('input[aria-label="Link afiliado para MLB9"]')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(inputLink, 'https://meli.la/validado')
+      inputLink.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    assert.equal(botao('Confirmar substituição e reativação').disabled, false)
+    await act(async () => botao('Confirmar substituição e reativação').click())
+    assert.equal(substituicoes.length, 1)
+    assert.equal(substituicoes[0].id_interno, 103)
+    assert.equal(substituicoes[0].mercado_livre_id, 'MLB9')
+    assert.equal(substituicoes[0].link_afiliado, 'https://meli.la/validado')
+    assert.equal(catalogo.find((item) => item.id === 103).ativo, true)
     await act(async () => document.querySelector('input[aria-label="Selecionar MLB1"]').click())
     assert.equal(document.body.textContent.includes('1 de 2 selecionados'), true)
     await act(async () => botao('Reativar selecionados').click())
@@ -105,7 +135,8 @@ test('interface seleciona EXATOS, exige confirmação e atualiza a lista após r
     assert.deepEqual(postagens[0].produtos.map((item) => item.mercado_livre_id), ['MLB1', 'MLB2'])
     assert.equal(document.querySelectorAll('input[type=checkbox]').length, 0)
     assert.equal(document.body.textContent.includes('2 produtos reativados'), true)
-    assert.equal(catalogo[2].ativo, false)
+    assert.equal(catalogo[2].ativo, true)
+    assert.equal(catalogo[2].mercadoLivreId, 'MLB9')
   } finally {
     if (root) await act(async () => root.unmount())
     if (vite) await vite.close()
