@@ -9,6 +9,19 @@ const socialReal = readFileSync(new URL('./fixtures/2T6XVYU-social.html', import
 const socialUrl = 'https://www.mercadolivre.com.br/social/ee20260414070618'
 const linkSocial = 'https://meli.la/2T6XVYU'
 const socialFetch = (html) => mock({ [linkSocial]: { url: socialUrl, html } })
+const linkBelfix = 'https://meli.la/2KPkSSG'
+const belfixId = 'MLB3402397357'
+const belfixTitulo = 'Base Plástica 18kg Belfix Branco p/ Guarda-Sol ou Ombrellone'
+function belfixHtml(query = '', fragmento = `wid=${belfixId}`) {
+  const url = `https://www.mercadolivre.com.br/base-plastica/p/MLB22554571${query}#polycard_client=recommendations_home_affiliate-profile&${fragmento}`
+  return `<section class="rl-card-featured"><section class="rl-list-single">
+    <div class="poly-card"><a class="poly-component__title" href="${url.replaceAll('&', '&amp;')}">${belfixTitulo}</a>
+    <div class="poly-price__current"><span class="andes-money-amount__currency-symbol">R$</span>
+    <span data-andes-money-amount-fraction="true">69</span><span data-andes-money-amount-cents="true">80</span></div>
+    <img class="poly-component__picture" src="https://http2.mlstatic.com/D_Q_NP_2X_777240-MLA96119964911_102025-V.webp" /></div>
+    </section></section><section class="recommendations"><a href="https://produto.mercadolivre.com.br/MLB-9999999999-outro">Outro produto</a></section>`
+}
+const belfixFetch = (html) => mock({ [linkBelfix]: { url: socialUrl, html } })
 test.after(async () => vite.close())
 
 function html(id, titulo = `Produto ${id}`, preco = 42, imagem = true, canonico = id) {
@@ -67,6 +80,35 @@ test('fixture sanitizada do 2T6XVYU: card social fornece título, preço atual e
   assert.equal(item.preco, 99.90)
   assert.match(item.imagem, /http2\.mlstatic\.com/)
   assert.match(item.urlProduto, /MLB-4690598815/)
+})
+
+test('regressão 2KPkSSG: wid no fragmento identifica o anúncio, não o catálogo /p/', async () => {
+  const item = await resolverLinkAfiliado(linkBelfix, belfixFetch(belfixHtml()))
+  assert.equal(item.status, 'novo', item.erro)
+  assert.equal(item.itemId, belfixId)
+  assert.equal(item.titulo, belfixTitulo)
+  assert.equal(item.preco, 69.80)
+  assert.equal(item.moeda, 'BRL')
+  assert.match(item.imagem, /^https:\/\/http2\.mlstatic\.com\//)
+  assert.equal(item.erro, null)
+})
+
+test('card social aceita o mesmo ITEM_ID na query e no fragmento', async () => {
+  const item = await resolverLinkAfiliado(linkBelfix, belfixFetch(belfixHtml(`?wid=${belfixId}`)))
+  assert.equal(item.status, 'novo', item.erro)
+  assert.equal(item.itemId, belfixId)
+})
+
+test('card social bloqueia conflito entre query e fragmento', async () => {
+  const item = await resolverLinkAfiliado(linkBelfix, belfixFetch(belfixHtml('?wid=MLB9999999999')))
+  assert.equal(item.status, 'link_nao_validado')
+  assert.equal(item.titulo, null)
+})
+
+test('card social não aceita ID de catálogo /p/ como ITEM_ID do anúncio', async () => {
+  const item = await resolverLinkAfiliado(linkBelfix, belfixFetch(belfixHtml('', '')))
+  assert.equal(item.status, 'link_nao_validado')
+  assert.equal(item.itemId, null)
 })
 
 test('card social bloqueia título, preço ou imagem realmente ausentes', async () => {

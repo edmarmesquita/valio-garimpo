@@ -36,6 +36,18 @@ function imagemPrincipal(bloco: string): string | null {
   return unico(urls, 'imagens principais')
 }
 
+function itemIdLinkTitulo(url: URL): string {
+  // O Mercado Livre pode colocar o ITEM_ID do anúncio em #...&wid=,
+  // enquanto /p/MLB... identifica apenas o produto do catálogo.
+  const fragmento = new URLSearchParams(url.hash.slice(1))
+  const urlComIds = new URL(url.href)
+  for (const [chave, valor] of fragmento) {
+    if (['wid', 'item_id', 'itemid'].includes(chave.toLowerCase())) urlComIds.searchParams.append('wid', valor)
+  }
+  urlComIds.hash = ''
+  return extrairIdUrlPagina(urlComIds.href)
+}
+
 export function extrairCardSocial(html: string, pagina: string, itemId: string): DadosCardSocial {
   const destaque = secaoEmDestaque(html)
   if (!destaque) throw new Error('ITEM_ID ok; card destacado único não encontrado na página social.')
@@ -47,7 +59,7 @@ export function extrairCardSocial(html: string, pagina: string, itemId: string):
     if (!href || !titulo) return null
     try {
       const url = new URL(decodificar(href), pagina)
-      if (extrairIdUrlPagina(url.href) !== itemId) throw new Error('divergente')
+      if (itemIdLinkTitulo(url) !== itemId) throw new Error('divergente')
       return { titulo, urlProduto: `${url.origin}${url.pathname}` }
     } catch { return null }
   }).filter((item): item is { titulo: string; urlProduto: string } => Boolean(item))
