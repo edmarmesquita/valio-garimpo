@@ -145,6 +145,12 @@ function candidatos(documentos: unknown[]): Candidato[] {
   documentos.forEach((documento) => visitar(documento, false, false, 0))
   return encontrados
 }
+export function extrairIdsProdutoPrincipalHtml(html: string): string[] {
+  const ids = new Set(candidatos(documentosJson(html))
+    .filter((c) => !c.secundario && (c.schema || c.principal) && c.id)
+    .map((c) => c.id!))
+  return [...ids]
+}
 function metadados(html: string, propriedade: string): string[] {
   const valores: string[] = []
   for (const tag of html.matchAll(/<meta\b[^>]*>/gi)) {

@@ -1,4 +1,4 @@
-import { extrairProdutoHtml } from '../src/lib/extrairProdutoHtml.js'
+import { extrairIdsProdutoPrincipalHtml, extrairProdutoHtml } from '../src/lib/extrairProdutoHtml.js'
 import { extrairItemPrincipal, secaoEmDestaque, validarDestinoAfiliado } from './validarDestinoAfiliado.js'
 import { extrairCardSocial } from './extrairCardSocial.js'
 
@@ -78,6 +78,43 @@ function urlNormal(html: string, pagina: string, itemId: string): string {
   return pagina
 }
 
+async function extrairPdpValidada(urlProduto: string, itemId: string, linkOriginal: string,
+  enviar: typeof fetch): Promise<{ produto: ReturnType<typeof extrairProdutoHtml>; url: string } | null> {
+  let pagina: { html: string; url: string }
+  try { pagina = await obterPaginaDestino(urlProduto, enviar) }
+  catch (erro) {
+    if (erro instanceof Error && erro.message === 'Destino não permitido.') throw erro
+    return null
+  }
+  const final = urlSegura(pagina.url)
+  if (/\/(?:gz\/account-verification|security\/challenge)(?:\/|$)/i.test(final.pathname)) return null
+  if (final.pathname.startsWith('/social/')) throw new Error('A p\u00e1gina normal do an\u00fancio redirecionou para uma p\u00e1gina social.')
+
+  const semParametros = new URL(final.href)
+  semParametros.search = ''; semParametros.hash = ''
+  const idCanonico = extrairItemPrincipal(pagina.html, semParametros.href)
+  if (idCanonico && idCanonico !== itemId) throw new Error(`ITEM_ID divergente na p\u00e1gina normal: ${idCanonico}.`)
+  const idsEstruturados = extrairIdsProdutoPrincipalHtml(pagina.html)
+  if (idsEstruturados.length && (idsEstruturados.length !== 1 || idsEstruturados[0] !== itemId)) {
+    throw new Error('ITEM_ID divergente nos dados estruturados da p\u00e1gina normal.')
+  }
+  if (!idCanonico && !idsEstruturados.length) return null
+  if (idCanonico !== itemId && !(idsEstruturados.length === 1 && idsEstruturados[0] === itemId)) {
+    throw new Error('N\u00e3o foi poss\u00edvel comprovar o ITEM_ID da p\u00e1gina normal.')
+  }
+
+  const urlTecnica = new URL(semParametros.href)
+  urlTecnica.searchParams.set('wid', itemId)
+  try {
+    const produto = extrairProdutoHtml(pagina.html, linkOriginal, urlTecnica.href, true)
+    if (produto.itemId !== itemId) throw new Error('ITEM_ID divergente entre destino e dados do produto.')
+    return { produto, url: urlNormal(pagina.html, pagina.url, itemId) }
+  } catch (erro) {
+    if (erro instanceof Error && /pre.o n.o encontrado no bloco principal/i.test(erro.message)) return null
+    throw erro
+  }
+}
+
 export async function resolverLinkAfiliado(linkOriginal: string, enviar: typeof fetch = fetch): Promise<ResultadoLink> {
   const base: ResultadoLink = { linkOriginal, itemId: null, titulo: null, preco: null, moeda: null,
     imagem: null, urlProduto: null, productId: null, userProductId: null, status: 'erro', erro: null }
@@ -104,8 +141,27 @@ export async function resolverLinkAfiliado(linkOriginal: string, enviar: typeof 
       fontesTentadas = 'card destacado: link do título, preço atual Andes e imagem principal; JSON-LD/Next/Nordic inspecionados'
       const produto = extrairCardSocial(pagina.html, pagina.url, itemId)
       const bloco = secaoEmDestaque(pagina.html) ?? ''
-      return { ...base, titulo: produto.titulo, preco: produto.preco, moeda: 'BRL', imagem: produto.imagem,
+      let pdp: Awaited<ReturnType<typeof extrairPdpValidada>>
+      try {
+        pdp = await extrairPdpValidada(produto.urlProduto, itemId, linkOriginal, enviar)
+      } catch (erro) {
+        return { ...base, titulo: produto.titulo, preco: null, moeda: null, imagem: produto.imagem,
+          urlProduto: produto.urlProduto, productId: idAuxiliar(bloco, 'productId', 'MLB'),
+          userProductId: idAuxiliar(bloco, 'userProductId', 'MLBU'), status: 'erro',
+          erro: erro instanceof Error ? erro.message : 'Preço atual não pôde ser confirmado na página do produto.' }
+      }
+      if (!pdp) return { ...base, titulo: produto.titulo, preco: null, moeda: null, imagem: produto.imagem,
         urlProduto: produto.urlProduto, productId: idAuxiliar(bloco, 'productId', 'MLB'),
+        userProductId: idAuxiliar(bloco, 'userProductId', 'MLBU'), status: 'erro',
+        erro: 'Preço atual não pôde ser confirmado na página do produto.' }
+      if (pdp && pdp.produto.precoAtual !== produto.preco) {
+        console.info('[afiliado-preco]', { itemId, precoSocial: produto.preco,
+          precoPdp: pdp.produto.precoAtual, fonteEscolhida: 'PDP_VALIDADA' })
+      }
+      return { ...base, titulo: pdp.produto.titulo,
+        preco: pdp.produto.precoAtual, moeda: pdp.produto.moeda,
+        imagem: pdp.produto.imagemUrl ?? produto.imagem,
+        urlProduto: pdp.url, productId: idAuxiliar(bloco, 'productId', 'MLB'),
         userProductId: idAuxiliar(bloco, 'userProductId', 'MLBU'), status: 'novo' }
     }
     fontesTentadas = 'JSON-LD, __NEXT_DATA__, estado Nordic, scripts JSON e metadata estruturada'
