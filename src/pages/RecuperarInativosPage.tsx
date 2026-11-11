@@ -5,9 +5,9 @@ import { carregarCatalogo } from '../lib/manutencaoVitrine'
 import type { ProdutoCatalogo } from '../lib/manutencaoVitrine'
 import { CATEGORIAS_VALIO } from '../lib/produtosGarimpados'
 import type { CategoriaValio } from '../lib/produtosGarimpados'
-import { analisarArquivoInativos, classificarInativos } from '../lib/recuperarInativos'
+import { analisarArquivoInativos, classificarInativos, urlAnuncioCandidato, urlBuscaTituloCandidato } from '../lib/recuperarInativos'
 import type { CapturaInativo, ResultadoArquivoInativos } from '../lib/recuperarInativos'
-import { pedidosDosExatos, reativarExatos, selecionarExatos, substituirInativo } from '../lib/reativarInativos'
+import { pedidosDosExatos, reativarExatos, selecionarExatos, substituirInativo, validarDestinoSubstituicao } from '../lib/reativarInativos'
 import type { ResultadoReativacao } from '../lib/reativarInativos'
 import './RecuperarInativosPage.css'
 
@@ -15,6 +15,19 @@ const reais = (valor: number) => valor.toLocaleString('pt-BR', { style: 'currenc
 const LOTE_SEM_CORRESPONDENCIA = 25
 type SubstituicaoSelecionada = { inativo: ProdutoCatalogo; candidato: CapturaInativo }
 type FormularioSubstituicao = { link: string; categoria: CategoriaValio; descricao: string }
+
+function LinksCandidato({ produto }: { produto: CapturaInativo }) {
+  const url = urlAnuncioCandidato(produto)
+  const busca = urlBuscaTituloCandidato(produto.titulo)
+  return <>
+    <p>URL do anúncio: {url ? <a href={url} target="_blank" rel="noreferrer">{url}</a>
+      : 'URL do anúncio não pôde ser determinada com segurança.'}</p>
+    {!url && busca && <p>
+      <a href={busca} target="_blank" rel="noreferrer">Buscar pelo título no Mercado Livre</a>
+      <br />A busca é apenas apoio visual: não confirma o ITEM_ID. O link meli.la ainda precisa resolver exatamente para {produto.itemId}.
+    </p>}
+  </>
+}
 
 export default function RecuperarInativosPage() {
   const { token } = useSessaoOperacional()
@@ -33,6 +46,9 @@ export default function RecuperarInativosPage() {
   const [candidatosSelecionados, setCandidatosSelecionados] = useState<Map<string, SubstituicaoSelecionada>>(new Map())
   const [previaSubstituicoes, setPreviaSubstituicoes] = useState<SubstituicaoSelecionada[] | null>(null)
   const [formulariosSubstituicao, setFormulariosSubstituicao] = useState<Map<string, FormularioSubstituicao>>(new Map())
+  const [destinosValidados, setDestinosValidados] = useState<Map<string, string>>(new Map())
+  const [imagensValidadas, setImagensValidadas] = useState<Map<string, string>>(new Map())
+  const [errosValidacaoDestino, setErrosValidacaoDestino] = useState<Map<string, string>>(new Map())
   const [resultadoSubstituicoes, setResultadoSubstituicoes] = useState<{ id: string; ok: boolean; motivo?: string }[] | null>(null)
   const [limiteSemCorrespondencia, setLimiteSemCorrespondencia] = useState(LOTE_SEM_CORRESPONDENCIA)
   const diagnostico = catalogo ? classificarInativos(catalogo, capturas) : []
@@ -43,6 +59,16 @@ export default function RecuperarInativosPage() {
   const idsCapturados = new Set(capturas.map((item) => item.itemId))
   const duplicadosCapturados = duplicadosNaOrigem + Math.max(0, capturas.length - idsCapturados.size)
   const selecionadosExatos = selecionarExatos(exatos, selecionados)
+  const pendenciasSubstituicao = (previaSubstituicoes ?? []).flatMap((item) => {
+    const chave = chaveSubstituicao(item)
+    const form = formulariosSubstituicao.get(chave)
+    const pendencias: string[] = []
+    if (!item.inativo.id) pendencias.push(`${item.candidato.itemId}: ID interno indisponível; recarregue o catálogo.`)
+    if (!item.candidato.imagem && !imagensValidadas.get(chave)) pendencias.push(`${item.candidato.itemId}: imagem principal não encontrada na captura nem na validação do meli.la.`)
+    if (!form?.link.trim()) pendencias.push(`${item.candidato.itemId}: informe o link meli.la.`)
+    else if (destinosValidados.get(chave) !== form.link.trim()) pendencias.push(`${item.candidato.itemId}: valide o destino do link para este ITEM_ID.`)
+    return pendencias
+  })
 
   function alternar(id: string) {
     setSelecionados((atual) => { const novo = new Set(atual); if (novo.has(id)) novo.delete(id); else novo.add(id); return novo })
@@ -102,7 +128,9 @@ export default function RecuperarInativosPage() {
     finally { setOcupado(false) }
   }
 
-  const chaveSubstituicao = (item: SubstituicaoSelecionada) => `${item.inativo.mercadoLivreId}:${item.candidato.itemId}`
+  function chaveSubstituicao(item: SubstituicaoSelecionada) {
+    return `${item.inativo.mercadoLivreId}:${item.candidato.itemId}`
+  }
   function alternarCandidato(inativo: ProdutoCatalogo, candidato: CapturaInativo) {
     setCandidatosSelecionados((atuais) => {
       const novos = new Map(atuais)
@@ -115,9 +143,38 @@ export default function RecuperarInativosPage() {
     const itens = [...candidatosSelecionados.values()]
     setPreviaSubstituicoes(itens)
     setResultadoSubstituicoes(null)
+    setDestinosValidados(new Map())
+    setImagensValidadas(new Map())
+    setErrosValidacaoDestino(new Map())
     setFormulariosSubstituicao(new Map(itens.map((item) => [chaveSubstituicao(item), {
       link: '', categoria: item.inativo.categoria, descricao: '',
     }])))
+  }
+  async function validarDestinoCandidato(item: SubstituicaoSelecionada) {
+    if (ocupado) return
+    const chave = chaveSubstituicao(item)
+    const link = formulariosSubstituicao.get(chave)?.link.trim() ?? ''
+    if (!link) {
+      setErrosValidacaoDestino((atuais) => new Map(atuais).set(chave, 'Informe o link meli.la antes de validar.'))
+      return
+    }
+    setOcupado(true)
+    setErrosValidacaoDestino((atuais) => { const novos = new Map(atuais); novos.delete(chave); return novos })
+    setDestinosValidados((atuais) => { const novos = new Map(atuais); novos.delete(chave); return novos })
+    setImagensValidadas((atuais) => { const novos = new Map(atuais); novos.delete(chave); return novos })
+    try {
+      const imagem = await validarDestinoSubstituicao(token, item.candidato.itemId, link)
+      setDestinosValidados((atuais) => new Map(atuais).set(chave, link))
+      setImagensValidadas((atuais) => {
+        const novos = new Map(atuais)
+        if (imagem) novos.set(chave, imagem)
+        return novos
+      })
+    } catch (falha) {
+      setImagensValidadas((atuais) => { const novos = new Map(atuais); novos.delete(chave); return novos })
+      setErrosValidacaoDestino((atuais) => new Map(atuais).set(chave,
+        falha instanceof Error ? falha.message : 'Não foi possível validar o destino do link afiliado.'))
+    } finally { setOcupado(false) }
   }
   async function confirmarSubstituicoes() {
     if (!previaSubstituicoes?.length || ocupado) return
@@ -127,12 +184,13 @@ export default function RecuperarInativosPage() {
       const form = formulariosSubstituicao.get(chaveSubstituicao(item))!
       try {
         if (!item.inativo.id) throw new Error('ID interno indisponível; recarregue o catálogo.')
-        if (!item.candidato.imagem) throw new Error('Imagem do candidato não disponível; não é seguro preservar a imagem antiga.')
+        const imagem = item.candidato.imagem ?? imagensValidadas.get(chaveSubstituicao(item))
+        if (!imagem) throw new Error('Imagem principal não encontrada na captura nem na validação do meli.la.')
         await substituirInativo(token, {
           id_interno: item.inativo.id, item_id_anterior: item.inativo.mercadoLivreId,
           mercado_livre_id: item.candidato.itemId, titulo: item.candidato.titulo,
           descricao: form.descricao, preco: item.candidato.preco, moeda: 'BRL',
-          imagem: item.candidato.imagem, link_afiliado: form.link.trim(), categoria: form.categoria,
+          imagem, link_afiliado: form.link.trim(), categoria: form.categoria,
         })
         resultados.push({ id: item.candidato.itemId, ok: true })
       } catch (falha) {
@@ -213,7 +271,7 @@ export default function RecuperarInativosPage() {
             {produto.imagem && <img className="recuperar-inativos__imagem" src={produto.imagem} alt={`Imagem candidata de ${produto.titulo}`} />}
             <p>{produto.itemId} · {produto.titulo}</p><p>{reais(produto.preco)} · Origem: {produto.origem}</p>
             <p>productId: {produto.productId ?? '—'} · userProductId: {produto.userProductId ?? '—'}</p>
-            <p>URL do anúncio: {produto.url ?? 'não disponível'}</p>
+            <LinksCandidato produto={produto} />
             <p>Confiança: {confianca} · {motivo}</p>
             <button type="button" disabled={ocupado} onClick={() => alternarCandidato(inativo, produto)}>
               {candidatosSelecionados.get(inativo.mercadoLivreId)?.candidato.itemId === produto.itemId ? 'Remover seleção' : 'Selecionar para substituição'}
@@ -226,19 +284,32 @@ export default function RecuperarInativosPage() {
         <p role="alert">Esta ação substituirá o produto antigo por outro produto no mesmo registro.</p>
         {previaSubstituicoes.map((item) => {
           const chave = chaveSubstituicao(item); const form = formulariosSubstituicao.get(chave)!
+          const destinoValidado = destinosValidados.get(chave) === form.link.trim()
+          const imagemCandidato = item.candidato.imagem ?? imagensValidadas.get(chave) ?? null
           return <article key={chave} className="recuperar-inativos__item recuperar-inativos__comparacao">
             <div><h4>ANTES</h4>{item.inativo.imagem && <img className="recuperar-inativos__imagem" src={item.inativo.imagem} alt="Imagem antiga" />}
               <p>ID interno: {item.inativo.id ?? 'indisponível'}</p><p>ITEM_ID: {item.inativo.mercadoLivreId}</p><p>{item.inativo.titulo}</p>
               <p>{reais(item.inativo.preco)} · {item.inativo.categoria}</p><p>{item.inativo.linkAfiliado}</p></div>
-            <div><h4>DEPOIS</h4>{item.candidato.imagem && <img className="recuperar-inativos__imagem" src={item.candidato.imagem} alt="Imagem nova" />}
+            <div><h4>DEPOIS</h4>{imagemCandidato && <img className="recuperar-inativos__imagem" src={imagemCandidato} alt="Imagem nova" />}
+              {!item.candidato.imagem && imagemCandidato && <p>Imagem obtida do anúncio validado pelo link afiliado.</p>}
               <p>ITEM_ID: {item.candidato.itemId}</p><p>{item.candidato.titulo}</p><p>{reais(item.candidato.preco)} · BRL</p>
               <p>productId: {item.candidato.productId ?? '—'} · userProductId: {item.candidato.userProductId ?? '—'}</p>
-              <p>URL do anúncio: {item.candidato.url ?? 'não disponível'}</p>
+              <LinksCandidato produto={item.candidato} />
               <label>Link afiliado novo (meli.la)
                 <input aria-label={`Link afiliado para ${item.candidato.itemId}`} value={form.link}
-                  onChange={(evento) => setFormulariosSubstituicao((atuais) => new Map(atuais).set(chave, { ...form, link: evento.target.value }))} />
+                  onChange={(evento) => {
+                    setFormulariosSubstituicao((atuais) => new Map(atuais).set(chave, { ...form, link: evento.target.value }))
+                    setDestinosValidados((atuais) => { const novos = new Map(atuais); novos.delete(chave); return novos })
+                    setImagensValidadas((atuais) => { const novos = new Map(atuais); novos.delete(chave); return novos })
+                    setErrosValidacaoDestino((atuais) => { const novos = new Map(atuais); novos.delete(chave); return novos })
+                  }} />
               </label>
-              <p>Link afiliado necessário. O servidor resolverá o destino e só permitirá a substituição se pertencer ao ITEM_ID do candidato.</p>
+              <p>Valide o destino antes de confirmar. Só será aceito se resolver exatamente para {item.candidato.itemId}.</p>
+              <button type="button" disabled={ocupado || !form.link.trim()} onClick={() => void validarDestinoCandidato(item)}>
+                {ocupado ? 'Validando destino…' : 'Validar meli.la'}
+              </button>
+              {destinoValidado && <p role="status">Destino validado para {item.candidato.itemId}. A confirmação revalidará o link antes de aplicar.</p>}
+              {errosValidacaoDestino.get(chave) && <p role="alert">{errosValidacaoDestino.get(chave)}</p>}
               <label>Descrição do produto (opcional)
                 <textarea aria-label={`Descrição para ${item.candidato.itemId}`} value={form.descricao}
                   onChange={(evento) => setFormulariosSubstituicao((atuais) => new Map(atuais).set(chave, { ...form, descricao: evento.target.value }))} />
@@ -252,13 +323,16 @@ export default function RecuperarInativosPage() {
             </div>
           </article>
         })}
-        <button type="button" disabled={ocupado} onClick={() => setPreviaSubstituicoes(null)}>Cancelar</button>
-        <button type="button" disabled={ocupado || previaSubstituicoes.some((item) => {
-          const form = formulariosSubstituicao.get(chaveSubstituicao(item))
-          return !item.inativo.id || !item.candidato.imagem || !form?.link.trim()
-        })} onClick={() => void confirmarSubstituicoes()}>
-          {ocupado ? 'Validando e substituindo…' : 'Confirmar substituição e reativação'}
-        </button>
+        {pendenciasSubstituicao.length > 0 && <div role="alert">
+          <strong>A confirmação está bloqueada:</strong>
+          <ul>{pendenciasSubstituicao.map((motivo) => <li key={motivo}>{motivo}</li>)}</ul>
+        </div>}
+        <div className="recuperar-inativos__confirmacao-acoes">
+          <button type="button" disabled={ocupado} onClick={() => setPreviaSubstituicoes(null)}>Cancelar</button>
+          <button type="button" disabled={ocupado || pendenciasSubstituicao.length > 0} onClick={() => void confirmarSubstituicoes()}>
+            {ocupado ? 'Aplicando substituição…' : 'Confirmar substituição'}
+          </button>
+        </div>
       </section>}
       {resultadoSubstituicoes && <section aria-label="Resultado das substituições">
         {resultadoSubstituicoes.map((item, indice) => <p key={`${item.id}-${indice}`} role={item.ok ? 'status' : 'alert'}>

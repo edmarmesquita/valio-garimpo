@@ -14,9 +14,10 @@ const base = () => ({ id: 774, mercado_livre_id: 'MLB1001', ativo: false, titulo
   descricao: 'Descrição antiga', preco: 100, categoria: 'Achados para Casa', link_afiliado: 'https://meli.la/old', imagem: 'https://http2.mlstatic.com/old.webp' })
 const pedido = (altera = {}) => ({ confirmar: true, id_interno: 774, item_id_anterior: 'MLB1001',
   mercado_livre_id: 'MLB2002', titulo: 'Produto novo', descricao: '', preco: 80, moeda: 'BRL',
-  imagem: 'https://http2.mlstatic.com/new.webp', link_afiliado: 'https://meli.la/new', categoria: 'Achados para Elas', ...altera })
+  imagem: 'https://http2.mlstatic.com/D_NQ_NP_new.webp', link_afiliado: 'https://meli.la/new', categoria: 'Achados para Elas', ...altera })
 
 async function harness({ registro = base(), validarDestino = async () => {}, existeOutro = async () => false,
+  resolverProdutoAfiliado = async () => ({ itemId: 'MLB2002', imagem: 'https://http2.mlstatic.com/D_NQ_NP_new.webp' }),
   substituir = null, agora = new Date('2026-10-29T12:00:00.000Z') } = {}) {
   let salvo = { ...registro }; const tentativas = []; let insercoes = 0
   const gateway = {
@@ -37,7 +38,7 @@ async function harness({ registro = base(), validarDestino = async () => {}, exi
   app.use('/api/valio', criarRotaValioProdutos({ config: () => config, token: () => token,
     agora: () => agora, validarDestino: async (id, link, origem) => {
       await validarDestino(id, link, origem)
-    }, substituicao: () => gateway }))
+    }, resolverProdutoAfiliado, substituicao: () => gateway }))
   const server = app.listen(0, '127.0.0.1'); await new Promise((resolve) => server.once('listening', resolve))
   const chamar = async (dados = pedido()) => {
     const resposta = await fetch(`http://127.0.0.1:${server.address().port}/api/valio/produtos/substituir-inativo`, {
@@ -46,8 +47,40 @@ async function harness({ registro = base(), validarDestino = async () => {}, exi
     })
     return { status: resposta.status, corpo: await resposta.json() }
   }
-  return { chamar, get salvo() { return salvo }, tentativas, get insercoes() { return insercoes }, close: () => new Promise((resolve) => server.close(resolve)) }
+  const validar = async (dados = { mercado_livre_id: 'MLB2002', link_afiliado: 'https://meli.la/new' }) => {
+    const resposta = await fetch(`http://127.0.0.1:${server.address().port}/api/valio/produtos/validar-substituicao-inativo`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(dados),
+    })
+    return { status: resposta.status, corpo: await resposta.json() }
+  }
+  return { chamar, validar, get salvo() { return salvo }, tentativas, get insercoes() { return insercoes }, close: () => new Promise((resolve) => server.close(resolve)) }
 }
+
+test('pré-validação confirma meli.la para o ITEM_ID exato sem acessar ou alterar o registro', async () => {
+  let destino
+  const h = await harness({ validarDestino: async (...args) => { destino = args } })
+  try {
+    const resposta = await h.validar()
+    assert.equal(resposta.status, 200)
+    assert.equal(resposta.corpo.mercado_livre_id, 'MLB2002')
+    assert.equal(resposta.corpo.imagem, 'https://http2.mlstatic.com/D_NQ_NP_new.webp')
+    assert.deepEqual(destino, ['MLB2002', 'https://meli.la/new', 'recuperacao-inativos:prevalidacao'])
+    assert.equal(h.tentativas.length, 0)
+    assert.equal(h.salvo.ativo, false)
+  } finally { await h.close() }
+})
+
+test('pré-validação mostra divergência e não inicia substituição', async () => {
+  const h = await harness({ validarDestino: async () => { throw new ErroDestinoAfiliado('ITEM_ID divergente: MLB999') } })
+  try {
+    const resposta = await h.validar()
+    assert.equal(resposta.status, 422)
+    assert.match(resposta.corpo.erro, /ITEM_ID divergente/)
+    assert.equal(h.tentativas.length, 0)
+    assert.equal(h.salvo.ativo, false)
+  } finally { await h.close() }
+})
 
 test('substituição válida reativa o mesmo registro interno', async () => {
   const h = await harness()
@@ -60,7 +93,7 @@ test('substituição válida reativa o mesmo registro interno', async () => {
 
 test('atualiza título e imagem do candidato, não mantém os valores antigos', async () => {
   const h = await harness()
-  try { await h.chamar(); assert.equal(h.salvo.titulo, 'Produto novo'); assert.equal(h.salvo.imagem, 'https://http2.mlstatic.com/new.webp') }
+  try { await h.chamar(); assert.equal(h.salvo.titulo, 'Produto novo'); assert.equal(h.salvo.imagem, 'https://http2.mlstatic.com/D_NQ_NP_new.webp') }
   finally { await h.close() }
 })
 
@@ -99,6 +132,55 @@ test('destino afiliado incompatível bloqueia a escrita', async () => {
   const h = await harness({ validarDestino: async () => { throw new ErroDestinoAfiliado('ITEM_ID divergente') } })
   try { const r = await h.chamar(); assert.equal(r.status, 422); assert.equal(h.tentativas.length, 0); assert.equal(h.salvo.ativo, false) }
   finally { await h.close() }
+})
+
+test('meli.la resolving to a different ITEM_ID blocks image and replacement', async () => {
+  const h = await harness({ resolverProdutoAfiliado: async () => ({ itemId: 'MLB999', imagem: 'https://http2.mlstatic.com/D_NQ_NP_wrong.webp' }) })
+  try {
+    const r = await h.validar()
+    assert.equal(r.status, 422)
+    assert.match(r.corpo.erro, /ITEM_ID divergente/)
+    assert.equal(h.tentativas.length, 0)
+  } finally { await h.close() }
+})
+
+test('missing structured image keeps replacement blocked', async () => {
+  const h = await harness({ resolverProdutoAfiliado: async () => ({ itemId: 'MLB2002', imagem: null }) })
+  try {
+    const v = await h.validar()
+    assert.equal(v.status, 200)
+    assert.equal(v.corpo.imagem, null)
+    const c = await h.chamar()
+    assert.equal(c.status, 422)
+    assert.equal(h.tentativas.length, 0)
+  } finally { await h.close() }
+})
+
+test('banner and placeholder images are not returned by prevalidation', async () => {
+  for (const imagem of ['https://http2.mlstatic.com/D_NQ_NP_banner.webp', 'https://http2.mlstatic.com/D_NQ_NP_placeholder.webp']) {
+    const h = await harness({ resolverProdutoAfiliado: async () => ({ itemId: 'MLB2002', imagem }) })
+    try { const r = await h.validar(); assert.equal(r.status, 200); assert.equal(r.corpo.imagem, null) }
+    finally { await h.close() }
+  }
+})
+
+test('final confirmation revalidates ITEM_ID and image before writing', async () => {
+  let resolucoes = 0
+  const h = await harness({ resolverProdutoAfiliado: async () => {
+    resolucoes++
+    return { itemId: 'MLB2002', imagem: resolucoes === 1
+      ? 'https://http2.mlstatic.com/D_NQ_NP_new.webp'
+      : 'https://http2.mlstatic.com/D_NQ_NP_changed.webp' }
+  } })
+  try {
+    const v = await h.validar()
+    assert.equal(v.status, 200)
+    const r = await h.chamar()
+    assert.equal(r.status, 422)
+    assert.match(r.corpo.erro, /imagem enviada não corresponde/)
+    assert.equal(resolucoes, 2)
+    assert.equal(h.tentativas.length, 0)
+  } finally { await h.close() }
 })
 
 test('link afiliado ausente não conclui substituição', async () => {

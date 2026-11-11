@@ -10,6 +10,7 @@ import type { ResolverDestino, ValidarDestino } from '../validarDestinoAfiliado.
 export type Dependencias = {
   validarDestino?: ValidarDestino
   resolverDestino?: ResolverDestino
+  resolverProdutoAfiliado?: (link: string) => Promise<{ itemId: string | null; imagem: string | null }>
   precosHar?: (config: SupabaseConfig) => PrecosHarGateway
   config?: () => SupabaseConfig | null
   gateway?: (config: SupabaseConfig) => ProdutosGateway

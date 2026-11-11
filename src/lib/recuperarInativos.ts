@@ -6,7 +6,76 @@ import { analisarDocumentoLista, analisarHar } from './harAfiliadosParser'
 export type CapturaInativo = {
   itemId: string; titulo: string; preco: number; productId: string | null
   userProductId: string | null; origem: string; origens?: string[]; moeda?: string | null; url?: string | null
+  urlParams?: string | null; urlFragments?: string | null
   imagem?: string | null
+}
+
+/** Retorna apenas uma URL cuja estrutura mantém o vínculo com o ITEM_ID do card. */
+export function urlAnuncioCandidato(produto: Pick<CapturaInativo, 'itemId' | 'url' | 'productId' | 'userProductId'>
+  & Partial<Pick<CapturaInativo, 'urlParams' | 'urlFragments'>>): string | null {
+  if (!/^MLB\d+$/.test(produto.itemId)) return null
+  const url = (() => {
+    if (!produto.url) return null
+    try {
+      const parsed = new URL(produto.url)
+      if (parsed.protocol !== 'https:' || !(parsed.hostname.toLowerCase() === 'mercadolivre.com.br'
+        || parsed.hostname.toLowerCase().endsWith('.mercadolivre.com.br'))
+        || parsed.username || parsed.password || parsed.port) return null
+      return parsed
+    } catch { return null }
+  })()
+  if (url) {
+    const ids: string[] = []
+    const parametros = [url.search, url.hash, produto.urlParams ?? '', produto.urlFragments ?? '']
+      .flatMap((valor) => [...new URLSearchParams(valor.replace(/^[?#]/, '')).entries()])
+    for (const [chave, wid] of parametros) if (chave === 'wid' && /^MLB\d+$/.test(wid)) ids.push(wid.toUpperCase())
+    for (const [chave, filtro] of parametros) if (chave === 'pdp_filters') {
+      const match = /^item_id:(MLB\d+)$/i.exec(filtro)
+      if (match) ids.push(match[1].toUpperCase())
+    }
+    const listing = /(?:^|\/)MLB-(\d+)(?:-[^/]+)?\/?$/i.exec(url.pathname)
+    if (listing) ids.push(`MLB${listing[1]}`)
+    if (ids.some((id) => id !== produto.itemId)) return null
+    if (ids.length) {
+      const safe = new URL(`${url.origin}${url.pathname}`)
+      if (parametros.some(([chave, valor]) => chave === 'wid' && valor.toUpperCase() === produto.itemId)) safe.searchParams.set('wid', produto.itemId)
+      else safe.searchParams.set('pdp_filters', `item_id:${produto.itemId}`)
+      return safe.href
+    }
+    // Um PDP de catálogo só fica específico para o anúncio quando productId e wid
+    // vieram juntos do mesmo card estruturado.
+    const pdp = /^\/p\/(MLB\d+)\/?$/i.exec(url.pathname)
+    if (pdp && produto.productId === pdp[1].toUpperCase() && /^MLB\d+$/.test(produto.productId)) {
+      const safe = new URL(`${url.origin}${url.pathname}`)
+      safe.searchParams.set('wid', produto.itemId)
+      return safe.href
+    }
+    const userProduct = /^\/up\/(MLBU\d+)\/?$/i.exec(url.pathname)
+    if (userProduct && produto.userProductId === userProduct[1].toUpperCase()) {
+      const safe = new URL(`${url.origin}${url.pathname}`)
+      safe.searchParams.set('wid', produto.itemId)
+      return safe.href
+    }
+  }
+  if (!url && produto.userProductId && /^MLBU\d+$/.test(produto.userProductId)) {
+    const safe = new URL(`https://www.mercadolivre.com.br/up/${produto.userProductId}`)
+    safe.searchParams.set('wid', produto.itemId)
+    return safe.href
+  }
+  // productId e ITEM_ID são preservados do mesmo registro estruturado (ex.: Nordic).
+  // wid torna a PDP de catálogo específica para o anúncio; não inferimos URL do ITEM_ID.
+  if (!url && !(produto.userProductId && /^MLBU\d+$/.test(produto.userProductId))
+    && produto.productId && /^MLB\d+$/.test(produto.productId)) {
+    const safe = new URL(`https://www.mercadolivre.com.br/p/${produto.productId}`)
+    safe.searchParams.set('wid', produto.itemId)
+    return safe.href
+  }
+  return null
+}
+
+export function urlBuscaTituloCandidato(titulo: string): string | null {
+  const busca = titulo.trim()
+  return busca ? `https://www.mercadolivre.com.br/jm/search?query=${encodeURIComponent(busca)}` : null
 }
 export type CandidatoInativo = { produto: CapturaInativo; confianca: 'ALTA' | 'MÉDIA'; motivo: string }
 export type ConflitoPrecoInativo = { precos: number[]; origens: string[] }
@@ -33,7 +102,8 @@ function capturarResultadoHar(conteudo: string, nome: string): ResultadoArquivoI
     && item.capturas[0]?.moeda === 'BRL' && item.capturas[0]?.titulo?.trim()
     ? [{ itemId: item.itemId, titulo: item.capturas[0].titulo!, preco: item.precoAtual!,
       productId: item.capturas[0].productId, userProductId: item.capturas[0].userProductId,
-      origem: nome, origens: [nome], moeda: 'BRL', url: item.capturas[0].url, imagem: null }] : [])
+      origem: nome, origens: [nome], moeda: 'BRL', url: item.capturas[0].url,
+      urlParams: item.capturas[0].urlParams, urlFragments: item.capturas[0].urlFragments, imagem: null }] : [])
   return { capturas, reconhecido: true, formato: 'HAR', cardsBrutos: resultado.ocorrencias, duplicados: resultado.duplicados }
 }
 
@@ -44,6 +114,7 @@ function capturarResultadoLista(conteudo: string, nome: string): ResultadoArquiv
     ? [{ itemId: item.itemId, titulo: item.capturas[0].titulo!, preco: item.precoAtual!,
       productId: item.capturas[0].productId, userProductId: item.capturas[0].userProductId,
       origem: nome, origens: [nome], moeda: 'BRL', url: item.capturas[0].url,
+      urlParams: item.capturas[0].urlParams, urlFragments: item.capturas[0].urlFragments,
       imagem: null }] : [])
   return { capturas, reconhecido: true, formato: 'LISTA', cardsBrutos: resultado.ocorrencias, duplicados: resultado.duplicados }
 }

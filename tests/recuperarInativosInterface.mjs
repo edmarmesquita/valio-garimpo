@@ -23,6 +23,13 @@ test('interface seleciona EXATOS, exige confirmação e atualiza a lista após r
     globalThis.HTMLElement = dom.window.HTMLElement; globalThis.File = dom.window.File
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     globalThis.fetch = async (url, options = {}) => {
+      if (options.method === 'POST' && url === '/api/valio/produtos/validar-substituicao-inativo') {
+        const body = JSON.parse(options.body)
+        return body.link_afiliado === 'https://meli.la/validado'
+          ? { ok: true, json: async () => ({ ok: true, mercado_livre_id: body.mercado_livre_id,
+            imagem: 'https://http2.mlstatic.com/D_NQ_NP_recovered.webp' }) }
+          : { ok: false, json: async () => ({ ok: false, erro: 'ITEM_ID divergente: link resolve para MLB999.' }) }
+      }
       if (options.method === 'POST' && url === '/api/valio/produtos/substituir-inativo') {
         const body = JSON.parse(options.body); substituicoes.push(body)
         const salvo = catalogo.find((linha) => linha.id === body.id_interno)
@@ -73,7 +80,7 @@ test('interface seleciona EXATOS, exige confirmação e atualiza a lista após r
     assert.equal(botao('Mostrar mais'), undefined)
     assert.match(document.body.textContent, /63 de 63 exibidos/)
     const html = (...produtos) => produtos.map(([id, titulo, preco]) => `<script type="application/ld+json">${JSON.stringify({
-      '@type': 'Product', sku: id, name: titulo, image: `https://http2.mlstatic.com/${id}.webp`, offers: { price: preco, priceCurrency: 'BRL' },
+      '@type': 'Product', sku: id, name: titulo, image: id === 'MLB9' ? undefined : `https://http2.mlstatic.com/${id}.webp`, offers: { price: preco, priceCurrency: 'BRL' },
     })}</script>`).join('\n')
     const arquivo = new dom.window.File([html(['MLB1', 'Produto um', 125], ['MLB2', 'Produto dois', 110],
       ['MLB9', 'Produto candidato modelo especial alfa diferente', 80])], 'ofertas.html', { type: 'text/html' })
@@ -96,22 +103,41 @@ test('interface seleciona EXATOS, exige confirmação e atualiza a lista após r
     assert.equal(document.body.textContent.includes('M\u00c9DIA'), true)
     await act(async () => botao('Revisar substituições selecionadas').click())
     assert.match(document.querySelector('[aria-label="Revisar substituições"]').textContent, /Esta ação substituirá o produto antigo/)
-    assert.match(document.querySelector('[aria-label="Revisar substituições"]').textContent, /Link afiliado necessário/)
-    assert.equal(botao('Confirmar substituição e reativação').disabled, true)
+    assert.match(document.querySelector('[aria-label="Revisar substituições"]').textContent, /informe o link meli\.la/i)
+    assert.equal(botao('Confirmar substituição').disabled, true)
     await act(async () => botao('Cancelar').click())
     assert.equal(substituicoes.length, 0, 'cancelar a prévia não escreve')
     await act(async () => botao('Revisar substituições selecionadas').click())
+    const buscaTitulo = [...document.querySelectorAll('a')].find((item) => item.textContent === 'Buscar pelo título no Mercado Livre')
+    assert.equal(buscaTitulo?.href, 'https://www.mercadolivre.com.br/jm/search?query=Produto%20candidato%20modelo%20especial%20alfa%20diferente')
+    assert.match(document.body.textContent, /busca é apenas apoio visual: não confirma o ITEM_ID/i)
+    assert.match(document.body.textContent, /meli\.la ainda precisa resolver exatamente para MLB9/)
     const inputLink = document.querySelector('input[aria-label="Link afiliado para MLB9"]')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(inputLink, 'https://meli.la/divergente')
+      inputLink.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await act(async () => botao('Validar meli.la').click())
+    assert.match(document.body.textContent, /ITEM_ID divergente: link resolve para MLB999/)
+    assert.equal(botao('Confirmar substituição').disabled, true)
     await act(async () => {
       Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(inputLink, 'https://meli.la/validado')
       inputLink.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
     })
-    assert.equal(botao('Confirmar substituição e reativação').disabled, false)
-    await act(async () => botao('Confirmar substituição e reativação').click())
+    assert.equal(botao('Confirmar substituição').disabled, true, 'edição do link invalida a validação anterior')
+    assert.equal(document.querySelector('img[alt="Imagem nova"]'), null, 'editar o link também descarta a imagem recuperada')
+    assert.equal(document.body.textContent.includes('Imagem obtida do anúncio validado pelo link afiliado'), false)
+    await act(async () => botao('Validar meli.la').click())
+    assert.match(document.body.textContent, /Destino validado para MLB9/)
+    assert.match(document.body.textContent, /Imagem obtida do anúncio validado pelo link afiliado/)
+    assert.equal([...document.querySelectorAll('img[alt="Imagem nova"]')].some((img) => img.src === 'https://http2.mlstatic.com/D_NQ_NP_recovered.webp'), true)
+    assert.equal(botao('Confirmar substituição').disabled, false)
+    await act(async () => botao('Confirmar substituição').click())
     assert.equal(substituicoes.length, 1)
     assert.equal(substituicoes[0].id_interno, 103)
     assert.equal(substituicoes[0].mercado_livre_id, 'MLB9')
     assert.equal(substituicoes[0].link_afiliado, 'https://meli.la/validado')
+    assert.equal(substituicoes[0].imagem, 'https://http2.mlstatic.com/D_NQ_NP_recovered.webp')
     assert.equal(catalogo.find((item) => item.id === 103).ativo, true)
     await act(async () => document.querySelector('input[aria-label="Selecionar MLB1"]').click())
     assert.equal(document.body.textContent.includes('1 de 2 selecionados'), true)

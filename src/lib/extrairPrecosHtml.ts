@@ -162,8 +162,15 @@ export function extrairPrecosHtml(html: string, origem = ''): ExtracaoPrecosHtml
       .find((valor): valor is string => typeof valor === 'string' && valor.trim().length > 0)
     if (urlBruta) {
       try {
-        const url = new URL(urlBruta, origem || 'https://www.mercadolivre.com.br/')
-        if (url.protocol === 'https:' && /(^|\.)mercadolivre\.com\.br$/.test(url.hostname)) urls.set(id, url.href)
+        let base = 'https://www.mercadolivre.com.br/'
+        try {
+          const candidata = new URL(origem)
+          if (candidata.protocol === 'https:' && (candidata.hostname === 'mercadolivre.com.br'
+            || candidata.hostname.endsWith('.mercadolivre.com.br'))) base = candidata.href
+        } catch { /* nome do arquivo nÃ£o Ã© uma base URL */ }
+        const url = new URL(urlBruta, base)
+        if (url.protocol === 'https:' && (url.hostname === 'mercadolivre.com.br'
+          || url.hostname.endsWith('.mercadolivre.com.br'))) urls.set(id, url.href)
       } catch { /* URL apenas diagnóstica */ }
     }
     const base = extrairProdutosAfiliados({ polycard_context: dados.polycardContext, items: [item] })[0]

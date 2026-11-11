@@ -6,6 +6,7 @@
 .recuperar-inativos__item { margin: 12px 0; }
 .recuperar-inativos__acoes { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; margin: 16px 0; }
 .recuperar-inativos__confirmacao { border: 2px solid var(--border, #d5cbc5); border-radius: 10px; padding: 16px; margin: 20px 0; }
+.recuperar-inativos__confirmacao-acoes { position: sticky; bottom: 0; z-index: 2; display: flex; justify-content: flex-end; gap: 10px; padding: 12px 0; background: var(--surface, #fff); border-top: 1px solid var(--border, #d5cbc5); }
 .recuperar-inativos__comparacao { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
 .recuperar-inativos__imagem { display: block; width: 120px; height: 120px; object-fit: contain; border-radius: 8px; }
 .recuperar-inativos__confirmacao label { display: grid; gap: 6px; margin: 12px 0; }

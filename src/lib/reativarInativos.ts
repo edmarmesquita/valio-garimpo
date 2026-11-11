@@ -36,6 +36,21 @@ export type PedidoSubstituicao = {
   categoria: CategoriaValio
 }
 
+export async function validarDestinoSubstituicao(token: string, itemId: string, link: string): Promise<string | null> {
+  if (!/^MLB\d+$/.test(itemId) || !/^https:\/\/meli\.la\//i.test(link.trim())) {
+    throw new Error('Informe um link meli.la para validar o destino do candidato.')
+  }
+  const resposta = await fetch('/api/valio/produtos/validar-substituicao-inativo', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ mercado_livre_id: itemId, link_afiliado: link.trim() }),
+  })
+  const corpo = await resposta.json()
+  if (!resposta.ok || !corpo.ok || corpo.mercado_livre_id !== itemId) {
+    throw new Error(corpo.erro || 'O destino do link não foi confirmado para o ITEM_ID do candidato.')
+  }
+  return typeof corpo.imagem === 'string' ? corpo.imagem : null
+}
+
 export async function substituirInativo(token: string, pedido: PedidoSubstituicao): Promise<void> {
   if (!Number.isSafeInteger(pedido.id_interno) || !/^MLB\d+$/.test(pedido.item_id_anterior)
     || !/^MLB\d+$/.test(pedido.mercado_livre_id) || pedido.item_id_anterior === pedido.mercado_livre_id

@@ -1,6 +1,7 @@
 import type { Router } from 'express'
 import { CATEGORIAS_VALIO } from '../valioProduto.js'
 import { ErroDestinoAfiliado, validarDestinoAfiliado } from '../validarDestinoAfiliado.js'
+import { resolverLinkAfiliado } from '../resolverLinksAfiliados.js'
 import { criarSubstituicaoGateway } from '../services/supabase.js'
 import type { ContextoRotas } from './contexto.js'
 
@@ -17,9 +18,13 @@ const urlHttps = (valor: unknown): valor is string => {
 }
 const imagemMercadoLivre = (valor: unknown): valor is string => {
   if (!urlHttps(valor)) return false
-  const hostname = new URL(valor).hostname
-  return hostname === 'mlstatic.com' || hostname.endsWith('.mlstatic.com')
+  const url = new URL(valor)
+  return (url.hostname === 'mlstatic.com' || url.hostname.endsWith('.mlstatic.com'))
+    && url.pathname !== '/'
+    && !/placeholder|no[-_]?image|sem[-_]?imagem|sin[-_]?imagen|banner|logo|sprite/i.test(url.pathname)
 }
+const resolverProduto = (link: string, deps: ContextoRotas['deps']) =>
+  (deps.resolverProdutoAfiliado ?? resolverLinkAfiliado)(link)
 const linkAfiliadoMeliLa = (valor: unknown): valor is string => {
   if (!urlHttps(valor)) return false
   try { const url = new URL(valor); return url.hostname === 'meli.la' && Boolean(url.pathname.slice(1)) }
@@ -29,6 +34,33 @@ const precoValido = (valor: unknown): valor is number => typeof valor === 'numbe
   && valor > 0 && Math.abs(Math.round(valor * 100) - valor * 100) < 1e-7
 
 export function registrarSubstituicaoInativos(router: Router, { deps, autorizar }: ContextoRotas) {
+  router.post('/produtos/validar-substituicao-inativo', async (req, res) => {
+    if (!autorizar(req, res)) return
+    const entrada = req.body as { mercado_livre_id?: unknown; link_afiliado?: unknown } | null
+    if (!entrada || typeof entrada !== 'object' || Array.isArray(entrada)
+      || Object.keys(entrada).sort().join(',') !== 'link_afiliado,mercado_livre_id'
+      || !idValido(entrada.mercado_livre_id) || !linkAfiliadoMeliLa(entrada.link_afiliado)) {
+      res.status(400).json({ ok: false, erro: 'Informe um ITEM_ID válido e um link meli.la.' })
+      return
+    }
+    try {
+      const validar = deps.validarDestino ?? ((id, link, origem) =>
+        validarDestinoAfiliado(id, link, origem, deps.resolverDestino))
+      await validar(entrada.mercado_livre_id, entrada.link_afiliado, 'recuperacao-inativos:prevalidacao')
+      const produto = await resolverProduto(entrada.link_afiliado, deps)
+      if (produto.itemId !== entrada.mercado_livre_id) {
+        throw new ErroDestinoAfiliado(produto.itemId
+          ? `ITEM_ID divergente: link resolve para ${produto.itemId}; candidato ${entrada.mercado_livre_id}.`
+          : 'Não foi possível comprovar o ITEM_ID do link afiliado.')
+      }
+      res.json({ ok: true, mercado_livre_id: entrada.mercado_livre_id,
+        imagem: imagemMercadoLivre(produto.imagem) ? produto.imagem : null })
+    } catch (erro) {
+      if (erro instanceof ErroDestinoAfiliado) { res.status(erro.status).json({ ok: false, erro: erro.message }); return }
+      res.status(502).json({ ok: false, erro: 'Não foi possível validar o destino do link afiliado.' })
+    }
+  })
+
   router.post('/produtos/substituir-inativo', async (req, res) => {
     const config = autorizar(req, res)
     if (!config) return
@@ -54,6 +86,15 @@ export function registrarSubstituicaoInativos(router: Router, { deps, autorizar 
       const validar = deps.validarDestino ?? ((id, link, origem) =>
         validarDestinoAfiliado(id, link, origem, deps.resolverDestino))
       await validar(item.mercado_livre_id, item.link_afiliado, 'recuperacao-inativos:substituicao')
+      const produtoValidado = await resolverProduto(item.link_afiliado, deps)
+      if (produtoValidado.itemId !== item.mercado_livre_id) {
+        throw new ErroDestinoAfiliado(produtoValidado.itemId
+          ? `ITEM_ID divergente na revalidação: ${produtoValidado.itemId}.`
+          : 'Não foi possível comprovar o ITEM_ID na revalidação do link.')
+      }
+      if (!imagemMercadoLivre(produtoValidado.imagem) || produtoValidado.imagem !== item.imagem) {
+        throw new ErroDestinoAfiliado('A imagem enviada não corresponde à imagem principal do ITEM_ID resolvido pelo meli.la.')
+      }
       const gateway = (deps.substituicao ?? criarSubstituicaoGateway)(config)
       const anterior = await gateway.buscarPorId(item.id_interno!)
       if (!anterior) { res.status(404).json({ ok: false, erro: 'Registro interno não encontrado.' }); return }
