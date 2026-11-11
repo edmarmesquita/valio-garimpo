@@ -16,6 +16,8 @@ import { atualizarStatusSnapshot, criarRegistrosSnapshot, lerRegistrosSnapshot, 
 import type { RegistroSnapshot } from './snapshotLoteAfiliados'
 import './ImportarListaAfiliadosPanel.css'
 
+const formatadorPrecoBRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+
 export default function ImportarListaAfiliadosPanel() {
   const { token } = useSessaoOperacional()
   const [carregado] = useState(() => typeof window === 'undefined' ? { registros: [], invalido: false }
@@ -30,6 +32,11 @@ export default function ImportarListaAfiliadosPanel() {
   const [urlLista, setUrlLista] = useState('')
   const [html, setHtml] = useState('')
   const [resultado, setResultado] = useState<ResultadoListaAfiliados | null>(null)
+  const [itemIdsSelecionados, setItemIdsSelecionados] = useState<Set<string>>(() => new Set())
+  const [filtroTitulo, setFiltroTitulo] = useState('')
+  const [filtroItemId, setFiltroItemId] = useState('')
+  const [somenteUrlValida, setSomenteUrlValida] = useState(false)
+  const [somenteSelecionados, setSomenteSelecionados] = useState(false)
   const [erro, setErro] = useState('')
   const [mensagemCopia, setMensagemCopia] = useState('')
   const [mensagemListaLimpa, setMensagemListaLimpa] = useState('')
@@ -80,7 +87,22 @@ export default function ImportarListaAfiliadosPanel() {
   const retornoAtual = pareamentoValidado && retornoBruto && pareamentoValidado.chave === retornoBruto.blocoAtualizador
     ? pareamentoValidado.resultado : retornoBruto
   const retornoLoteAtivo = retornoProcessado
-  const urlsGerador = snapshot?.urlsParaGerador ?? resultado?.urlsParaGerador ?? ''
+  const produtosSelecionaveis = resultado?.produtos.filter((produto) =>
+    /^MLB\d+$/.test(produto.itemId) && Boolean(produto.urlNormalizada)) ?? []
+  const produtosSelecionados = produtosSelecionaveis.filter((produto) => itemIdsSelecionados.has(produto.itemId))
+  const consultaTitulo = filtroTitulo.trim().toLocaleLowerCase('pt-BR')
+  const consultaItemId = filtroItemId.trim().toUpperCase()
+  const produtosFiltrados = resultado?.produtos.filter((produto) =>
+    (!consultaTitulo || produto.titulo?.toLocaleLowerCase('pt-BR').includes(consultaTitulo))
+    && (!consultaItemId || produto.itemId.includes(consultaItemId))
+    && (!somenteUrlValida || Boolean(produto.urlNormalizada))
+    && (!somenteSelecionados || itemIdsSelecionados.has(produto.itemId))) ?? []
+  const resultadoSelecionado: ResultadoListaAfiliados | null = resultado ? {
+    ...resultado,
+    produtos: produtosSelecionados,
+    urlsParaGerador: produtosSelecionados.map((produto) => produto.urlNormalizada!).join('\n'),
+  } : null
+  const urlsGerador = snapshot?.urlsParaGerador ?? resultadoSelecionado?.urlsParaGerador ?? ''
   const previaAtual = previa?.token === token && previa.texto === retornoAtual?.blocoAtualizador ? previa : null
   const prontos = previaAtual?.dados.linhas.filter((item) => !item.motivo).length ?? 0
   const previaTemFalhas = Boolean(previaAtual?.dados.falhasSublotes?.length)
@@ -129,7 +151,7 @@ export default function ImportarListaAfiliadosPanel() {
   function prepararSnapshot(substituir = false) {
     if (!resultado || snapshotInvalido || (registro && !substituir)) { setTrocandoLote(Boolean(registro)); return }
     try {
-      const novos = criarRegistrosSnapshot(resultado, urlLista)
+      const novos = criarRegistrosSnapshot(resultadoSelecionado ?? resultado, urlLista)
       const salvos = salvarRegistrosSnapshot(window.localStorage, novos)
       setRegistros(salvos); setLoteAtivo(0); setSnapshotErro(''); setSnapshotInvalido(false)
       limparDerivados(); setRestaurado(false); setTrocandoLote(false)
@@ -232,13 +254,21 @@ export default function ImportarListaAfiliadosPanel() {
     setMensagemCopia('')
     setMensagemListaLimpa('')
     setResultado(null)
+    setItemIdsSelecionados(new Set())
+    setFiltroTitulo(''); setFiltroItemId(''); setSomenteUrlValida(false); setSomenteSelecionados(false)
     setMensagemBloco('')
-    try { setResultado(extrairListaAfiliados(html)) }
+    try {
+      const extraido = extrairListaAfiliados(html)
+      setResultado(extraido)
+      setItemIdsSelecionados(new Set())
+    }
     catch (falha) { setErro(falha instanceof Error ? falha.message : 'Não foi possível ler a lista de afiliados.') }
   }
 
   function limparListaAtual() {
     setUrlLista(''); setHtml(''); setResultado(null); setErro(''); setMensagemCopia('')
+    setItemIdsSelecionados(new Set())
+    setFiltroTitulo(''); setFiltroItemId(''); setSomenteUrlValida(false); setSomenteSelecionados(false)
     setTrocandoLote(false)
     setMensagemListaLimpa(`Lista atual limpa. Nenhum produto do Valiô foi excluído.${snapshot ? ' O lote ativo foi preservado.' : ''}`)
   }
@@ -259,7 +289,7 @@ export default function ImportarListaAfiliadosPanel() {
     if (!registro) {
       if (!resultado) return
       try {
-        const novos = criarRegistrosSnapshot(resultado, urlLista)
+        const novos = criarRegistrosSnapshot(resultadoSelecionado ?? resultado, urlLista)
         const salvos = salvarRegistrosSnapshot(window.localStorage, novos)
         setRegistros(salvos); setLoteAtivo(0); setSnapshotErro(''); setSnapshotInvalido(false)
       } catch (falha) { setSnapshotErro(falha instanceof Error ? falha.message : 'Não foi possível preparar o lote.'); return }
@@ -295,7 +325,9 @@ export default function ImportarListaAfiliadosPanel() {
     <input id="url-lista-afiliados" type="url" value={urlLista} onChange={(evento) => setUrlLista(evento.target.value)} placeholder="https://www.mercadolivre.com.br/..." />
     <label htmlFor="html-lista-afiliados">HTML/Response da lista</label>
     <textarea id="html-lista-afiliados" value={html} disabled={confirmando || publicando} onChange={(evento) => {
-      setHtml(evento.target.value); setResultado(null); setErro(''); setMensagemCopia('')
+      setHtml(evento.target.value); setResultado(null); setItemIdsSelecionados(new Set())
+      setFiltroTitulo(''); setFiltroItemId(''); setSomenteUrlValida(false); setSomenteSelecionados(false)
+      setErro(''); setMensagemCopia('')
     }} spellCheck={false} placeholder="Cole aqui o HTML completo da lista de afiliados" />
     <div className="lista-afiliados-acoes-lista">
       <button type="button" disabled={confirmando || publicando} onClick={extrair}>Extrair produtos da lista</button>
@@ -341,16 +373,54 @@ export default function ImportarListaAfiliadosPanel() {
         <div><strong>{resultado.ignorados}</strong><span>Ignorados</span></div>
         <div><strong>{resultado.duplicados}</strong><span>Duplicados</span></div>
       </div>
+      <div className="lista-afiliados-selecao-controles">
+        <p role="status">{produtosSelecionados.length} de {resultado.produtos.length} produtos selecionados</p>
+        <button type="button" className="extrair-secundario" disabled={!produtosSelecionaveis.length}
+          onClick={() => setItemIdsSelecionados(new Set(produtosSelecionaveis.map((produto) => produto.itemId)))}>Selecionar todos</button>
+        <button type="button" className="extrair-secundario" disabled={!itemIdsSelecionados.size}
+          onClick={() => setItemIdsSelecionados(new Set())}>Desmarcar todos</button>
+      </div>
+      <div className="lista-afiliados-filtros" aria-label="Filtros da prévia">
+        <label htmlFor="filtro-titulo-lista">Buscar por título</label>
+        <input id="filtro-titulo-lista" type="search" value={filtroTitulo} onChange={(evento) => setFiltroTitulo(evento.target.value)} />
+        <label htmlFor="filtro-item-id-lista">Buscar por ITEM_ID</label>
+        <input id="filtro-item-id-lista" type="search" value={filtroItemId} onChange={(evento) => setFiltroItemId(evento.target.value)} />
+        <label><input type="checkbox" checked={somenteUrlValida} onChange={(evento) => setSomenteUrlValida(evento.target.checked)} />
+          Mostrar somente produtos com URL válida</label>
+        <label><input type="checkbox" checked={somenteSelecionados} onChange={(evento) => setSomenteSelecionados(evento.target.checked)} />
+          Mostrar somente selecionados</label>
+      </div>
       <div className="lista-afiliados-tabela">
-        <table><thead><tr><th>Ordem</th><th>ITEM_ID</th><th>Título</th><th>URL normalizada</th></tr></thead>
-          <tbody>{resultado.produtos.map((produto) => <tr key={produto.itemId}>
-            <td>{produto.ordem}</td><td>{produto.itemId}</td><td>{produto.titulo ?? '—'}</td><td>{produto.urlNormalizada ?? '—'}</td>
-          </tr>)}</tbody></table>
+        <table><thead><tr><th>Selecionar</th><th>Imagem</th><th>Título</th><th>ITEM_ID</th><th>Preço</th><th>URL normalizada</th></tr></thead>
+          <tbody>{produtosFiltrados.map((produto) => {
+            const selecionavel = /^MLB\d+$/.test(produto.itemId) && Boolean(produto.urlNormalizada)
+            return <tr key={produto.itemId}>
+            <td><input type="checkbox" aria-label={`Selecionar produto ${produto.itemId}`} checked={selecionavel && itemIdsSelecionados.has(produto.itemId)}
+              disabled={!selecionavel} onChange={(evento) => setItemIdsSelecionados((atuais) => {
+                const proximos = new Set(atuais)
+                if (evento.target.checked) proximos.add(produto.itemId)
+                else proximos.delete(produto.itemId)
+                return proximos
+              })} /></td>
+            <td className="lista-afiliados-imagem-celula">{produto.imagemUrl
+              ? <><img src={produto.imagemUrl} alt={produto.titulo ?? ''} loading="lazy" onError={(evento) => {
+                evento.currentTarget.hidden = true
+                evento.currentTarget.nextElementSibling?.removeAttribute('hidden')
+              }} /><span className="lista-afiliados-imagem-vazia" hidden>Sem imagem</span></>
+              : <span className="lista-afiliados-imagem-vazia">Sem imagem</span>}</td>
+            <td>{produto.titulo ?? '—'}</td><td>{produto.itemId}</td>
+            <td>{produto.precoAtual !== null && produto.precoAtual !== undefined && produto.moeda === 'BRL'
+              ? formatadorPrecoBRL.format(produto.precoAtual) : '—'}</td>
+            <td>{produto.urlNormalizada ?? '—'}</td>
+          </tr>
+          })}</tbody></table>
+        {!produtosFiltrados.length && <p role="status">Nenhum produto corresponde aos filtros atuais.</p>}
       </div></div>}
-      {resultado && resultado.lotes && resultado.lotes.length > 1 && <div className="lista-afiliados-lotes-gerador" aria-label="Lotes de URLs para o Gerador">
+      {resultadoSelecionado && produtosSelecionados.length > 30 && <div className="lista-afiliados-lotes-gerador" aria-label="Lotes de URLs para o Gerador">
         <h3>URLs divididas para o Gerador Mercado Livre</h3>
-        {resultado.lotes.map((lote, indice) => { const urls = lote.map((produto) => produto.urlNormalizada!).join('\n'); return <div className="lista-afiliados-lote-gerador" key={lote[0]?.itemId ?? indice}>
-          <div className="extrair-resultado-cabecalho"><div><h4>Lote {indice + 1} de {resultado.lotes!.length}</h4><p>{lote.length} produtos · PENDENTE</p></div>
+        {Array.from({ length: Math.ceil(produtosSelecionados.length / 30) }, (_, indice) => produtosSelecionados.slice(indice * 30, (indice + 1) * 30))
+          .map((lote, indice, lotes) => { const urls = lote.map((produto) => produto.urlNormalizada!).join('\n'); return <div className="lista-afiliados-lote-gerador" key={lote[0]?.itemId ?? indice}>
+          <div className="extrair-resultado-cabecalho"><div><h4>Lote {indice + 1} de {lotes.length}</h4><p>{lote.length} produtos · PENDENTE</p></div>
             <button type="button" className="extrair-secundario" onClick={() => void copiarUrlsDoLote(urls, indice)}>Copiar URLs do lote {indice + 1}</button></div>
           <textarea aria-label={`URLs do lote ${indice + 1}`} value={urls} readOnly rows={Math.min(8, Math.max(2, lote.length))} />
         </div> })}
@@ -363,7 +433,7 @@ export default function ImportarListaAfiliadosPanel() {
         <div className="extrair-resultado-cabecalho"><div><h3>URLs para o Gerador Mercado Livre</h3><p>Uma URL por linha, na ordem da prévia.</p></div>
           <button type="button" className="extrair-secundario" disabled={!urlsGerador || snapshotInvalido} onClick={() => void copiarUrls()}>Copiar URLs</button></div>
         <textarea ref={campoUrls} aria-label="URLs para o Gerador Mercado Livre" value={urlsGerador} readOnly rows={8} />
-        {!snapshot && <button type="button" className="extrair-secundario" disabled={!resultado?.urlsParaGerador || snapshotInvalido} onClick={() => prepararSnapshot()}>Preparar lote para o Gerador</button>}
+        {!snapshot && <button type="button" className="extrair-secundario" disabled={!resultadoSelecionado?.urlsParaGerador || snapshotInvalido} onClick={() => prepararSnapshot()}>Preparar selecionados para o Gerador</button>}
         {mensagemCopia && <p role="status" className="lista-afiliados-copia">{mensagemCopia}</p>}
       </div>
       <div className="lista-afiliados-retorno">

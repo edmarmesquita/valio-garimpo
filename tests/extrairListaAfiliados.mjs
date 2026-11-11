@@ -11,7 +11,7 @@ const card = (id, url = 'www.mercadolivre.com.br/produto/p/MLB123', extras = {})
   metadata: { id, url, ...extras },
   components: [{ id: 'title', title: { text: `Produto ${id}` } }],
 })
-const html = (cards, extras = {}) => `<!DOCTYPE html><html><script>window.lista = ${JSON.stringify({ type: 'affiliate', total_items: 300, polycards: cards, ...extras })};</script></html>`
+const html = (cards, extras = {}) => `<!DOCTYPE html><html><script>window.lista = ${JSON.stringify({ ...extras, type: 'affiliate', total_items: 300, polycards: cards })};</script></html>`
 
 test('extrai um produto e seus metadados opcionais', () => {
   const resultado = extrairListaAfiliados(html([card('MLB6456132876', 'www.mercadolivre.com.br/item', {
@@ -22,11 +22,49 @@ test('extrai um produto e seus metadados opcionais', () => {
   assert.equal(resultado.unicos, 1)
   assert.deepEqual(resultado.produtos[0], {
     ordem: 1, itemId: 'MLB6456132876', titulo: 'Produto MLB6456132876',
+    precoAtual: null, moeda: null, imagemUrl: null,
     userProductId: 'MLBU3848348394', productId: 'MLBU3848348394', pid: 'MLBU3848348394',
     pidExtended: 'MLBU3848348394_MLB6456132876', urlOriginal: 'www.mercadolivre.com.br/item',
     urlParams: '?pdp_filters=item_id%3AMLB6456132876', urlFragments: '#wid=MLB6456132876&sid=bookmarks',
     urlNormalizada: 'https://www.mercadolivre.com.br/item',
   })
+})
+
+test('imagem e preço atual vêm do polycard do mesmo ITEM_ID; recomendações aninhadas são ignoradas', () => {
+  const produtos = extrairListaAfiliados(html([
+    { ...card('MLB1'), pictures: [{ id: 'pic-main-1' }], components: [
+      { id: 'title', title: { text: 'Produto principal' } },
+      { id: 'price', price: { current_price: { value: 34.87, currency: 'BRL' }, previous_price: { value: 49.9, currency: 'BRL' } } },
+    ], recommendations: [{ metadata: { id: 'MLB999' }, pictures: [{ id: 'pic-rec' }],
+      components: [{ id: 'price', price: { current_price: { value: 999, currency: 'BRL' } } }] }],
+    },
+    { ...card('MLB2'), pictures: [{ id: 'pic-main-2' }], components: [
+      { id: 'title', title: { text: 'Produto inteiro' } },
+      { id: 'price', price: { current_price: { value: 100, currency: 'BRL' } } },
+    ] },
+    { ...card('MLB3'), pictures: [], components: [{ id: 'title', title: { text: 'Sem imagem nem preço' } }] },
+  ], { polycard_context: { picture_template: 'https://http2.mlstatic.com/D_{id}-O.webp' } })).produtos
+
+  assert.deepEqual(produtos.map(({ itemId, precoAtual, moeda, imagemUrl }) => ({ itemId, precoAtual, moeda, imagemUrl })), [
+    { itemId: 'MLB1', precoAtual: 34.87, moeda: 'BRL', imagemUrl: 'https://http2.mlstatic.com/D_pic-main-1-O.webp' },
+    { itemId: 'MLB2', precoAtual: 100, moeda: 'BRL', imagemUrl: 'https://http2.mlstatic.com/D_pic-main-2-O.webp' },
+    { itemId: 'MLB3', precoAtual: null, moeda: null, imagemUrl: null },
+  ])
+})
+
+test('preço atual exige BRL explícito e imagem exige URL de imagem do Mercado Livre', () => {
+  const resultado = extrairListaAfiliados(html([
+    { ...card('MLB1'), pictures: [{ id: 'pic-1' }], components: [
+      { id: 'price', price: { current_price: { value: 45.5, currency: 'USD' }, previous_price: { value: 40, currency: 'BRL' } } },
+    ] },
+    { ...card('MLB2'), pictures: [{ id: 'pic-2' }], components: [
+      { id: 'price', price: { current_price: { value: 45.5 } } },
+    ] },
+  ], { polycard_context: { picture_template: 'https://images.example.test/D_{id}.webp' } })).produtos
+  assert.deepEqual(resultado.map(({ precoAtual, moeda, imagemUrl }) => ({ precoAtual, moeda, imagemUrl })), [
+    { precoAtual: null, moeda: 'USD', imagemUrl: null },
+    { precoAtual: null, moeda: null, imagemUrl: null },
+  ])
 })
 
 test('extrai vários produtos', () => {

@@ -55,7 +55,8 @@ async function montar(executar, responder = async () => { throw Error('Requisiç
       const html = JSON.stringify({ polycards: ids.map((id) => ({ metadata: { id, url: `www.mercadolivre.com.br/${id}` } })) })
       await preencher('html-lista-afiliados', html)
       await act(async () => botao('Extrair produtos da lista').click())
-      await act(async () => botao('Preparar lote para o Gerador').click())
+      await act(async () => botao('Selecionar todos').click())
+      await act(async () => botao('Preparar selecionados para o Gerador').click())
     }
     const processar = async (texto) => {
       await preencher('retorno-gerador-lista', texto)
@@ -153,7 +154,7 @@ test('bloqueia prévia com REVISAR, quantidade divergente ou nenhum link válido
     ]) {
       if (botao('Encerrar lote')) {
         await act(async () => botao('Encerrar lote').click())
-        await act(async () => botao('Preparar lote para o Gerador').click())
+        await act(async () => botao('Preparar selecionados para o Gerador').click())
       }
       await processar(retorno)
       assert.equal(botao('Enviar válidos para prévia').disabled, true)
@@ -209,7 +210,8 @@ test('lista, retorno e prévia permanecem ao alternar áreas da sessão', async 
     const botao = (texto) => [...document.querySelectorAll('button')].find((item) => item.textContent === texto)
     await preencher('html-lista-afiliados', JSON.stringify({ polycards: [{ metadata: { id: 'MLB11', url: 'www.mercadolivre.com.br/MLB11' } }] }))
     await act(async () => botao('Extrair produtos da lista').click())
-    await act(async () => botao('Preparar lote para o Gerador').click())
+    await act(async () => botao('Selecionar todos').click())
+    await act(async () => botao('Preparar selecionados para o Gerador').click())
     await preencher('retorno-gerador-lista', 'https://meli.la/novo')
     await act(async () => botao('Processar retorno').click())
     await act(async () => botao('Enviar válidos para prévia').click())
@@ -231,6 +233,180 @@ test('lista, retorno e prévia permanecem ao alternar áreas da sessão', async 
   }
 })
 
+test('seleção prepara e copia somente ITEM_IDs escolhidos, sem depender da ordem', async () => {
+  await montar(async ({ botao, preencher, dom }) => {
+    const html = (ids) => JSON.stringify({ polycards: ids.map((id) => ({ metadata: {
+      id, url: `www.mercadolivre.com.br/${id}`,
+    } })) })
+    const extrairHtml = async (ids) => {
+      await preencher('html-lista-afiliados', html(ids))
+      await act(async () => botao('Extrair produtos da lista').click())
+    }
+    await extrairHtml(Array.from({ length: 10 }, (_, index) => `MLB${index + 1}`))
+    assert.equal(document.querySelector('.lista-afiliados-selecao-controles').textContent.includes('0 de 10'), true)
+    assert.equal(document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value, '')
+    assert.equal(botao('Preparar selecionados para o Gerador').disabled, true)
+
+    await act(async () => botao('Selecionar todos').click())
+    assert.equal(document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value.split('\n').length, 10)
+    await act(async () => botao('Desmarcar todos').click())
+    assert.equal(document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value, '')
+    assert.equal(botao('Preparar selecionados para o Gerador').disabled, true)
+
+    for (const id of ['MLB2', 'MLB5', 'MLB9']) {
+      await act(async () => document.querySelector(`[aria-label="Selecionar produto ${id}"]`).click())
+    }
+    const urlsTres = document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value
+    assert.deepEqual(urlsTres.split('\n'), [
+      'https://www.mercadolivre.com.br/MLB2',
+      'https://www.mercadolivre.com.br/MLB5',
+      'https://www.mercadolivre.com.br/MLB9',
+    ])
+
+    let copiado = ''
+    Object.defineProperty(dom.window.navigator, 'clipboard', { configurable: true,
+      value: { writeText: async (value) => { copiado = value } } })
+    await act(async () => botao('Copiar URLs').click())
+    assert.equal(copiado, urlsTres)
+    const snapshot = JSON.parse(dom.window.localStorage.getItem('valio-garimpa:affiliate-batch-snapshot:v1'))
+    assert.deepEqual(snapshot.snapshot.produtos.map((produto) => produto.itemId), ['MLB2', 'MLB5', 'MLB9'])
+    assert.equal(snapshot.snapshot.urlsParaGerador, copiado)
+    assert.match(document.querySelector('.lista-afiliados-snapshot-produtos').textContent, /MLB2/)
+    assert.match(document.querySelector('.lista-afiliados-snapshot-produtos').textContent, /MLB5/)
+    assert.match(document.querySelector('.lista-afiliados-snapshot-produtos').textContent, /MLB9/)
+  })
+})
+
+test('dez produtos com um selecionado preparam um snapshot com uma única URL', async () => {
+  await montar(async ({ botao, preencher, dom }) => {
+    const polycards = Array.from({ length: 10 }, (_, indice) => {
+      const id = `MLB${indice + 1}`
+      return { metadata: { id, url: `www.mercadolivre.com.br/${id}` } }
+    })
+    await preencher('html-lista-afiliados', JSON.stringify({ polycards }))
+    await act(async () => botao('Extrair produtos da lista').click())
+    await act(async () => document.querySelector('[aria-label="Selecionar produto MLB7"]').click())
+    assert.match(document.querySelector('.lista-afiliados-selecao-controles').textContent, /1 de 10/)
+    assert.equal(document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value,
+      'https://www.mercadolivre.com.br/MLB7')
+    await act(async () => botao('Preparar selecionados para o Gerador').click())
+    const salvo = JSON.parse(dom.window.localStorage.getItem('valio-garimpa:affiliate-batch-snapshot:v1'))
+    assert.deepEqual(salvo.snapshot.produtos.map((produto) => produto.itemId), ['MLB7'])
+    assert.equal(salvo.snapshot.urlsParaGerador, 'https://www.mercadolivre.com.br/MLB7')
+  })
+})
+
+test('seleção é limpa ao analisar HTML novo ou limpar a lista e produtos inelegíveis ficam desmarcados', async () => {
+  await montar(async ({ botao, preencher }) => {
+    const html = (cards) => JSON.stringify({ polycards: cards })
+    const card = (id, url = `www.mercadolivre.com.br/${id}`) => ({ metadata: { id, url } })
+    await preencher('html-lista-afiliados', html([card('MLB1'), card('MLB2', null), card('catalog-3')]))
+    await act(async () => botao('Extrair produtos da lista').click())
+    assert.equal(document.querySelectorAll('[aria-label^="Selecionar produto "]').length, 2)
+    assert.equal(document.querySelector('[aria-label="Selecionar produto MLB2"]').disabled, true)
+    assert.equal(document.querySelectorAll('[aria-label^="Selecionar produto catalog-"]').length, 0)
+    assert.match(document.querySelector('.lista-afiliados-contadores').textContent, /1/)
+    await act(async () => document.querySelector('[aria-label="Selecionar produto MLB1"]').click())
+    assert.match(document.querySelector('.lista-afiliados-selecao-controles').textContent, /1 de 2/)
+
+    await preencher('html-lista-afiliados', html([card('MLB2'), card('MLB1')]))
+    await act(async () => botao('Extrair produtos da lista').click())
+    assert.match(document.querySelector('.lista-afiliados-selecao-controles').textContent, /0 de 2/)
+    assert.equal(document.querySelector('[aria-label="Selecionar produto MLB1"]').checked, false)
+    await act(async () => document.querySelector('[aria-label="Selecionar produto MLB1"]').click())
+    assert.equal(document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value,
+      'https://www.mercadolivre.com.br/MLB1')
+    await act(async () => botao('Limpar lista atual').click())
+    assert.equal(document.querySelector('.lista-afiliados-previa-lista'), null)
+    assert.equal(document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]'), null)
+  })
+})
+
+test('deduplicação preserva um único checkbox e o retorno segue pareado por ITEM_ID', async () => {
+  await montar(async ({ botao, preencher, processar, dom }) => {
+    const card = (id, url) => ({ metadata: { id, url } })
+    await preencher('html-lista-afiliados', JSON.stringify({ polycards: [
+      card('MLB11', 'www.mercadolivre.com.br/first'),
+      card('MLB11', 'www.mercadolivre.com.br/duplicate'),
+      card('MLB22', 'www.mercadolivre.com.br/second'),
+    ] }))
+    await act(async () => botao('Extrair produtos da lista').click())
+    assert.equal(document.querySelectorAll('[aria-label^="Selecionar produto "]').length, 2)
+    assert.match(document.querySelector('.lista-afiliados-contadores').textContent, /1/)
+    await act(async () => document.querySelector('[aria-label="Selecionar produto MLB22"]').click())
+    await act(async () => botao('Preparar selecionados para o Gerador').click())
+    const urls = document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value
+    assert.equal(urls, 'https://www.mercadolivre.com.br/second')
+    await preencher('retorno-gerador-lista', 'https://meli.la/link-22')
+    await act(async () => botao('Processar retorno').click())
+    assert.equal(document.querySelector('.lista-afiliados-pareamento tbody tr').cells[1].textContent, 'MLB22')
+    assert.equal(document.querySelector('.lista-afiliados-pareamento tbody tr').cells[4].textContent, 'https://meli.la/link-22')
+    assert.equal(dom.window.localStorage.getItem('valio-garimpa:affiliate-batch-snapshot:v1').includes('MLB11'), false)
+  })
+})
+
+test('prévia mostra miniatura/preço estruturados e filtros preservam seleção por ITEM_ID', async () => {
+  await montar(async ({ botao, preencher, dom }) => {
+    const makeCard = ({ id, title, url, picture, price }) => ({
+      unique_id: `card-${id}`, metadata: { id, ...(url ? { url } : {}) },
+      pictures: picture ? [{ id: picture }] : [],
+      components: [
+        { id: 'title', title: { text: title } },
+        ...(price ? [{ id: 'price', price: { current_price: price, previous_price: { value: 50, currency: 'BRL' } } }] : []),
+      ],
+      recommendations: [{ pictures: [{ id: 'recommendation-image' }],
+        components: [{ id: 'price', price: { current_price: { value: 999, currency: 'BRL' } } }] }],
+    })
+    const polycards = [
+      makeCard({ id: 'MLB1001', title: 'Alpha Ceramic Mug', url: 'www.mercadolivre.com.br/alpha', picture: 'pic-alpha', price: { value: 34.87, currency: 'BRL' } }),
+      makeCard({ id: 'MLB1002', title: 'Beta Table Lamp', picture: null, price: { value: 100, currency: 'BRL' } }),
+      makeCard({ id: 'MLB1003', title: 'Gamma Camping Stove', url: 'www.mercadolivre.com.br/gamma', picture: null, price: null }),
+    ]
+    await preencher('html-lista-afiliados', JSON.stringify({
+      polycard_context: { picture_template: 'https://http2.mlstatic.com/D_{id}-O.webp' }, polycards,
+    }))
+    await act(async () => botao('Extrair produtos da lista').click())
+    const linhas = () => [...document.querySelectorAll('.lista-afiliados-previa-lista tbody tr')]
+    assert.deepEqual([...document.querySelectorAll('.lista-afiliados-previa-lista thead th')].map((th) => th.textContent),
+      ['Selecionar', 'Imagem', 'Título', 'ITEM_ID', 'Preço', 'URL normalizada'])
+    assert.equal(linhas().length, 3)
+    assert.equal(linhas()[0].cells[1].querySelector('img').src, 'https://http2.mlstatic.com/D_pic-alpha-O.webp')
+    assert.match(linhas()[0].cells[4].textContent, /R\$\s*34,87/)
+    assert.match(linhas()[1].cells[4].textContent, /R\$\s*100,00/)
+    assert.equal(linhas()[1].cells[5].textContent, '—')
+    assert.equal(linhas()[2].cells[1].textContent, 'Sem imagem')
+    assert.equal(linhas()[2].cells[4].textContent, '—')
+
+    const filtrar = async (id, value) => act(async () => {
+      const campo = document.getElementById(id)
+      Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set.call(campo, value)
+      campo.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+    })
+    await filtrar('filtro-titulo-lista', 'beta')
+    assert.deepEqual(linhas().map((linha) => linha.cells[3].textContent), ['MLB1002'])
+    await filtrar('filtro-titulo-lista', '')
+    await filtrar('filtro-item-id-lista', 'mlb1003')
+    assert.deepEqual(linhas().map((linha) => linha.cells[3].textContent), ['MLB1003'])
+    await filtrar('filtro-item-id-lista', '')
+    const somenteUrl = [...document.querySelectorAll('.lista-afiliados-filtros input[type="checkbox"]')][0]
+    await act(async () => somenteUrl.click())
+    assert.deepEqual(linhas().map((linha) => linha.cells[3].textContent), ['MLB1001', 'MLB1003'])
+    await act(async () => document.querySelector('[aria-label="Selecionar produto MLB1001"]').click())
+    await act(async () => document.querySelector('[aria-label="Selecionar produto MLB1003"]').click())
+    const somenteSelecionados = [...document.querySelectorAll('.lista-afiliados-filtros input[type="checkbox"]')][1]
+    await act(async () => somenteSelecionados.click())
+    await filtrar('filtro-titulo-lista', 'gamma')
+    assert.deepEqual(linhas().map((linha) => linha.cells[3].textContent), ['MLB1003'])
+    assert.equal(linhas()[0].querySelector('[aria-label="Selecionar produto MLB1003"]').checked, true)
+    assert.match(document.querySelector('.lista-afiliados-selecao-controles').textContent, /2 de 3/)
+    await filtrar('filtro-titulo-lista', '')
+    assert.equal(document.querySelector('[aria-label="Selecionar produto MLB1001"]').checked, true)
+    assert.equal(document.querySelector('[aria-label="Selecionar produto MLB1003"]').checked, true)
+    assert.equal(document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value,
+      'https://www.mercadolivre.com.br/alpha\nhttps://www.mercadolivre.com.br/gamma')
+  })
+})
+
 test('novo completo só é publicado após confirmação e payload usa meli.la pareado', async () => {
   const oficial = 'https://meli.la/novo'
   await montar(async ({ chamadas, botao, processar, preencher, dom }) => {
@@ -243,7 +419,8 @@ test('novo completo só é publicado após confirmação e payload usa meli.la p
       picture_template: 'https://http2.mlstatic.com/D_{id}-O.webp',
     }, polycards: [card] }))
     await act(async () => botao('Extrair produtos da lista').click())
-    await act(async () => botao('Preparar lote para o Gerador').click())
+    await act(async () => botao('Selecionar todos').click())
+    await act(async () => botao('Preparar selecionados para o Gerador').click())
     await processar(oficial)
     await act(async () => botao('Enviar válidos para prévia').click())
     assert.equal(document.querySelector('.lista-afiliados-novos tbody tr').cells[5].textContent, 'SEM CATEGORIA')
@@ -306,6 +483,7 @@ test('reinício restaura lote congelado; outra lista exige troca explícita e n�
       'MLB111 | https://meli.la/primeiro\nMLB222 | https://meli.la/segundo\nMLB333 | https://meli.la/terceiro')
     assert.match(dom.window.localStorage.getItem(chave), /RETORNO PROCESSADO/)
     await act(async () => botao('Preparar novo lote').click())
+    await act(async () => botao('Selecionar todos').click())
     await act(async () => botao('Descartar e criar novo lote').click())
     assert.match(dom.window.localStorage.getItem(chave), /MLB999/)
     assert.doesNotMatch(dom.window.localStorage.getItem(chave), /MLB111/)
@@ -389,6 +567,7 @@ test('limpar sem snapshot remove URLs atuais, desabilita botão e permite extrai
       { metadata: { id: 'MLB111', url: 'www.mercadolivre.com.br/MLB111' } },
     ] }))
     await act(async () => botao('Extrair produtos da lista').click())
+    await act(async () => botao('Selecionar todos').click())
     assert.match(document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value, /MLB111/)
     await act(async () => botao('Limpar lista atual').click())
     assert.equal(document.getElementById('url-lista-afiliados').value, '')
@@ -405,6 +584,8 @@ test('limpar sem snapshot remove URLs atuais, desabilita botão e permite extrai
     await act(async () => botao('Extrair produtos da lista').click())
     assert.match(document.querySelector('.lista-afiliados-previa-lista').textContent, /MLB222/)
     assert.doesNotMatch(document.querySelector('.lista-afiliados-previa-lista').textContent, /MLB111/)
+    assert.match(document.querySelector('.lista-afiliados-selecao-controles').textContent, /0 de 1/)
+    assert.equal(document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value, '')
     assert.equal(chamadas.length, 0)
   })
 })
@@ -516,7 +697,8 @@ test('new product categories stay editable after finalized link preview', async 
       picture_template: 'https://http2.mlstatic.com/D_{id}-O.webp',
     }, polycards: ['MLB11', 'MLB22', 'MLB33'].map(makeCard) }))
     await act(async () => botao('Extrair produtos da lista').click())
-    await act(async () => botao('Preparar lote para o Gerador').click())
+    await act(async () => botao('Selecionar todos').click())
+    await act(async () => botao('Preparar selecionados para o Gerador').click())
     await processar('https://meli.la/one\nhttps://meli.la/two\nhttps://meli.la/three')
     const key = 'valio-garimpa:affiliate-batch-snapshot:v1'
     const saved = JSON.parse(dom.window.localStorage.getItem(key))
@@ -564,7 +746,8 @@ test('61 new products across 30+30+9 lots keep independent clickable categories 
       picture_template: 'https://http2.mlstatic.com/D_{id}-O.webp',
     }, polycards: Array.from({ length: 69 }, (_, indice) => makeCard('MLB' + (indice + 1))) }))
     await act(async () => botao('Extrair produtos da lista').click())
-    await act(async () => botao('Preparar lote para o Gerador').click())
+    await act(async () => botao('Selecionar todos').click())
+    await act(async () => botao('Preparar selecionados para o Gerador').click())
     for (const [lote, inicio, quantidade] of [[1, 1, 30], [2, 31, 30], [3, 61, 9]]) {
       if (lote > 1) {
         const selecionarLote = [...document.querySelectorAll('.lista-afiliados-lotes button')]
@@ -646,7 +829,8 @@ test('32 analyzed products classify 1 existing, 31 new, and publish only new IDs
       picture_template: 'https://http2.mlstatic.com/D_{id}-O.webp',
     }, polycards: Array.from({ length: 32 }, (_, indice) => makeCard('MLB' + (indice + 1))) }))
     await act(async () => botao('Extrair produtos da lista').click())
-    await act(async () => botao('Preparar lote para o Gerador').click())
+    await act(async () => botao('Selecionar todos').click())
+    await act(async () => botao('Preparar selecionados para o Gerador').click())
     await processar(Array.from({ length: 30 }, (_, indice) => 'https://meli.la/item' + (indice + 1)).join('\n'))
     await act(async () => botao('Copiar URLs do lote 2').click())
     await processar('https://meli.la/item31\nhttps://meli.la/item32')

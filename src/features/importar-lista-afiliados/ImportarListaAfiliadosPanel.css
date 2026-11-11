@@ -14,6 +14,18 @@
 .garimpo-shell .lista-afiliados-contadores div { display: grid; gap: 3px; min-width: 0; padding: 13px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-elevated); }
 .garimpo-shell .lista-afiliados-contadores strong { color: var(--text-primary); font-size: 22px; line-height: 1.2; }
 .garimpo-shell .lista-afiliados-contadores span { color: var(--text-secondary); font-size: 12px; }
+.garimpo-shell .lista-afiliados-selecao-controles { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 14px 0; }
+.garimpo-shell .lista-afiliados-selecao-controles p { width: 100%; margin: 0 0 4px; color: var(--text-secondary); }
+.garimpo-shell .lista-afiliados-filtros { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 10px 14px; margin: 14px 0; }
+.garimpo-shell .lista-afiliados-filtros > label { display: grid; gap: 5px; color: var(--text-secondary); font-size: 13px; }
+.garimpo-shell .lista-afiliados-filtros > label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 8px; }
+.garimpo-shell .lista-afiliados-filtros input[type="search"] { width: 100%; min-width: 0; padding: 8px 10px; }
+.garimpo-shell .lista-afiliados-filtros input[type="checkbox"], .garimpo-shell .lista-afiliados-previa-lista input[type="checkbox"] { width: 18px; height: 18px; }
+.garimpo-shell .lista-afiliados-previa-lista table { min-width: 900px; }
+.garimpo-shell .lista-afiliados-previa-lista th:nth-child(2), .garimpo-shell .lista-afiliados-previa-lista td:nth-child(2) { width: 78px; }
+.garimpo-shell .lista-afiliados-imagem-celula { width: 78px; }
+.garimpo-shell .lista-afiliados-imagem-celula img, .garimpo-shell .lista-afiliados-imagem-vazia { display: grid; width: 58px; height: 58px; place-items: center; object-fit: contain; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-elevated); color: var(--text-muted); font-size: 11px; }
+.garimpo-shell .lista-afiliados-previa-lista th:nth-child(3) { min-width: 200px; }
 .garimpo-shell .lista-afiliados-tabela { max-width: 100%; overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); }
 .garimpo-shell .lista-afiliados-tabela table { min-width: 640px; font-size: 13px; }
 .garimpo-shell .lista-afiliados-tabela :is(th, td) { padding: 10px 12px; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
@@ -70,6 +82,7 @@
 @media (max-width: 620px) {
   .garimpo-shell .lista-afiliados-acoes-lista button { width: 100%; }
   .garimpo-shell .lista-afiliados-contadores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .garimpo-shell .lista-afiliados-filtros { grid-template-columns: minmax(0, 1fr); }
   .garimpo-shell .lista-afiliados-urls { padding: 14px; }
   .garimpo-shell .lista-afiliados-urls button { width: 100%; margin-top: 14px; }
   .garimpo-shell .lista-afiliados-retorno { padding: 14px; }

@@ -5,6 +5,9 @@ export type ProdutoListaAfiliados = {
   ordem: number
   itemId: string
   titulo: string | null
+  precoAtual?: number | null
+  moeda?: string | null
+  imagemUrl?: string | null
   userProductId: string | null
   productId: string | null
   pid: string | null
@@ -66,6 +69,32 @@ function tituloDoCard(card: Registro): string | null {
     if (titulo) return titulo
   }
   return null
+}
+
+function componenteDoCard(card: Registro, id: string): Registro | null {
+  if (!Array.isArray(card.components)) return null
+  return card.components.map(registro).find((item) => item && (item.id === id || item.type === id)) ?? null
+}
+
+function precoAtualDoCard(card: Registro): { valor: number | null; moeda: string | null } {
+  const componente = componenteDoCard(card, 'price')
+  const preco = registro(componente?.price) ?? componente
+  const atual = registro(preco?.current_price)
+  const valor = typeof atual?.value === 'number' && Number.isFinite(atual.value) && atual.value > 0
+    ? atual.value : null
+  const moeda = texto(atual?.currency)?.toUpperCase() ?? null
+  return { valor, moeda }
+}
+
+function imagemPrincipalDoCard(url: string | null | undefined, imagemId: string | null | undefined): string | null {
+  if (!url || !imagemId) return null
+  try {
+    const imagem = new URL(url)
+    if (imagem.protocol !== 'https:' || imagem.hostname.toLowerCase() !== 'http2.mlstatic.com'
+      || imagem.username || imagem.password || imagem.port || !imagem.pathname.startsWith('/D_')
+      || /placeholder|no[-_]?image|sem[-_]?imagem|sin[-_]?imagen|banner/i.test(imagem.pathname)) return null
+    return decodeURIComponent(imagem.pathname).includes(imagemId) ? imagem.href : null
+  } catch { return null }
 }
 
 export function normalizarUrlProdutoLista(valor: unknown): string | null {
@@ -137,10 +166,15 @@ export function extrairListaAfiliados(html: string): ResultadoListaAfiliados {
       ids.add(itemId)
       const extraido = card && 'unique_id' in card && 'pictures' in card && 'components' in card
         ? extrairProdutosAfiliados({ polycard_context: contexto, polycards: [card] })[0] : null
+      const produtoPrincipal = extraido?.itemId?.toUpperCase() === itemId ? extraido : null
+      const preco = card ? precoAtualDoCard(card) : { valor: null, moeda: null }
       produtos.push({
         ordem: encontrados,
         itemId,
         titulo: card ? tituloDoCard(card) : null,
+        precoAtual: produtoPrincipal && preco.moeda === 'BRL' ? produtoPrincipal.precoAtual : null,
+        moeda: produtoPrincipal ? preco.moeda : null,
+        imagemUrl: produtoPrincipal ? imagemPrincipalDoCard(produtoPrincipal.imagemUrl, produtoPrincipal.imagemId) : null,
         userProductId: texto(metadata?.user_product_id),
         productId: texto(metadata?.product_id),
         pid: texto(metadata?.pid),

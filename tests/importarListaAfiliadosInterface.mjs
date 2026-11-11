@@ -47,6 +47,8 @@ test('prévia da lista e cópia de URLs ficam isoladas dos fluxos de publicaçã
     await act(async () => botao('Extrair produtos da lista').click())
     assert.equal(document.querySelectorAll('.lista-afiliados-tabela tbody tr').length, 2)
     assert.deepEqual([...document.querySelectorAll('.lista-afiliados-contadores strong')].map((item) => item.textContent), ['3', '2', '0', '1'])
+    assert.equal(document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value, '')
+    await act(async () => botao('Selecionar todos').click())
     assert.equal(document.querySelector('[aria-label="URLs para o Gerador Mercado Livre"]').value,
       'https://www.mercadolivre.com.br/dois\nhttps://produto.mercadolivre.com.br/MLB-1')
     assert.equal(document.querySelectorAll('.extrair-produto').length, 0)
