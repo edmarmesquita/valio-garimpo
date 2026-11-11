@@ -21,6 +21,7 @@ const separado = { product: { name: principal.name, price: principal.price },
 test('identifica ITEM_ID somente por posições inequívocas na URL do produto', () => {
   assert.equal(extrairIdUrlPagina(pagina), principal.id)
   assert.equal(extrairIdUrlPagina('https://www.mercadolivre.com.br/p/MLB12345?pdp_filters=item_id%3AMLB6367832860'), principal.id)
+  assert.equal(extrairIdUrlPagina('https://www.mercadolivre.com.br/kit/p/MLB27156430?wid=MLB5185692184'), 'MLB5185692184')
   assert.equal(extrairIdUrlPagina('https://www.mercadolivre.com.br/produto?item_id=MLB6367832860'), principal.id)
   assert.equal(extrairIdUrlPagina('https://www.mercadolivre.com.br/produto?wid=MLB-6367832860'), principal.id)
   assert.equal(extrairIdUrlPagina('https://produto.mercadolivre.com.br/MLB-6367832860-produto'), principal.id)
@@ -59,6 +60,55 @@ test('URL ancora título e preço do bloco PDP sem ID; imagem vem do JSON-LD', (
   assert.equal(resultado.precoAtual, 63.5)
   assert.equal(resultado.imagemUrl, schema.image)
   assert.equal(resultado.linkOriginal, link)
+})
+
+test('URL de catálogo usa wid estruturado no produto principal do HTML', () => {
+  const catalogo = 'https://www.mercadolivre.com.br/faixa/p/MLB27156430?pdp_filters=shipping'
+  const produtoReal = { wid: 'MLB5185692184', name: { text: 'Kit 10 Faixa Refletiva Lateral 3m Caminhão Moto Trailer' },
+    price: { current_value: { value: { fraction: '31', cents: '00' } } },
+    picture: { secure_url: 'https://http2.mlstatic.com/faixa.webp' } }
+  const resultado = extrairProdutoHtml(html({ product: produtoReal }).replace('MLB-6367832860', 'MLB-5185692184'), link, catalogo)
+  assert.equal(resultado.itemId, 'MLB5185692184')
+  assert.equal(resultado.titulo, produtoReal.name.text)
+  assert.equal(resultado.precoAtual, 31)
+  assert.equal(resultado.imagemUrl, produtoReal.picture.secure_url)
+  assert.throws(() => extrairIdUrlPagina(catalogo), /não revelou ITEM_ID/)
+})
+
+test('ignora MLB do caminho /p e falha sem ITEM_ID real no HTML', () => {
+  const catalogo = 'https://www.mercadolivre.com.br/kit/p/MLB27156430?pdp_filters=shipping'
+  const htmlCatalogOnly = `<meta property="product:item_id" content="MLB27156430"><script type="application/json">${JSON.stringify({
+    product: { id: 'MLB27156430', catalog_product_id: 'MLB27156430', name: 'Produto de catálogo', price: 50,
+      image: 'https://http2.mlstatic.com/catalogo.webp' },
+  })}</script>`
+  assert.throws(() => extrairProdutoHtml(htmlCatalogOnly, link, catalogo), { message: 'HTML não revelou ITEM_ID de anúncio confiável.' })
+})
+
+test('URL de catálogo usa pdp_filters item_id vindo de registro principal estruturado', () => {
+  const catalogo = 'https://www.mercadolivre.com.br/produto/p/MLB27156430'
+  const produto = { ...principal, pdp_filters: 'item_id:MLB6367832860' }
+  assert.equal(extrairProdutoHtml(html({ product: produto }).replace('canonical" href="https://produto.mercadolivre.com.br/MLB-6367832860-produto', 'canonical" href="https://www.mercadolivre.com.br/p/MLB27156430'), link, catalogo).itemId, principal.id)
+})
+
+test('bloqueia conflito entre wid e item_id no mesmo registro principal', () => {
+  const catalogo = 'https://www.mercadolivre.com.br/produto/p/MLB27156430'
+  const produto = { ...principal, wid: 'MLB1111111111', item_id: principal.id }
+  const documento = html({ product: produto }).replace('canonical" href="https://produto.mercadolivre.com.br/MLB-6367832860-produto', 'canonical" href="https://www.mercadolivre.com.br/p/MLB27156430')
+  assert.throws(() => extrairProdutoHtml(documento, link, catalogo), /MLB1111111111.*MLB6367832860|MLB6367832860.*MLB1111111111/)
+})
+
+test('ID de catálogo presente junto do ITEM_ID real é descartado antes da validação', () => {
+  const catalogo = 'https://www.mercadolivre.com.br/kit/p/MLB27156430'
+  const produto = { ...principal, wid: principal.id, id: 'MLB27156430', catalog_product_id: 'MLB27156430' }
+  const htmlMisto = `<meta property="product:item_id" content="MLB27156430"><link rel="canonical" href="https://www.mercadolivre.com.br/p/MLB27156430"><script type="application/json">${JSON.stringify({ product: produto })}</script>`
+  assert.equal(extrairProdutoHtml(htmlMisto, link, catalogo).itemId, principal.id)
+})
+
+test('Nordic da PDP fornece ITEM_ID quando URL só identifica catálogo', () => {
+  const catalogo = 'https://www.mercadolivre.com.br/produto/p/MLB27156430'
+  const nordic = { page: { components: { product: { ...principal } } } }
+  const resultado = extrairProdutoHtml(`<link rel="canonical" href="https://www.mercadolivre.com.br/p/MLB27156430"><script>__NORDIC_RENDERING_CTX__ = ${JSON.stringify(nordic)};</script>`, link, catalogo)
+  assert.equal(resultado.itemId, principal.id)
 })
 
 test('og:image tem prioridade sobre galeria PDP e nunca usa imagem de recomendação', () => {
@@ -127,10 +177,11 @@ test('rejeita HTML sem produto, candidatos ambíguos e imagem insegura', () => {
   const ambiguo = `<script type="application/json">${JSON.stringify([principal, { ...recomendacao, id: 'MLB2222222222' }])}</script>`
   assert.equal(extrairProdutoHtml(ambiguo, link, pagina).itemId, principal.id)
   assert.throws(() => extrairProdutoHtml(`<script type="application/json">${JSON.stringify({ product: { ...principal, picture: { url: 'javascript:alert(1)' } } })}</script>`, link, pagina), /imagem principal não encontrada/)
-  assert.throws(() => extrairProdutoHtml(html({ product: recomendacao }), link, pagina), /título não encontrado/)
+  assert.throws(() => extrairProdutoHtml(html({ product: recomendacao }), link, pagina), /ITEM_IDs principais conflitantes/)
   assert.throws(() => extrairProdutoHtml(html({ product: { ...principal, name: null }, recommendations: [recomendacao] }), link, pagina), /título não encontrado/)
-  assert.throws(() => extrairProdutoHtml(html({ product: principal }), link, 'https://www.mercadolivre.com.br/produto'), /não revelou ITEM_ID/)
-  assert.throws(() => extrairProdutoHtml(html({ product: principal }), link, 'https://www.mercadolivre.com.br/produto?wid=MLB1111111111'), /diferentes/)
+  assert.equal(extrairProdutoHtml(html({ product: principal }), link, 'https://www.mercadolivre.com.br/produto').itemId, principal.id)
+  assert.throws(() => extrairProdutoHtml('<title>Sem dados</title>', link, 'https://www.mercadolivre.com.br/produto/p/MLB27156430'), { message: 'HTML não revelou ITEM_ID de anúncio confiável.' })
+  assert.throws(() => extrairProdutoHtml(html({ product: principal }), link, 'https://www.mercadolivre.com.br/produto?wid=MLB1111111111'), /indica MLB1111111111.*HTML indica MLB6367832860/)
   assert.throws(() => extrairProdutoHtml(html({ product: [principal, { ...principal, title: 'Conflito', name: null }] }), link, pagina), /conflitantes\/ambíguos/)
 })
 

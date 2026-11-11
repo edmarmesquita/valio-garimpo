@@ -2,7 +2,7 @@ import type { ProdutoAfiliado } from './extrairProdutosAfiliados.js'
 
 export const LIMITE_HTML_PRODUTO = 10_000_000
 type Registro = Record<string, unknown>
-type Candidato = { id: string | null; titulo: string | null; preco: number | null; imagem: string | null; rating: number | null; schema: boolean; principal: boolean; secundario: boolean }
+type Candidato = { id: string | null; ids: string[]; titulo: string | null; preco: number | null; imagem: string | null; rating: number | null; schema: boolean; principal: boolean; secundario: boolean }
 const secundarias = /recommend|related|bookmark|suggest|carousel|polycard|similar|vitrine|sponsor/i
 const chavesPdp = /^(?:product|pdp|productData|pdpData|pdpState)$/i
 
@@ -18,8 +18,16 @@ function id(valor: unknown): string | null {
   if (direto) return `MLB${direto[1]}`
   try {
     const url = new URL(valor)
-    const parametro = url.searchParams.get('item_id') ?? url.searchParams.get('wid')
-    if (parametro) return id(parametro)
+    const parametros = new Set<string>()
+    for (const chave of ['item_id', 'wid']) for (const valor of url.searchParams.getAll(chave)) {
+      const encontrado = id(valor)
+      if (encontrado) parametros.add(encontrado)
+    }
+    for (const filtro of url.searchParams.getAll('pdp_filters')) {
+      for (const achado of filtro.matchAll(/(?:^|[,;|])item_id:MLB-?(\d+)(?=$|[,;|])/gi)) parametros.add(`MLB${achado[1]}`)
+    }
+    if (parametros.size === 1) return [...parametros][0]
+    if (parametros.size > 1 || /(?:^|\/)p\/MLB\d+(?:\/|$)/i.test(url.pathname)) return null
     const caminho = /(?:^|[/-])MLB-?(\d+)(?:[-/?#]|$)/i.exec(url.pathname)
     return caminho ? `MLB${caminho[1]}` : null
   } catch { return null }
@@ -68,10 +76,22 @@ function candidato(registro: Registro, secundario: boolean, principal: boolean):
     ?? imagemHttps(registro.pictures && Array.isArray(registro.pictures) ? registro.pictures[0] : null)
   const oferta = objeto(registro.offers)
   const valor = preco(registro.price) ?? preco(oferta?.price)
-  const itemId = id(registro.item_id) ?? id(registro.itemId) ?? id(registro.wid) ?? id(registro.id)
-    ?? (schema ? id(registro.sku) ?? id(registro.productID) ?? id(registro.url) ?? id(registro['@id']) : null)
+  const filtros = [registro.pdp_filters, registro.url_params, registro.urlParams]
+    .filter((v): v is string => typeof v === 'string')
+    .map((v) => /(?:^|[?&,])pdp_filters=(?:item_id(?:%3A|:))?MLB-?(\d+)/i.exec(v)?.[1]
+      ?? /(?:^|[,;|])item_id:MLB-?(\d+)/i.exec(v)?.[1])
+    .filter((v): v is string => !!v).map((v) => `MLB${v}`)
+  const ids = new Set<string>()
+  for (const valorId of [registro.item_id, registro.itemId, registro.wid, registro.url,
+    registro.catalog_product_id || registro.catalogProductId ? null : registro.id,
+    schema ? registro.sku : null, schema ? registro.productID : null, schema ? registro['@id'] : null]) {
+    const encontrado = id(valorId)
+    if (encontrado) ids.add(encontrado)
+  }
+  filtros.forEach((filtro) => ids.add(filtro))
+  const itemId = ids.size === 1 ? [...ids][0] : null
   if ((!schema && !itemId && !principal) || (!titulo && valor === null && !imagem)) return null
-  return { id: itemId, titulo, preco: valor, imagem,
+  return { id: itemId, ids: [...ids], titulo, preco: valor, imagem,
     rating: avaliacao(registro.aggregateRating) ?? avaliacao(registro.rating), schema, principal, secundario }
 }
 function lerAtributos(tag: string): Map<string, string> {
@@ -147,8 +167,8 @@ function candidatos(documentos: unknown[]): Candidato[] {
 }
 export function extrairIdsProdutoPrincipalHtml(html: string): string[] {
   const ids = new Set(candidatos(documentosJson(html))
-    .filter((c) => !c.secundario && (c.schema || c.principal) && c.id)
-    .map((c) => c.id!))
+    .filter((c) => !c.secundario && (c.schema || c.principal))
+    .flatMap((c) => c.ids))
   return [...ids]
 }
 function metadados(html: string, propriedade: string): string[] {
@@ -208,6 +228,13 @@ export function extrairIdUrlPagina(pagina: string): string {
   if (ids.size !== 1) throw new Error(ids.size ? 'URL da página contém ITEM_IDs conflitantes.' : 'URL da página não revelou ITEM_ID.')
   return [...ids][0]
 }
+function extrairIdCatalogoPagina(pagina: string): string | null {
+  try {
+    const url = new URL(pagina)
+    const catalogo = /(?:^|\/)p\/(MLB\d+)(?:\/|$)/i.exec(url.pathname)
+    return catalogo ? catalogo[1].toUpperCase() : null
+  } catch { return null }
+}
 export function validarLinkHtml(link: string): void {
   if (!link || link.length > 4096 || /\s/.test(link)) throw new Error('Informe um link afiliado válido.')
   let url: URL
@@ -220,12 +247,28 @@ export function validarLinkHtml(link: string): void {
 }
 export function extrairProdutoHtml(html: string, linkAfiliado: string, urlPagina: string, exigirImagemEstruturada = false): ProdutoAfiliado {
   validarLinkHtml(linkAfiliado)
-  const itemId = extrairIdUrlPagina(urlPagina)
+  let itemId: string | null = null
+  try { itemId = extrairIdUrlPagina(urlPagina) }
+  catch (erro) {
+    if (!(erro instanceof Error) || !erro.message.includes('ITEM_ID') || !erro.message.includes('revelou')) throw erro
+  }
   if (!html.trim()) throw new Error('Cole o HTML da página do produto.')
   if (html.length > LIMITE_HTML_PRODUTO || new TextEncoder().encode(html).byteLength > LIMITE_HTML_PRODUTO) {
     throw new Error('HTML grande demais. Limite de 10 MB.')
   }
-  const canonico = idCanonico(html)
+  const idCatalogo = extrairIdCatalogoPagina(urlPagina)
+  const canonicoExtraido = idCanonico(html)
+  const canonico = canonicoExtraido === idCatalogo ? null : canonicoExtraido
+  const idsHtml = new Set(extrairIdsProdutoPrincipalHtml(html))
+  if (idCatalogo) idsHtml.delete(idCatalogo)
+  if (canonico) idsHtml.add(canonico)
+  if (idsHtml.size > 1) throw new Error(`HTML contém ITEM_IDs principais conflitantes: ${[...idsHtml].join(', ')}.`)
+  const itemIdHtml = [...idsHtml][0] ?? null
+  if (itemId && itemIdHtml && itemId !== itemIdHtml) {
+    throw new Error(`URL da página indica ${itemId}, mas o HTML indica ${itemIdHtml}.`)
+  }
+  itemId = itemId ?? itemIdHtml
+  if (!itemId) throw new Error('HTML não revelou ITEM_ID de anúncio confiável.')
   if (canonico && canonico !== itemId) throw new Error('URL da página e HTML indicam produtos principais diferentes.')
   const lista = candidatos(documentosJson(html)).filter((c) => !c.secundario)
   const validos = lista.filter((c) => !c.id || c.id === itemId)

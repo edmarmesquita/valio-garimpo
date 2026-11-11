@@ -11,12 +11,13 @@ test('HTML manual cria card sem carregar imagem, verifica duplicidade e reutiliz
   let root
   let vite
   let duplicado = true
+  let destinoId = 'MLB5185692184'
   const chamadas = []
-  const link = 'https://meli.la/1um2MX7'
-  const produto = { id: 'MLB6367832860', name: { text: 'Produto principal' },
-    price: { current_value: { value: { fraction: '63', cents: '50' } } },
+  const link = 'https://meli.la/2Xwwz9n'
+  const produto = { id: 'MLB5185692184', wid: 'MLB5185692184', catalog_product_id: 'MLB27156430', name: { text: 'Kit 10 Faixa Refletiva Lateral 3m Caminhão Moto Trailer' },
+    price: { current_value: { value: { fraction: '31', cents: '00' } } },
     image: 'https://http2.mlstatic.com/produto.webp' }
-  const html = `<script type="application/json">${JSON.stringify({ product: produto, recommendations: [{ id: 'MLB123', title: 'Outro', price: 1, image: 'https://http2.mlstatic.com/outro.webp' }] })}</script>`
+  const html = `<link rel="canonical" href="https://www.mercadolivre.com.br/p/MLB27156430"><script type="application/json">${JSON.stringify({ product: produto, recommendations: [{ id: 'MLB123', title: 'Outro', price: 1, image: 'https://http2.mlstatic.com/outro.webp' }] })}</script>`
   try {
     globalThis.window = dom.window
     globalThis.document = dom.window.document
@@ -25,6 +26,7 @@ test('HTML manual cria card sem carregar imagem, verifica duplicidade e reutiliz
     globalThis.IS_REACT_ACT_ENVIRONMENT = true
     globalThis.fetch = async (url, options) => {
       chamadas.push({ url, options })
+      if (url === '/api/valio/produtos/links-afiliados/identificar') return { ok: true, json: async () => ({ ok: true, destinos: [destinoId] }) }
       if (url === '/api/valio/produtos/verificar') return { ok: true, json: async () => ({ ok: true,
         existentes: duplicado ? [{ mercadoLivreId: produto.id, titulo: produto.name.text, preco: 63.5,
           categoria: 'Achados para Casa', linkAfiliado: link, imagem: produto.image, ativo: true }] : [] }) }
@@ -44,7 +46,7 @@ test('HTML manual cria card sem carregar imagem, verifica duplicidade e reutiliz
       setInput.call(token, 'token-de-teste')
       token.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
       const urlPagina = document.getElementById('url-pagina-html')
-      setInput.call(urlPagina, 'https://www.mercadolivre.com.br/produto?pdp_filters=item_id%3AMLB6367832860')
+      setInput.call(urlPagina, 'https://www.mercadolivre.com.br/produto/p/MLB27156430?pdp_filters=shipping')
       urlPagina.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
       const texto = document.getElementById('html-produto')
       setTextarea.call(texto, html)
@@ -60,8 +62,16 @@ test('HTML manual cria card sem carregar imagem, verifica duplicidade e reutiliz
     assert.equal(document.querySelector('.extrair-produto img'), null)
     assert.match(document.body.textContent, /Já está no Valiô/)
     assert.equal(document.querySelector('.extrair-selecao input').disabled, true)
+    destinoId = 'MLB5398622229'
+    await act(async () => botao('Extrair produto do HTML').click())
+    assert.match(document.querySelector('[role="alert"]').textContent, /HTML MLB5185692184; link afiliado MLB5398622229/)
+    assert.doesNotMatch(document.querySelector('[role="alert"]').textContent, /MLB27156430/)
+    assert.equal(chamadas.filter((item) => item.url === '/api/valio/produtos/verificar').length, 1)
+    destinoId = produto.id
+    await act(async () => botao('Extrair produto do HTML').click())
     assert.equal(botao('Enviar novos para o Valiô').disabled, true)
-    assert.deepEqual(chamadas.map((item) => item.url), ['/api/valio/produtos/verificar'])
+    assert.deepEqual(chamadas.map((item) => item.url), ['/api/valio/produtos/links-afiliados/identificar', '/api/valio/produtos/verificar',
+      '/api/valio/produtos/links-afiliados/identificar', '/api/valio/produtos/links-afiliados/identificar', '/api/valio/produtos/verificar'])
 
     duplicado = false
     await act(async () => botao('Extrair produto do HTML').click())
@@ -77,7 +87,7 @@ test('HTML manual cria card sem carregar imagem, verifica duplicidade e reutiliz
     const envio = chamadas.find((item) => item.url === '/api/valio/produtos')
     assert.ok(envio)
     assert.deepEqual(JSON.parse(envio.options.body), {
-      mercadoLivreId: produto.id, titulo: produto.name.text, descricao: '', preco: 63.5,
+      mercadoLivreId: produto.id, titulo: produto.name.text, descricao: '', preco: 31,
       dataPreco: JSON.parse(envio.options.body).dataPreco, linkAfiliado: link,
       categoria: 'Achados para Casa', imagem: produto.image,
     })

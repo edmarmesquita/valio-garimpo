@@ -67,7 +67,8 @@ export default function ExtrairAfiliados({ visivel = true }: { visivel?: boolean
       totalCadastrados={publicacao.totalCadastrados} mensagem={mensagem} erro={erro}
       resumo={produtos && <ResumoPublicacaoPanel produtos={produtos} selecionados={selecionados} origemHtml={origemHtml} publicacao={publicacao} />}
       publicacao={<PublicacaoProdutosPanel origemHtml={origemHtml} publicacao={publicacao} />}
-      onImportar={importar} onLimparJson={limparJson} onLimparHtml={limparHtml} onErroJson={erroJson} onErroHtml={erroHtml}
+      onImportar={importar} resolverDestinoAfiliado={publicacao.resolverDestinoAfiliado}
+      onLimparJson={limparJson} onLimparHtml={limparHtml} onErroJson={erroJson} onErroHtml={erroHtml}
       onSelecionar={(indice) => { setSelecionados((atual) => alternarSelecao(atual, indice)); publicacao.invalidarResultado() }}
       onSelecionarTodos={(quantidade) => { setSelecionados(selecionarTodos(quantidade)); publicacao.invalidarResultado() }}
       onDesmarcarTodos={() => { setSelecionados(new Set()); publicacao.invalidarResultado() }}

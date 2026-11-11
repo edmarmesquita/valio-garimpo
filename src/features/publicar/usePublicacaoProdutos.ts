@@ -102,9 +102,21 @@ export function usePublicacaoProdutos({ produtos, selecionados, categorias, orig
     catch (falha) { setErroEnvio(falha instanceof Error ? falha.message : 'Não foi possível enviar os produtos.') }
     finally { setEnviando(false) }
   }
+  async function resolverDestinoAfiliado(link: string): Promise<string | null> {
+    const resposta = await fetch('/api/valio/produtos/links-afiliados/identificar', {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${tokenPublicacao}` },
+      body: JSON.stringify({ links: [link] }),
+    })
+    const dados = await resposta.json().catch(() => null) as { destinos?: unknown; erro?: string } | null
+    if (!resposta.ok || !Array.isArray(dados?.destinos)) {
+      throw new Error(dados?.erro ?? 'Não foi possível validar o ITEM_ID do link afiliado.')
+    }
+    const destino = dados.destinos[0]
+    return typeof destino === 'string' && /^MLB\d+$/.test(destino) ? destino : null
+  }
   return { tokenPublicacao, resultadoValio, erroExportacao, enviando, resumoEnvio, erroEnvio, existentes,
     estadoVerificacao, podeEnviarNovos, podeAtualizar, totalCadastrados, totalNovos, invalidarResultado,
-    reiniciarVerificacao, atualizarToken, copiar, gerar, enviarParaValio }
+    reiniciarVerificacao, atualizarToken, copiar, gerar, enviarParaValio, resolverDestinoAfiliado }
 }
 
 export type Publicacao = ReturnType<typeof usePublicacaoProdutos>

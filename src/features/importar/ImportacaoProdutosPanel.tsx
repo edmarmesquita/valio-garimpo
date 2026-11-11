@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { extrairProdutosAfiliados } from '../../lib/extrairProdutosAfiliados'
 import type { ProdutoAfiliado } from '../../lib/extrairProdutosAfiliados'
-import { extrairProdutoHtml } from '../../lib/extrairProdutoHtml'
+import { extrairIdUrlPagina, extrairProdutoHtml } from '../../lib/extrairProdutoHtml'
 import { filtrarEOrdenarProdutos } from '../../lib/produtosGarimpados'
 import type { CategoriaValio, Filtros, Ordenacao } from '../../lib/produtosGarimpados'
 import { compararProdutoComValio } from '../../lib/verificarProdutosValio'
@@ -31,6 +31,7 @@ type Props = {
   resumo: ReactNode
   publicacao: ReactNode
   onImportar: (produtos: ProdutoAfiliado[], origemHtml: boolean, mensagem: string) => void
+  resolverDestinoAfiliado: (link: string) => Promise<string | null>
   onLimparJson: () => void
   onLimparHtml: () => void
   onErroJson: (mensagem: string) => void
@@ -45,13 +46,15 @@ type Props = {
 
 export default function ImportacaoProdutosPanel({ produtos, selecionados, categorias, origemHtml, existentes,
   estadoVerificacao, totalCadastrados, mensagem, erro, resumo, publicacao, onImportar, onLimparJson,
-  onLimparHtml, onErroJson, onErroHtml, onSelecionar, onSelecionarTodos, onDesmarcarTodos,
+  onLimparHtml, onErroJson, onErroHtml, resolverDestinoAfiliado, onSelecionar, onSelecionarTodos, onDesmarcarTodos,
   renderCategoria, onLinkOficial, onCopiar }: Props) {
   const [entrada, setEntrada] = useState('')
   const [htmlEntrada, setHtmlEntrada] = useState('')
   const [urlPaginaHtml, setUrlPaginaHtml] = useState('')
   const [linkHtml, setLinkHtml] = useState('')
   const [erroHtml, setErroHtml] = useState('')
+  const [statusHtml, setStatusHtml] = useState('')
+  const [resolvendoHtml, setResolvendoHtml] = useState(false)
   const [filtros, setFiltros] = useState<Filtros>(filtrosIniciais)
   const [ordenacao, setOrdenacao] = useState<Ordenacao>('original')
   const [filtroCadastro, setFiltroCadastro] = useState<'todos' | 'novos' | 'cadastrados'>('todos')
@@ -64,7 +67,7 @@ export default function ImportacaoProdutosPanel({ produtos, selecionados, catego
     onImportar(produtosImportados, html, mensagem)
   }
   function invalidarHtmlResultado() {
-    setErroHtml('')
+    setErroHtml(''); setStatusHtml('')
     if (origemHtml) onLimparHtml()
   }
   function extrair() {
@@ -73,15 +76,27 @@ export default function ImportacaoProdutosPanel({ produtos, selecionados, catego
       preparar(encontrados, false, `${encontrados.length} produto${encontrados.length === 1 ? '' : 's'} encontrado${encontrados.length === 1 ? '' : 's'}.`)
     } catch { onErroJson('JSON inválido. Confira o conteúdo colado e tente novamente.') }
   }
-  function importarHtml() {
-    setErroHtml('')
+  async function importarHtml() {
+    setErroHtml(''); setStatusHtml(''); setResolvendoHtml(true)
     try {
+      try { extrairIdUrlPagina(urlPaginaHtml) }
+      catch (falha) {
+        if (!(falha instanceof Error) || !falha.message.includes('não revelou ITEM_ID')) throw falha
+        setStatusHtml('A URL não revelou ITEM_ID; tentando identificar pelo HTML.')
+        await new Promise((resolve) => window.setTimeout(resolve, 0))
+      }
       const produto = extrairProdutoHtml(htmlEntrada, linkHtml, urlPaginaHtml)
+      setStatusHtml(`HTML identificou ${produto.itemId}; validando o destino do link afiliado.`)
+      const itemIdDestino = await resolverDestinoAfiliado(linkHtml)
+      if (!itemIdDestino) throw new Error('Não foi possível comprovar o ITEM_ID do destino do link afiliado.')
+      if (itemIdDestino !== produto.itemId) {
+        throw new Error(`ITEM_ID divergente: HTML ${produto.itemId}; link afiliado ${itemIdDestino}.`)
+      }
       preparar([produto], true, 'Produto extraído do HTML. Revise os dados e escolha uma coleção antes de enviar.')
     } catch (falha) {
       onErroHtml()
       setErroHtml(falha instanceof Error ? falha.message : 'Não foi possível extrair o produto do HTML.')
-    }
+    } finally { setResolvendoHtml(false) }
   }
 
   return <>
@@ -102,7 +117,8 @@ export default function ImportacaoProdutosPanel({ produtos, selecionados, catego
       <textarea id="html-produto" value={htmlEntrada} onChange={(e) => { setHtmlEntrada(e.target.value); invalidarHtmlResultado() }} rows={9} spellCheck={false} />
       <label htmlFor="link-html-produto">Link afiliado</label>
       <input id="link-html-produto" type="url" value={linkHtml} onChange={(e) => { setLinkHtml(e.target.value); invalidarHtmlResultado() }} placeholder="https://meli.la/..." />
-      <button type="button" onClick={importarHtml}>Extrair produto do HTML</button>
+      <button type="button" onClick={() => void importarHtml()} disabled={resolvendoHtml}>{resolvendoHtml ? 'Validando produto...' : 'Extrair produto do HTML'}</button>
+      {statusHtml && <p role="status">{statusHtml}</p>}
       <p>O HTML é processado somente no navegador. Nenhum recurso da página é carregado automaticamente.</p>
       {erroHtml && <p role="alert" className="extrair-erro">{erroHtml}</p>}
     </section>
