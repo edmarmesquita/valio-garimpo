@@ -13,7 +13,7 @@
 .vitrine-filtros h3, .vitrine-lista-cabecalho h3 { margin: 0; color: var(--text-primary); font-size: 15px; font-weight: 700; }
 .vitrine-controles { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; }
 .vitrine-controles label { display: grid; gap: 6px; min-width: min(100%, 210px); color: var(--text-secondary); font-size: 12px; font-weight: 650; }
-.vitrine-controles select, .vitrine-acoes select { display: block; width: 100%; margin-top: 0; }
+.vitrine-controles select, .vitrine-controles input, .vitrine-acoes select { display: block; width: 100%; margin-top: 0; }
 .vitrine-lista-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .vitrine-lista-cabecalho p { color: var(--text-muted); font-size: 12px; }
 
@@ -33,6 +33,16 @@
 .vitrine-acoes button { width: 100%; margin: 0; }
 .vitrine-confirmacao { display: grid; gap: 8px; padding: 11px; border: 1px solid var(--yellow-border); border-radius: var(--radius-sm); background: var(--warning-soft); }
 .vitrine-confirmacao p { margin: 0; color: var(--text-primary); font-size: 12px; line-height: 1.4; }
+.vitrine-exclusao { display: grid; gap: 10px; margin-top: 24px; padding-top: 18px; border-top: 2px dashed var(--border); }
+.vitrine-botao-exclusao { border: 1px solid #9a3131 !important; background: #7f2525 !important; color: #fff !important; }
+.vitrine-botao-exclusao:hover:not(:disabled) { background: #a32e2e !important; }
+.vitrine-confirmacao-exclusao { display: grid; gap: 8px; padding: 14px; border: 2px solid #9a3131; border-radius: var(--radius-sm); background: color-mix(in srgb, #9a3131 12%, var(--bg-elevated)); }
+.vitrine-confirmacao-exclusao h4, .vitrine-confirmacao-exclusao p { margin: 0; overflow-wrap: anywhere; }
+.vitrine-confirmacao-exclusao p { color: var(--text-secondary); font-size: 12px; line-height: 1.45; }
+.vitrine-confirmacao-exclusao .vitrine-aviso-exclusao { color: #c53c3c; font-size: 13px; font-weight: 800; }
+.vitrine-confirmacao-exclusao label { display: flex; gap: 8px; align-items: flex-start; margin: 6px 0; color: var(--text-primary); font-size: 12px; line-height: 1.45; }
+.vitrine-confirmacao-exclusao label input { flex: none; margin: 2px 0 0; }
+.vitrine-confirmacao-exclusao button { min-height: 42px; }
 .vitrine-paginacao { justify-content: center; gap: 14px; margin: 2px 0 0; }
 .vitrine-paginacao span { color: var(--text-secondary); font-size: 12px; font-variant-numeric: tabular-nums; }
 

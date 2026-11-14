@@ -22,5 +22,7 @@ test('SQL manual cria tabela, chave única e política de leitura ativa', async 
     assert.equal(Number(resultado.rows[0].preco), 20)
     const politica = await db.query("select qual from pg_policies where schemaname = 'public' and tablename = 'produtos' and policyname = 'produtos_ativos_publicos'")
     assert.match(politica.rows[0].qual, /ativo = true/)
+    const deletePermitido = await db.query("select has_table_privilege('service_role', 'public.produtos', 'DELETE') as permitido")
+    assert.equal(deletePermitido.rows[0].permitido, true)
   } finally { await db.close() }
 })

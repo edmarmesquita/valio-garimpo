@@ -24,7 +24,7 @@ create table if not exists public.produtos (
 
 alter table public.produtos enable row level security;
 
-grant select, insert, update on public.produtos to service_role;
+grant select, insert, update, delete on public.produtos to service_role;
 grant usage, select on sequence public.produtos_id_seq to service_role;
 grant select on public.produtos to anon, authenticated;
 

@@ -14,6 +14,21 @@ const produto = (id, overrides = {}) => ({ mercadoLivreId: id, titulo: `Produto 
   dataPreco: '01/10/2026', categoria: 'Achados para Elas', linkAfiliado: `https://mercadolivre.com.br/${id}?affiliate=original`,
   imagem: `https://imagem.com/${id}.webp`, rating: 4.8, ativo: true, updatedAt: '2026-10-01T12:00:00Z', ...overrides })
 
+test('busca ignora acentos, encontra título, ITEM_ID e categoria e combina com os filtros', () => {
+  const itens = logica.analisarCatalogo([
+    produto('MLB101', { titulo: 'Camiseta Puma Clássica', categoria: 'Achados para Elas', ativo: false }),
+    produto('MLB202', { titulo: 'Tênis Nike', categoria: 'Achados para Casa', ativo: true }),
+  ], null, new Map(), new Date(2026, 9, 12))
+  assert.deepEqual(logica.buscarCatalogo(itens, 'camiseta puma').map((item) => item.produto.mercadoLivreId), ['MLB101'])
+  assert.deepEqual(logica.buscarCatalogo(itens, 'mlb202').map((item) => item.produto.mercadoLivreId), ['MLB202'])
+  assert.deepEqual(logica.buscarCatalogo(itens, 'casa').map((item) => item.produto.mercadoLivreId), ['MLB202'])
+  const inativos = logica.filtrarCatalogo(itens, 'inativos', 'antigos')
+  assert.deepEqual(logica.buscarCatalogo(inativos, 'tenis').map((item) => item.produto.mercadoLivreId), [])
+  assert.deepEqual(logica.buscarCatalogo(inativos, 'camiseta').map((item) => item.produto.mercadoLivreId), ['MLB101'])
+  assert.equal(logica.buscarCatalogo(inativos, 'sem correspondência').length, 0)
+  assert.equal(logica.buscarCatalogo(itens, '').length, itens.length, 'limpar busca restaura os resultados do filtro')
+})
+
 test('idade do preço respeita limites de 7 e 15 dias e data inválida exige revisão', () => {
   const hoje = new Date(2026, 9, 12)
   assert.equal(logica.classificarIdadePreco('05/10/2026', hoje), 'Atualizado')
@@ -69,6 +84,74 @@ test('API lista ativos e inativos e altera somente status ou categoria com auten
     assert.equal(linhas.get('MLB1').linkAfiliado, produto('MLB1').linkAfiliado)
     assert.equal(linhas.get('MLB1').dataPreco, '01/10/2026')
   } finally { await new Promise((resolve) => server.close(resolve)) }
+})
+
+async function servidorExclusao({ rows = new Map([[7, { id: 7 }], [8, { id: 8 }]]), excluir } = {}) {
+  const chamadas = []
+  const gateway = {
+    async listar() { return [] }, async alterarStatus() { return false }, async alterarCategoria() { return false },
+    async atualizarPreco() { return false },
+    async buscarPorIdInterno(id) { chamadas.push(['buscar', id]); return rows.has(id) ? { id } : null },
+    async excluirPorIdInterno(id) {
+      chamadas.push(['excluir', id])
+      if (excluir) return excluir(id, rows)
+      return rows.delete(id) ? id : null
+    },
+  }
+  const app = express(); app.use(express.json())
+  app.use('/api/valio', criarRotaValioProdutos({ config: () => config, token: () => token, catalogo: () => gateway }))
+  const server = app.listen(0, '127.0.0.1'); await new Promise((resolve) => server.once('listening', resolve))
+  const enviar = async (body, bearer = token) => {
+    const resposta = await fetch(`http://127.0.0.1:${server.address().port}/api/valio/produtos/exclusao-definitiva`, {
+      method: 'POST', headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    return { status: resposta.status, json: await resposta.json() }
+  }
+  return { server, rows, chamadas, enviar, fechar: () => new Promise((resolve) => server.close(resolve)) }
+}
+
+test('exclusão remove exatamente o ID interno confirmado e preserva o produto vizinho', async () => {
+  const h = await servidorExclusao()
+  try {
+    const r = await h.enviar({ id_interno: 7, confirmar: true })
+    assert.equal(r.status, 200)
+    assert.deepEqual(r.json, { ok: true, id_interno: 7 })
+    assert.deepEqual(h.chamadas, [['buscar', 7], ['excluir', 7]])
+    assert.equal(h.rows.has(7), false)
+    assert.equal(h.rows.has(8), true)
+  } finally { await h.fechar() }
+})
+
+test('produto inexistente retorna 404 sem tentar DELETE', async () => {
+  const h = await servidorExclusao()
+  try {
+    const r = await h.enviar({ id_interno: 99, confirmar: true })
+    assert.equal(r.status, 404)
+    assert.match(r.json.erro, /não encontrado/)
+    assert.deepEqual(h.chamadas, [['buscar', 99]])
+  } finally { await h.fechar() }
+})
+
+test('confirmação ausente, ID inválido ou payload extra bloqueiam exclusão', async () => {
+  const h = await servidorExclusao()
+  try {
+    for (const body of [{ id_interno: 7 }, { id_interno: 0, confirmar: true },
+      { id_interno: Number.MAX_SAFE_INTEGER + 1, confirmar: true }, { id_interno: 7, confirmar: true, mercado_livre_id: 'MLB7' }]) {
+      assert.equal((await h.enviar(body)).status, 400)
+    }
+    assert.deepEqual(h.chamadas, [])
+    assert.equal(h.rows.has(7), true)
+  } finally { await h.fechar() }
+})
+
+test('FK existente bloqueia exclusão e preserva produto e dependências', async () => {
+  const h = await servidorExclusao({ excluir: async () => { throw Object.assign(new Error('foreign key violation'), { code: '23503' }) } })
+  try {
+    const r = await h.enviar({ id_interno: 7, confirmar: true })
+    assert.equal(r.status, 409)
+    assert.match(r.json.erro, /registros relacionados/)
+    assert.equal(h.rows.has(7), true)
+  } finally { await h.fechar() }
 })
 
 test('falha no catálogo expõe somente diagnóstico seguro em Preview', async () => {

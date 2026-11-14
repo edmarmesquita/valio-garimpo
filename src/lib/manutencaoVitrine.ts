@@ -95,6 +95,19 @@ export function filtrarCatalogo(itens: ItemAnalisado[], filtro: FiltroVitrine, o
   })
 }
 
+function normalizarBusca(valor: string) {
+  return valor.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR').trim()
+}
+
+export function buscarCatalogo(itens: ItemAnalisado[], busca: string): ItemAnalisado[] {
+  const termos = normalizarBusca(busca).split(/\s+/).filter(Boolean)
+  if (!termos.length) return itens
+  return itens.filter(({ produto }) => {
+    const texto = normalizarBusca(`${produto.titulo} ${produto.mercadoLivreId} ${produto.categoria}`)
+    return termos.every((termo) => texto.includes(termo))
+  })
+}
+
 function compararDatas(a: string, b: string) {
   const chave = (data: string) => { const p = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(data); return p ? `${p[3]}${p[2]}${p[1]}` : '' }
   return chave(a).localeCompare(chave(b))
@@ -127,6 +140,13 @@ export async function alterarStatusProduto(id: string, ativo: boolean, token: st
 
 export async function alterarCategoriaProduto(id: string, categoria: CategoriaValio, token: string, enviar: typeof fetch = fetch) {
   await requisitar(`/api/valio/produtos/${encodeURIComponent(id)}/categoria`, token, 'PATCH', { categoria }, enviar)
+}
+
+export async function excluirProdutoDefinitivamente(id: number, token: string, enviar: typeof fetch = fetch) {
+  if (!Number.isSafeInteger(id) || id <= 0) throw new Error('ID interno inválido; o produto não foi excluído.')
+  const resultado = await requisitar('/api/valio/produtos/exclusao-definitiva', token, 'POST',
+    { id_interno: id, confirmar: true }, enviar)
+  if (resultado.id_interno !== id) throw new Error('A API não confirmou a exclusão do ID interno solicitado.')
 }
 
 export type ResultadoLinkAfiliado = {

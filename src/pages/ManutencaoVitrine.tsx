@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ProdutoAfiliado } from '../lib/extrairProdutosAfiliados'
 import { CATEGORIAS_VALIO } from '../lib/produtosGarimpados'
 import type { CategoriaValio } from '../lib/produtosGarimpados'
-import { alterarCategoriaProduto, alterarStatusProduto, analisarCatalogo, carregarCatalogo, filtrarCatalogo, resumirCatalogo } from '../lib/manutencaoVitrine'
+import { alterarCategoriaProduto, alterarStatusProduto, analisarCatalogo, buscarCatalogo, carregarCatalogo, excluirProdutoDefinitivamente, filtrarCatalogo, resumirCatalogo } from '../lib/manutencaoVitrine'
 import type { FiltroVitrine, OrdemVitrine, ProdutoCatalogo } from '../lib/manutencaoVitrine'
 import './ManutencaoVitrine.css'
 
@@ -19,15 +19,18 @@ export default function ManutencaoVitrine({ token, lote, categorias }: Props) {
   const [carregando, setCarregando] = useState(false)
   const [ocupadoId, setOcupadoId] = useState('')
   const [confirmarId, setConfirmarId] = useState('')
+  const [excluirId, setExcluirId] = useState<number | null>(null)
+  const [confirmacaoExclusao, setConfirmacaoExclusao] = useState(false)
   const [rascunhos, setRascunhos] = useState<Map<string, CategoriaValio>>(new Map())
   const [filtro, setFiltro] = useState<FiltroVitrine>('todos')
+  const [busca, setBusca] = useState('')
   const [ordem, setOrdem] = useState<OrdemVitrine>('antigos')
   const [paginaCatalogo, setPaginaCatalogo] = useState(1)
   const [mensagem, setMensagem] = useState('')
   const [erro, setErro] = useState('')
   const analisados = analisarCatalogo(catalogo ?? [], lote, categorias)
   const resumo = resumirCatalogo(analisados)
-  const visiveis = filtrarCatalogo(analisados, filtro, ordem)
+  const visiveis = buscarCatalogo(filtrarCatalogo(analisados, filtro, ordem), busca)
   const paginaAtual = Math.min(paginaCatalogo, Math.max(1, Math.ceil(visiveis.length / 40)))
   const exibidos = visiveis.slice((paginaAtual - 1) * 40, paginaAtual * 40)
 
@@ -66,6 +69,19 @@ export default function ManutencaoVitrine({ token, lote, categorias }: Props) {
     finally { setOcupadoId('') }
   }
 
+  async function excluirDefinitivamente(produto: ProdutoCatalogo) {
+    if (produto.id === undefined || excluirId !== produto.id || !confirmacaoExclusao) return
+    setOcupadoId(produto.mercadoLivreId); setErro('')
+    try {
+      await excluirProdutoDefinitivamente(produto.id, token)
+      setCatalogo((atual) => atual?.filter((item) => item.id !== produto.id) ?? null)
+      setRascunhos((atual) => { const proximo = new Map(atual); proximo.delete(produto.mercadoLivreId); return proximo })
+      setConfirmarId(''); setExcluirId(null); setConfirmacaoExclusao(false)
+      setMensagem('Produto excluído definitivamente.')
+    } catch (falha) { setErro(falha instanceof Error ? falha.message : 'Não foi possível excluir o produto.') }
+    finally { setOcupadoId('') }
+  }
+
   return <section className="extrair-card vitrine-manutencao" aria-labelledby="vitrine-titulo">
     <div className="extrair-resultado-cabecalho"><div><h2 id="vitrine-titulo">Manutenção da vitrine</h2>
       <p>Consulte o catálogo do Supabase, revise preços e gerencie a visibilidade dos produtos.</p></div>
@@ -92,9 +108,11 @@ export default function ManutencaoVitrine({ token, lote, categorias }: Props) {
           <option value="antigos">Mais antigos primeiro</option><option value="recentes">Mais recentes primeiro</option>
           <option value="menor-preco">Menor preço</option><option value="maior-preco">Maior preço</option><option value="categoria">Categoria</option>
         </select></label>
+        <label>Buscar por título, ITEM_ID ou categoria<input aria-label="Buscar produtos na vitrine" type="search" value={busca}
+          onChange={(evento) => { setBusca(evento.target.value); setPaginaCatalogo(1) }} placeholder="Ex.: camiseta puma" /></label>
       </div></section>
       <div className="vitrine-lista-cabecalho"><h3>Catálogo</h3><p className="extrair-contagem">{visiveis.length} de {catalogo.length} produtos exibidos.</p></div>
-      {visiveis.length === 0 && <p>Nenhum produto corresponde ao filtro.</p>}
+      {visiveis.length === 0 && <p>Nenhum produto corresponde à busca e aos filtros.</p>}
       <div className="vitrine-lista">{exibidos.map(({ produto, idade, encontrado, precoAlterado, camposAlterados }) => {
         const indice = lote?.findIndex((item) => item.itemId === produto.mercadoLivreId) ?? -1
         const extraido = indice >= 0 ? lote?.[indice] : undefined
@@ -127,6 +145,28 @@ export default function ManutencaoVitrine({ token, lote, categorias }: Props) {
             </div> : <button type="button" className="extrair-secundario" disabled={ocupadoId === produto.mercadoLivreId}
               onClick={() => setConfirmarId(produto.mercadoLivreId)}>Desativar</button>
               : <button type="button" disabled={ocupadoId === produto.mercadoLivreId} onClick={() => void status(produto.mercadoLivreId, true)}>Reativar</button>}
+            <div className="vitrine-exclusao">
+              <button type="button" className="vitrine-botao-exclusao" disabled={ocupadoId === produto.mercadoLivreId || produto.id === undefined}
+                onClick={() => { setConfirmarId(''); setExcluirId(produto.id ?? null); setConfirmacaoExclusao(false); setErro('') }}>
+                Excluir definitivamente
+              </button>
+              {excluirId === produto.id && <div className="vitrine-confirmacao-exclusao" role="alertdialog" aria-label={`Confirmar exclusão de ${produto.titulo}`}>
+                <h4>Confirme a exclusão deste produto</h4>
+                <p><strong>Título:</strong> {produto.titulo}</p>
+                <p><strong>ITEM_ID:</strong> {produto.mercadoLivreId}</p>
+                <p><strong>ID interno:</strong> {produto.id}</p>
+                <p><strong>Categoria:</strong> {produto.categoria}</p>
+                <p className="vitrine-aviso-exclusao">Esta ação é permanente e não poderá ser desfeita.</p>
+                <label><input type="checkbox" checked={confirmacaoExclusao} disabled={ocupadoId === produto.mercadoLivreId}
+                  onChange={(evento) => setConfirmacaoExclusao(evento.target.checked)} /> Entendo e quero excluir este produto definitivamente.</label>
+                <button type="button" className="vitrine-botao-exclusao" disabled={!confirmacaoExclusao || ocupadoId === produto.mercadoLivreId}
+                  onClick={() => void excluirDefinitivamente(produto)}>
+                  {ocupadoId === produto.mercadoLivreId ? 'Excluindo...' : 'Confirmar exclusão definitiva'}
+                </button>
+                <button type="button" className="extrair-secundario" disabled={ocupadoId === produto.mercadoLivreId}
+                  onClick={() => { setExcluirId(null); setConfirmacaoExclusao(false) }}>Cancelar</button>
+              </div>}
+            </div>
           </div>
         </article>
       })}</div>

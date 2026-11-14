@@ -52,6 +52,8 @@ export type ProdutoCatalogo = ProdutoExistente & { rating: number | null; update
   ofertaRelampago?: boolean; ofertaInicio?: string | null; ofertaFim?: string | null }
 export type CatalogoGateway = {
   listar: () => Promise<ProdutoCatalogo[]>
+  buscarPorIdInterno: (id: number) => Promise<{ id: number } | null>
+  excluirPorIdInterno: (id: number) => Promise<number | null>
   alterarStatus: (id: string, ativo: boolean) => Promise<boolean>
   alterarCategoria: (id: string, categoria: string) => Promise<boolean>
   atualizarPreco: (id: string, preco: number, dataPreco: string, updatedAt: string, confirmar: boolean, precoEsperado?: number) => Promise<boolean>
@@ -291,6 +293,17 @@ export function criarCatalogoGateway(config: SupabaseConfig): CatalogoGateway {
         })))
         if (!data || data.length < tamanho) return produtos
       }
+    },
+    async buscarPorIdInterno(id) {
+      const { data, error } = await supabase.from('produtos').select('id').eq('id', id).maybeSingle()
+      if (error) throw error
+      return data ? { id: Number(data.id) } : null
+    },
+    async excluirPorIdInterno(id) {
+      const { data, error } = await supabase.from('produtos').delete().eq('id', id)
+        .select('id').maybeSingle()
+      if (error) throw error
+      return data ? Number(data.id) : null
     },
     async alterarStatus(id, ativo) {
       const { data, error } = await supabase.from('produtos').update({ ativo })
